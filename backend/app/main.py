@@ -20,13 +20,15 @@ from app.core.config import settings
 from app.core.db import Base, engine, get_db
 from app.core.security import create_token, hash_password, verify_password
 from app.core.permissions import require_patient_access
-from app.models import ActivityHistory, CareTeamMember, Patient, Role, TeamRole, User, Caregiver, CaregiverPatientLink, CaregiverWeeklySchedule, AvailabilityOverride, CareActivity, ActivityDependency, CareAssignment, PatientSupportNeed
+from app.models import ActivityHistory, CareTeamMember, Patient, Role, TeamRole, User, Caregiver, CaregiverPatientLink, CaregiverWeeklySchedule, AvailabilityOverride, CareActivity, ActivityDependency, CareAssignment, PatientSupportNeed, PatientMessage, Incident, IncidentEvent, Notification
 from app.schemas import LoginIn, PasswordIn, PatientIn, PatientPatch, RegisterIn, TeamIn
+from app.engine.escalation_classifier import classify_message
+from pydantic import BaseModel, ConfigDict, Field
 from app.seed import run_seed
 
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("second_patient")
-app = FastAPI(title="The Second Patient", version="0.1.0", openapi_url="/api/openapi.json", docs_url="/docs", redoc_url=None)
+app = FastAPI(title="CareCircle", version="0.1.0", openapi_url="/api/openapi.json", docs_url="/docs", redoc_url=None)
 if settings.app_env == "prod" and settings.secret_key == "change-me-before-production":
     raise RuntimeError("SECRET_KEY must be changed before starting in production")
 Base.metadata.create_all(bind=engine)
@@ -97,12 +99,32 @@ def patient_access(db, user, patient_id, action="read"):
 
 
 def user_dict(u):
-    return {"id": u.id, "email": u.email, "name": u.name, "role": u.role.value, "is_synthetic": u.is_synthetic}
+    return {"id": u.id, "email": u.email, "name": u.name, "role": u.role.value, "role_label": role_label(u.role.value), "is_synthetic": u.is_synthetic}
+
+
+def role_label(role, team_role=None):
+    if team_role == TeamRole.COORDINATOR.value: return "Primary contact"
+    if team_role == TeamRole.FAMILY.value: return "Family contact"
+    return {"PATIENT": "Patient", "FAMILY": "Primary contact", "HOUSEHELP": "Personal caretaker", "NURSE": "Healthcare professional", "DOCTOR": "Doctor", "ADMIN": "Administrator"}.get(role, role)
 
 
 def patient_dict(p, show_clinical):
     created_at = p.created_at.replace(tzinfo=UTC) if p.created_at.tzinfo is None else p.created_at
     return {"id": p.id, "name": p.name, "birth_year": p.birth_year, "care_notes": p.care_notes, "clinical_notes": p.clinical_notes if show_clinical else None, "is_synthetic": p.is_synthetic, "created_at": created_at}
+
+
+class PatientMessageIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    body: str = Field(min_length=1, max_length=1000)
+    channel: str = Field(default="TEXT", pattern="^(TEXT|SOS_BUTTON|QUICK_REPLY|VOICE)$")
+    language_hint: str | None = Field(default=None, max_length=8)
+    on_behalf: bool = False
+
+
+class IncidentResolveIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(pattern="^(HANDLED|FALSE_ALARM|REFERRED_TO_EMERGENCY|FOLLOWUP_SCHEDULED|OTHER)$")
+    note: str | None = Field(default=None, max_length=1000)
 
 
 def can_see_clinical(user, member):
@@ -118,7 +140,100 @@ def health(db: Session = Depends(get_db)):
 
 @app.get("/api/v1/meta")
 def meta():
-    return {"app_name": "The Second Patient", "version": "0.2.0", "git_sha": settings.git_sha, "phase": 2, "demo_mode": settings.demo_mode, "server_time": now().isoformat(), "timezone": settings.app_timezone, "ai_enabled": False}
+    return {"app_name": "CareCircle", "version": "0.3.0", "git_sha": settings.git_sha, "phase": 3, "demo_mode": settings.demo_mode, "server_time": now().isoformat(), "timezone": settings.app_timezone, "ai_enabled": False}
+
+
+def incident_recipients(db, patient_id, level):
+    members = db.execute(select(CareTeamMember, User).join(User).where(CareTeamMember.patient_id == patient_id)).all()
+    roles = ({TeamRole.HOUSEHELP} if level == 1 else {TeamRole.COORDINATOR} if level == 2 else {TeamRole.NURSE} if level == 3 else {TeamRole.DOCTOR} if level == 4 else {TeamRole.COORDINATOR, TeamRole.FAMILY, TeamRole.HOUSEHELP, TeamRole.NURSE, TeamRole.DOCTOR})
+    return [u for m, u in members if m.team_role in roles and u.is_active]
+
+
+def incident_payload(item):
+    return {"id": item.id, "patient_id": item.patient_id, "current_level": item.current_level, "category": item.category, "severity": item.severity, "status": item.status, "title": item.title, "safe_summary": item.safe_summary, "owner_user_id": item.owner_user_id, "created_at": item.created_at, "acknowledged_at": item.acknowledged_at, "resolved_at": item.resolved_at, "reasons": item.classification.get("reasons", [])}
+
+
+@app.post("/api/v1/patients/{patient_id}/messages", status_code=201)
+def patient_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    patient, member = patient_access(db, user, patient_id)
+    if user.role == Role.PATIENT:
+        if not member or member.team_role != TeamRole.PATIENT_SELF: raise HTTPException(403, "Patient access denied")
+    elif not body.on_behalf or not member:
+        raise HTTPException(403, "Care team messages must be submitted on behalf of the patient")
+    key = request.headers.get("Idempotency-Key")
+    if key:
+        if len(key) > 120: raise HTTPException(422, "Idempotency-Key is too long")
+        prior = db.scalar(select(PatientMessage).where(PatientMessage.sender_user_id == user.id, PatientMessage.idempotency_key == key))
+        if prior and prior.incident_id:
+            return incident_payload(db.get(Incident, prior.incident_id))
+    safe_body = "".join(ch for ch in body.body if ch >= " " or ch in "\n\t").strip()
+    if not safe_body: raise HTTPException(422, "Message is empty")
+    classification = classify_message(safe_body, language_hint=body.language_hint, context={"mobility_level": patient.mobility_level}, sos=body.channel == "SOS_BUTTON")
+    level = classification.level
+    recipients = incident_recipients(db, patient.id, level)
+    if level == 1 and not recipients:
+        level = 2
+        recipients = incident_recipients(db, patient.id, level)
+    safe_summary = f"{patient.name} asked for help with {classification.category.lower().replace('_', ' ')} at {now().astimezone().strftime('%H:%M')}"
+    inc = Incident(patient_id=patient.id, source="SOS" if body.channel == "SOS_BUTTON" else "PATIENT_MESSAGE", category=classification.category, initial_level=level, current_level=level, severity=classification.severity, title="Emergency report" if level == 5 else "Care request", safe_summary=safe_summary, dedupe_key=f"message:{uuid.uuid4()}", classification=classification.as_dict())
+    db.add(inc); db.flush()
+    msg = PatientMessage(patient_id=patient.id, sender_user_id=user.id, on_behalf=body.on_behalf, reported_role=user.role.value, channel=body.channel, body=safe_body, language_hint=body.language_hint, idempotency_key=key, incident_id=inc.id)
+    db.add(msg)
+    for recipient in recipients:
+        db.add(Notification(user_id=recipient.id, patient_id=patient.id, incident_id=inc.id, kind="INCIDENT", severity=classification.severity, title="Emergency report" if level == 5 else "Care request", body=safe_summary, requires_ack=level > 0))
+    db.add(IncidentEvent(incident_id=inc.id, kind="CREATED", level=level, actor_user_id=user.id, recipient_user_ids=[str(x.id) for x in recipients], meta={"category": classification.category, "rule_ids": [x.id for x in classification.matched_rules]}))
+    db.add(IncidentEvent(incident_id=inc.id, kind="CLASSIFIED", level=level, actor_user_id=None, meta={"reasons": list(classification.reasons), "classifier_version": classification.classifier_version}))
+    audit(db, user, patient.id, "INCIDENT_CREATED", "incident", inc.id, "Care request routed", request.state.request_id)
+    db.commit(); db.refresh(inc)
+    return incident_payload(inc)
+
+
+@app.post("/api/v1/patients/{patient_id}/sos", status_code=201)
+def patient_sos(patient_id: uuid.UUID, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return patient_message(patient_id, PatientMessageIn(body="SOS emergency report", channel="SOS_BUTTON"), request, user, db)
+
+
+@app.get("/api/v1/incidents")
+def list_incidents(patient_id: uuid.UUID | None = None, status: str | None = None, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    query = select(Incident)
+    if patient_id is not None:
+        patient_access(db, user, patient_id)
+        query = query.where(Incident.patient_id == patient_id)
+    elif user.role != Role.ADMIN:
+        ids = select(CareTeamMember.patient_id).where(CareTeamMember.user_id == user.id)
+        query = query.where(Incident.patient_id.in_(ids))
+    if status: query = query.where(Incident.status == status.upper())
+    return {"items": [incident_payload(x) for x in db.scalars(query.order_by(Incident.created_at.desc()).limit(100)).all()]}
+
+
+@app.post("/api/v1/incidents/{incident_id}/acknowledge")
+def acknowledge_incident(incident_id: uuid.UUID, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    inc = db.get(Incident, incident_id)
+    if not inc: raise HTTPException(404, "Incident not found")
+    patient, _ = patient_access(db, user, inc.patient_id)
+    if user.role == Role.PATIENT: raise HTTPException(403, "Patient cannot acknowledge incidents")
+    if inc.status in ("RESOLVED", "CANCELLED"): return incident_payload(inc)
+    if inc.status == "OPEN":
+        inc.status = "ACKNOWLEDGED"; inc.owner_user_id = user.id; inc.acknowledged_at = now(); inc.version += 1
+        db.add(IncidentEvent(incident_id=inc.id, kind="ACKNOWLEDGED", level=inc.current_level, actor_user_id=user.id, note="Recipient acknowledged"))
+        db.add(Notification(user_id=user.id, patient_id=patient.id, incident_id=inc.id, kind="STATUS", severity=inc.severity, title="You are handling this request", body="The patient request is acknowledged.", requires_ack=False))
+        audit(db, user, patient.id, "INCIDENT_ACKNOWLEDGED", "incident", inc.id, "Care request acknowledged", request.state.request_id)
+        db.commit(); db.refresh(inc)
+    return incident_payload(inc)
+
+
+@app.post("/api/v1/incidents/{incident_id}/resolve")
+def resolve_incident(incident_id: uuid.UUID, body: IncidentResolveIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    inc = db.get(Incident, incident_id)
+    if not inc: raise HTTPException(404, "Incident not found")
+    patient, _ = patient_access(db, user, inc.patient_id, "update")
+    if user.role == Role.PATIENT: raise HTTPException(403, "Patient cannot resolve incidents")
+    if inc.current_level == 5 and (inc.status == "OPEN" or not body.note): raise HTTPException(422, "Emergency resolution requires acknowledgement and a note")
+    inc.status = "RESOLVED"; inc.resolved_at = now(); inc.resolution_code = body.code; inc.resolution_note = body.note; inc.version += 1
+    db.add(IncidentEvent(incident_id=inc.id, kind="RESOLVED", level=inc.current_level, actor_user_id=user.id, note="Incident resolved"))
+    audit(db, user, patient.id, "INCIDENT_RESOLVED", "incident", inc.id, "Care request resolved", request.state.request_id)
+    db.commit(); db.refresh(inc)
+    return incident_payload(inc)
 
 
 @app.post("/api/v1/auth/register", status_code=201)
@@ -222,7 +337,7 @@ def care_team(patient_id: uuid.UUID, user: User = Depends(current_user), db: Ses
     patient_access(db, user, patient_id)
     rows = db.execute(select(CareTeamMember, User).join(User).where(CareTeamMember.patient_id == patient_id)).all()
     contact_visible = user.role in (Role.ADMIN, Role.FAMILY, Role.DOCTOR)
-    return {"items": [{"id": m.id, "user_id": u.id, "name": u.name, "email": u.email if contact_visible else None, "role": u.role.value, "team_role": m.team_role.value, "is_primary_coordinator": m.is_primary_coordinator} for m, u in rows]}
+    return {"items": [{"id": m.id, "user_id": u.id, "name": u.name, "email": u.email if contact_visible else None, "role": u.role.value, "role_label": role_label(u.role.value, m.team_role.value), "team_role": m.team_role.value, "is_primary_coordinator": m.is_primary_coordinator} for m, u in rows]}
 
 
 @app.post("/api/v1/patients/{patient_id}/care-team", status_code=201)
@@ -237,7 +352,7 @@ def add_team(patient_id: uuid.UUID, body: TeamIn, request: Request, user: User =
     if target.role != expected[team_role]: raise HTTPException(422, "User role is incompatible with requested team role")
     if db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == p.id, CareTeamMember.user_id == target.id)): raise HTTPException(409, "User is already on this care team")
     m = CareTeamMember(patient_id=p.id, user_id=target.id, team_role=team_role); db.add(m); audit(db, user, p.id, "care_team.member_added", "care_team_member", target.id, "Care team member added", request.state.request_id); db.commit(); db.refresh(m)
-    return {"id": m.id, "user_id": target.id, "team_role": team_role.value}
+    return {"id": m.id, "user_id": target.id, "team_role": team_role.value, "role_label": role_label(target.role.value, team_role.value)}
 
 
 @app.delete("/api/v1/patients/{patient_id}/care-team/{member_id}", status_code=204)
@@ -319,4 +434,4 @@ def spa(path: str, request: Request):
     if path == "api" or path.startswith("api/"): return JSONResponse({"error": {"code": "not_found", "message": "Not found", "details": {}, "request_id": request.state.request_id}}, status_code=404)
     index = DIST / "index.html"
     if index.is_file(): return FileResponse(index, headers={"Cache-Control": "no-cache"})
-    return {"message": "The Second Patient API is running", "phase": 1}
+    return {"message": "CareCircle API is running", "phase": 3}

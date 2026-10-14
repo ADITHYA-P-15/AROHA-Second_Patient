@@ -1,4 +1,8 @@
-# The Second Patient — Architecture
+# CareCircle — Architecture
+
+CareCircle models relationships between patients, care activities, caregiver capabilities, availability, assignments, and dependencies. It identifies activities without reliable coverage, overloaded caregivers, and single points of failure, then recommends feasible alternatives. The primary contact can simulate caregiver absence, evaluate resulting coverage and workload changes, approve a replacement plan, and generate a structured handover. Historical activity and resolution data supports recurring-gap analysis and capacity planning. Role-specific, time-boxed escalation coordinates patients, personal caretakers, primary contacts, healthcare professionals, and doctors; emergency reports use a separate immediate pathway, while routine coordination issues use structured reassignment and confirmation. The objective is to reduce caregiver coordination burden while making essential care coverage more reliable, explainable, and resilient.
+
+Every feature must reduce caregiver coordination burden, improve explainable coverage, or support resource planning. Prefer one-tap decisions and management-by-exception over more notifications.
 
 ## Product and stack
 
@@ -65,13 +69,17 @@ Capabilities: `TRANSPORT`, `MEDICATION_ASSIST`, `PRESCRIPTION_PICKUP`, `DAILY_AS
 
 - [x] 1 Foundation, auth/RBAC, LAN deploy
 - [x] 2 Core domain (patients, caregivers, availability, activities, assignments)
-- [ ] 3 Care-gap engine, reassessment, tests
-- [ ] 4 Priority scoring, backup candidates, resolution workflow
-- [ ] 5 Dashboard, risk/resolution, notifications, live updates, metrics
-- [ ] 6 Care plan, care network, profile, dependency graph
-- [ ] 7 Role portals
-- [ ] 8 AI care assistant with fallback
-- [ ] 9 What-if simulation and multilingual patient voice note
-- [ ] 10 Hardening, bug-bounty readiness, demo, final docs
+- [▶] 3 Escalation engine & patient messaging (current)
+- [ ] 4 Coverage/care-gap engine, caregiver load, strain & single-point-of-failure detection
+- [ ] 5 Absence simulation, replacement plan, approval, confirmation & structured handover
+- [ ] 6 Caregiver-first dashboard, workload, coverage forecast, digest & dependency view
+- [ ] 7 Role portals (patient, personal caretaker, healthcare professional, doctor)
+- [ ] 8 Historical analytics & capacity/resource planning
+- [ ] 9 AI assistant (explanations, summaries, handovers, natural-language questions, raise-only urgency advisor, optional voice notes)
+- [ ] 10 Hardening, bug-bounty readiness, demo script, final docs
+
+## Phase 3 module map
+
+`engine/escalation_classifier.py` owns deterministic message classification; `engine/escalation_routing.py` selects recipients from a roster snapshot; `engine/escalation_machine.py` owns timer transitions. Service and API layers persist incidents, events, and notifications. AI can only explain or raise urgency. `/api/v1/meta` reports phase 3.
 
 Evaluators need independent setup instructions, test accounts, safe self-registration, at least five real API operations, AI disclosure, `.env.example`, and no committed secrets.

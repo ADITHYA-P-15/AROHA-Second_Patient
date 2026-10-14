@@ -13,4 +13,5 @@ Follow the standing rules below for every phase. See [docs/ARCHITECTURE.md](docs
 7. Work on `main`, make meaningful commits at milestones, never force-push or rewrite history. Do not create `bugbounty` or `fixing` before Phase 10. Push `main` after the final commit when possible.
 8. Implement only the current phase and retain extension points. Run the full available suite before finishing.
 9. LAN operation must work offline; bundle frontend dependencies and fonts.
+10. Every feature must reduce caregiver coordination burden, improve explainable coverage, or support resource planning. Prefer one-tap decisions and management-by-exception over more notifications.
 
