@@ -37,7 +37,7 @@ frontend/src/{api,auth,components,layouts,pages,lib,styles}
 
 ## Roles and routes
 
-Roles: PATIENT, FAMILY (coordinator/caregiver), HOUSEHELP, NURSE, DOCTOR, ADMIN (operations). Login users and care-network caregivers are separate concepts. Planned route groups: family dashboard/profile/network/plan/risk/graph/assistant/history; patient My Day/plan/help/voice/medicines; househelp tasks/availability/cover; nurse patients/visits/escalations/availability; doctor patients/appointments/instructions/voice; admin operations plus family views.
+Stored roles remain PATIENT, FAMILY, HOUSEHELP, NURSE, DOCTOR, ADMIN (operations). Display labels are Patient, Primary contact, Personal caretaker, Healthcare professional, Doctor, and Administrator. A non-coordinator FAMILY team member is displayed as Family contact. Login users and care-network caregivers are separate concepts. Planned route groups: primary contact dashboard/profile/network/plan/history; patient My Day/plan/help; personal caretaker tasks/availability/cover; healthcare professional patients/visits/escalations; doctor patients/appointments/instructions; admin operations.
 
 ## Target domain
 
@@ -80,6 +80,6 @@ Capabilities: `TRANSPORT`, `MEDICATION_ASSIST`, `PRESCRIPTION_PICKUP`, `DAILY_AS
 
 ## Phase 3 module map
 
-`engine/escalation_classifier.py` owns deterministic message classification; `engine/escalation_routing.py` selects recipients from a roster snapshot; `engine/escalation_machine.py` owns timer transitions. Service and API layers persist incidents, events, and notifications. AI can only explain or raise urgency. `/api/v1/meta` reports phase 3.
+`engine/escalation_classifier.py` owns deterministic message classification. The message API persists messages, incidents, events, and in-app notifications. `engine/escalation_routing.py` and `engine/escalation_machine.py` are planned pure modules for roster selection and timer transitions. AI can only explain or raise urgency. `/api/v1/meta` reports phase 3.
 
 Evaluators need independent setup instructions, test accounts, safe self-registration, at least five real API operations, AI disclosure, `.env.example`, and no committed secrets.

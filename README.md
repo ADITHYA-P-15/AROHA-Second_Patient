@@ -151,7 +151,7 @@ All supplied people, care notes, and clinical-looking notes are fictional demons
 
 ## Known Limitations
 
-Phase 1 provides account and patient/team foundation only. The reset route clears patient/team/history rows but preserves user accounts. Remaining role portals are placeholders, and no gap detection, activity assignments, recommendations, notifications, AI, or real-time updates exist yet. Demo role switching uses pre-seeded accounts. The second-device LAN check is manual; host firewall rules and Wi-Fi client isolation can still prevent access. Login throttling is process-local and resets on restart. Database schema creation includes a create-all safety path alongside the migration baseline. npm audit reports build-only transitive advisories from the requested Tailwind CSS 3.4 toolchain; frontend dependencies are not copied into the runtime image.
+CareCircle currently provides the Phase 1/2 foundation and an initial Phase 3 deterministic classifier/message-to-incident path. Time-boxed escalation, complete role portals, absence simulation, and real-time updates are not yet implemented. The reset route clears patient/team/history rows but preserves user accounts. Demo role switching uses pre-seeded accounts. The second-device LAN check is manual; host firewall rules and Wi-Fi client isolation can still prevent access. Login throttling is process-local and resets on restart. Database schema creation includes a create-all safety path alongside the migration baseline. npm audit reports build-only transitive advisories from the requested Tailwind CSS 3.4 toolchain; frontend dependencies are not copied into the runtime image.
 
 ---
 
@@ -258,3 +258,41 @@ cd ..; python scripts/smoke.py --base-url http://localhost:8000
 ```
 
 The reassessment hook records calls but is deliberately a no-op; care gaps, risk scoring, recommendations, and resolution remain later phases. The web UI provides basic profile, care-network, plan, and history actions; full edit drawers, series controls, caregiver-link management, conflict detail UI, and all role-specific portals are not complete. The smoke script uses a freshly registered user's own patient. A second-device LAN check remains manual and requires a network that permits client-to-client connections.
+
+## Phase 3 — Escalation Engine & Patient Messaging
+
+CareCircle branding, role display labels, revised product direction, and the Phase 3 metadata are now live. The deterministic classifier is a pure backend module with English, Hindi, Kannada, and Telugu phrase coverage, explicit L0–L5 routing levels, safety modifiers, SOS override, unknown-text fallback to L2, and a raise-only advisor interface. Alembic adds patient messages, incidents, incident events, and notifications. Authenticated patient/care-team APIs accept messages and SOS reports, save a safe summary, create role-routed in-app notifications, and expose incident summaries, acknowledgement, resolution, and a user's notification list. Message text is omitted from audit history and notification content.
+
+The escalation subsystem is not yet complete: time-boxed background progression, policy editing, detailed L2/L3/L4 workflows, incident-specific permissions, SSE, patient help and SOS screens, language selector, offline queue, notification bell actions, and alert experience are not implemented. The current frontend still presents placeholder routes for those later screens. See [docs/ESCALATION.md](docs/ESCALATION.md) for implemented behavior and limits. Lexicons are machine-drafted and require native-speaker review before real use.
+
+### Available endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/v1/patients/{id}/messages` | Submit a patient message (`Idempotency-Key` supported) and create a routed incident |
+| `POST /api/v1/patients/{id}/sos` | Create an L5 SOS incident |
+| `GET /api/v1/incidents?patient_id=...&status=OPEN` | List patient-safe incident summaries for accessible care teams |
+| `GET /api/v1/incidents/{id}` | Read an authorised incident and timeline (patient timelines are redacted) |
+| `POST /api/v1/incidents/{id}/acknowledge` | Claim an open incident |
+| `POST /api/v1/incidents/{id}/escalate` | Human raises the routing level with a reason |
+| `POST /api/v1/incidents/{id}/lower` | Permitted primary contact or care professional lowers the level with a reason and audit entry |
+| `POST /api/v1/incidents/{id}/resolve` | Resolve with a code; L5 requires acknowledgement and a note |
+| `GET /api/v1/notifications?unread=true` | List the signed-in user's in-app notifications |
+| `POST /api/v1/notifications/{id}/read` | Mark an owned notification read |
+| `GET /api/v1/meta` | Reports CareCircle and phase 3 |
+
+All mutation routes require authentication and the existing CSRF header. The required success path to try is sign in as the synthetic patient, POST “I need water”, then inspect the incident as a care-team account, acknowledge, and resolve. Repeat with `/sos` to confirm L5 creation. Demo accounts are listed above; use the configured `DEMO_PASSWORD`.
+
+### Phase 3 test instructions and verification
+
+Run the backend and frontend commands in [Test Instructions](#test-instructions), then run the smoke script against localhost and the host LAN address. The Phase 3 smoke extension and a real second-device check are not yet available. Manual emergency demo: submit a chest-pain message or SOS and confirm the L5 record and notification; use phone emergency services directly for any real emergency.
+
+Preflight on 2026-10-14 found the local shell does not have `python`, pytest, or frontend `node_modules`; Docker Compose initially could not start because the ignored `.env` file was absent. Baseline suite results could not be obtained in this environment. Create `.env` from `.env.example` and install project dependencies before running the commands.
+
+## Phase 3 decisions
+
+- Unknown or ambiguous text routes to L2 `UNCLASSIFIED`; only explicit positive patterns may route to L0.
+- The SOS shortcut overrides message classification to L5.
+- Initial routing uses team roles and in-app notifications. The staged timer and recipient-specific workflows remain unimplemented and are explicitly called out in the escalation limitations.
+- Safe summaries are deterministic from patient name, message category, and time. Raw message text stays in the message table and is omitted from audit and notification payloads.
+- Role labels are display-only; stored enum values, package names, database names, environment names, and demo emails remain stable.
