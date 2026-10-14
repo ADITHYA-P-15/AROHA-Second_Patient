@@ -17,7 +17,7 @@ def test_permission_matrix():
 
 def test_public_health_meta_and_csrf():
     assert client.get("/api/health").json()["database"] == "ok"
-    assert client.get("/api/v1/meta").json()["phase"] == 2
+    assert client.get("/api/v1/meta").json()["phase"] == 3
     response = client.post("/api/v1/auth/register", json={"name":"No CSRF","email":"csrf@example.test","password":"LongSafe!42"})
     assert response.status_code == 403
     assert "request_id" in response.json()["error"]

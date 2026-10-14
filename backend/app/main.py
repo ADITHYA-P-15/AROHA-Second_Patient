@@ -555,7 +555,7 @@ def logout(response: Response, user: User = Depends(current_user), db: Session =
 
 
 @app.get("/api/v1/auth/me")
-def me(user: User = Depends(current_user)):
+def me(user: User = Depends(current_user), db: Session = Depends(get_db)):
     return user_dict(user, db)
 
 
