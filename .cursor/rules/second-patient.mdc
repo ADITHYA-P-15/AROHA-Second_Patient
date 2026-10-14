@@ -1,0 +1,8 @@
+---
+description: Standing rules for The Second Patient
+alwaysApply: true
+---
+
+Follow [AGENTS.md](../../AGENTS.md) and [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md). Run backend tests with `python -m pytest backend/tests -q`; frontend checks with `npm run lint`, `npm run typecheck`, `npm test`, and `npm run build` from `frontend/`. Start with `docker compose up --build -d`.
+
+Single-port LAN deployment on 8000; README is cumulative; backend owns deterministic decisions; operational, not clinical; synthetic data only; authorize every endpoint; no secrets/CDNs; work on main; implement only current phase; offline LAN use.
