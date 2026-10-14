@@ -44,8 +44,21 @@ def ensure_care_profile(db: Session, user: User, patient_id, *, created_by, rela
     return profile
 
 
-def unlink_care_profile(db: Session, user_id, patient_id) -> None:
+def unlink_care_profile(db: Session, user_id, patient_id, actor=None) -> int:
+    """Someone left the care team: release their future work for this patient so automatic cover can reassign it."""
+    from app.core.clock import now
+    from app.models import CareActivity, CareAssignment, CoverRequest
+    from app.services import backup_matcher
     profile = db.scalar(select(Caregiver).where(Caregiver.user_id == user_id))
-    if profile:
-        link = db.scalar(select(CaregiverPatientLink).where(CaregiverPatientLink.caregiver_id == profile.id, CaregiverPatientLink.patient_id == patient_id))
-        if link: db.delete(link)
+    if not profile: return 0
+    released = 0
+    future = select(CareActivity.id).where(CareActivity.patient_id == patient_id, CareActivity.lifecycle_status == "SCHEDULED", CareActivity.scheduled_start > now())
+    for assignment in db.scalars(select(CareAssignment).where(CareAssignment.caregiver_id == profile.id, CareAssignment.activity_id.in_(future),
+                                                              CareAssignment.status.in_(("PROPOSED", "AWAITING_CONFIRMATION", "CONFIRMED")))):
+        assignment.status, assignment.updated_at = "CANCELLED", now()
+        released += 1
+    for req in db.scalars(select(CoverRequest).where(CoverRequest.patient_id == patient_id, CoverRequest.offered_caregiver_id == profile.id, CoverRequest.status == "OFFERED")):
+        backup_matcher.decline(db, req, actor=actor, note="No longer on the care team")
+    link = db.scalar(select(CaregiverPatientLink).where(CaregiverPatientLink.caregiver_id == profile.id, CaregiverPatientLink.patient_id == patient_id))
+    if link: db.delete(link)
+    return released

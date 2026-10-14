@@ -160,7 +160,17 @@ def open_request(db: Session, activity, reason: str, *, replaced_caregiver_id=No
         offer(db, req, ranked["best"]["caregiver_id"], actor=None, auto_advance=True, at=at)
         return req
     body = f"{activity.title} · {_when(activity)}. {ranked['summary']}" + (f" Best match: {best}." if best else "")
-    _notify(db, _coordinator_ids(db, activity.patient_id), activity.patient_id, kind="DECISION", title="Cover needed", body=body,
+    recipients = _coordinator_ids(db, activity.patient_id)
+    if actor is None:
+        # Automatic requests: one unacknowledged "Cover needed" per primary contact per 12 h, updated to a summary.
+        recent = {n.user_id: n for n in db.scalars(select(Notification).where(Notification.patient_id == activity.patient_id, Notification.title == "Cover needed",
+                                                                              Notification.acked_at.is_(None), Notification.created_at >= at - timedelta(hours=12)))}
+        for user_id, note in recent.items():
+            waiting = db.scalar(select(func.count(CoverRequest.id)).where(CoverRequest.patient_id == activity.patient_id, CoverRequest.status.in_(OPEN_STATUSES))) or 1
+            note.body = f"{waiting} upcoming activities need cover and nobody eligible is free. Open Cover Requests to arrange them."[:500]
+            note.read_at = None
+        recipients = [u for u in recipients if u not in recent]
+    _notify(db, recipients, activity.patient_id, kind="DECISION", title="Cover needed", body=body,
             severity="HIGH" if activity.importance in ("HIGH", "CRITICAL") else "MEDIUM", requires_ack=True, skip=actor.id if actor else None)
     return req
 

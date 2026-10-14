@@ -18,6 +18,9 @@ def policy_for(db: Session, patient_id) -> dict:
 
 
 def set_deadline(incident: Incident, policy: dict, deadline_kind: str, at, scale: float) -> None:
+    if incident.current_level == 0:  # information only: no timer
+        incident.deadline_kind, incident.current_deadline_at = None, None
+        return
     incident.deadline_kind = deadline_kind
     minutes = deadline_minutes(policy, incident.current_level, deadline_kind, incident.severity, scale)
     incident.current_deadline_at = at + timedelta(minutes=minutes)

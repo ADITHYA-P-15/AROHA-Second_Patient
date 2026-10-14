@@ -23,9 +23,10 @@ def _aware(value):
 
 
 def horizon(at: datetime, days: int) -> tuple[datetime, datetime]:
+    """Local-day bounds as UTC instants. SQLite compares stored naive-UTC text, so query bounds must be UTC too."""
     zone = ZoneInfo(settings.app_timezone)
     start = datetime.combine(at.astimezone(zone).date(), datetime.min.time(), zone)
-    return start, start + timedelta(days=days)
+    return start.astimezone(UTC), (start + timedelta(days=days)).astimezone(UTC)
 
 
 def _week_bounds(start: datetime, end: datetime) -> tuple[datetime, datetime]:
@@ -34,7 +35,7 @@ def _week_bounds(start: datetime, end: datetime) -> tuple[datetime, datetime]:
     last = (end - timedelta(microseconds=1)).astimezone(zone).date()
     monday = first - timedelta(days=first.weekday())
     after = last + timedelta(days=7 - last.weekday())
-    return datetime.combine(monday, datetime.min.time(), zone), datetime.combine(after, datetime.min.time(), zone)
+    return datetime.combine(monday, datetime.min.time(), zone).astimezone(UTC), datetime.combine(after, datetime.min.time(), zone).astimezone(UTC)
 
 
 def _windowed(activity) -> tuple[datetime, datetime]:

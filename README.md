@@ -510,7 +510,7 @@ A findings log records when each risk was first seen and how it ended. From it t
 - Routine doses use the caretaker's time but not one of their daily task slots.
 
 **Status from the clock**
-- Each activity is `PENDING` until its deadline, then `MISSED` if nobody recorded it as done. A dose's deadline is 60 minutes after it is due; an appointment's is its start.
+- Each activity is `PENDING` until its deadline, then `MISSED` if nobody recorded it as done. A dose's deadline is 60 minutes after it is due; an appointment's is 60 minutes after it ends. Nothing can be recorded as done more than two hours early.
 - A missed activity can still be recorded as done within 24 hours. It is then kept as *completed late* and shown as such in adherence.
 - Every move to missed goes through one function (`services/care_status._on_missed`), which notifies the caretaker and the primary contacts. This is where the planned SMS will be added.
 
@@ -549,7 +549,9 @@ A findings log records when each risk was first seen and how it ended. From it t
 ### Decisions and limits
 
 - **Migrations:** `0009_four_roles` maps existing data and deactivates account-less care profiles. `0010_care_feeds` adds prescriptions, activity status fields and the main caretaker.
-- **No verification of professionals:** they self-register for the demo. The CareCircle ID + birth year shared by the family acts as consent, and the family is notified when a professional joins and can remove them.
+- **No verification of professionals:** they self-register for the demo. The CareCircle ID + birth year shared by the family acts as consent, and the family is notified when a professional joins. Removing a professional, or tapping **Issue a new ID**, changes the CareCircle ID so it cannot be reused.
+- **Leaving the team:** removing a caretaker releases their upcoming tasks to automatic cover. The person who registered the patient, and the patient's own login, can only be removed by themselves.
+- **Fewer alerts:** primary contacts get at most one unacknowledged "Cover needed" per patient every 12 hours, updated to a summary. Misses older than a day (for example, a backlog after an upgrade) are marked without alerts.
 - **Notifications** are in-app only. SMS on a miss is designed for but not built yet.
 
 ### Checks

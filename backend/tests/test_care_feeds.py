@@ -123,3 +123,13 @@ def test_adherence_counts_on_time_late_and_missed():
 def _aware_iso(value):
     from datetime import datetime
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def test_old_backlog_is_marked_missed_without_alerts():
+    coord, pid, doctor, main, _ = setup()
+    doctor.post(f"/api/v1/patients/{pid}/prescriptions", headers=H, json={"medicine": "Old backlog", "dose": "1 tab", "times": ["10:00"], "start_date": tomorrow().isoformat(), "end_date": tomorrow().isoformat()})
+    [dose] = doses(coord, pid)
+    with SessionLocal() as db:
+        assert mark_missed(db, _aware_iso(dose["due_by"]) + timedelta(days=3), patient_id=uuid.UUID(pid)) == 1
+        db.commit()
+        assert not db.scalars(select(Notification).where(Notification.patient_id == uuid.UUID(pid), Notification.title.like("Missed dose: Old backlog%"))).all()

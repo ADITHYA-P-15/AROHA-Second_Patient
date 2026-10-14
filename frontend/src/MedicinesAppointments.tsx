@@ -127,7 +127,7 @@ export function MedicinesAppointments() {
       <form onSubmit={schedule} className="md-form">
         <label>Title<input required maxLength={200} value={title} onChange={e => setTitle(e.target.value)}/></label>
         <label>Date and time (Asia/Kolkata)<input type="datetime-local" required value={when} min={nowLocalInput()} onChange={e => setWhen(e.target.value)}/></label>
-        <label>Duration (minutes)<input type="number" min={5} max={480} required value={duration} onChange={e => setDuration(e.target.value)}/></label>
+        <label>Duration (minutes)<input type="number" min={10} max={600} required value={duration} onChange={e => setDuration(e.target.value)}/></label>
         <label>Location<input maxLength={300} value={location} onChange={e => setLocation(e.target.value)}/></label>
         <label>Notes<textarea maxLength={1000} value={notes} onChange={e => setNotes(e.target.value)}/></label>
         <label><input type="checkbox" checked={escort} onChange={e => setEscort(e.target.checked)}/> Needs an escort</label>

@@ -15,7 +15,8 @@ from app.core.clock import now
 from app.core.config import settings
 from app.models import ActivityHistory, CareActivity, CareAssignment, Caregiver, CareTeamMember, Notification, TeamRole
 
-LATE_WINDOW = timedelta(hours=24)  # a missed activity can still be recorded as done (late) for a day
+LATE_WINDOW = timedelta(hours=24)
+EARLY_WINDOW = timedelta(hours=2)  # cannot be recorded as done more than two hours before it starts  # a missed activity can still be recorded as done (late) for a day
 DISPLAY = {"SCHEDULED": "PENDING", "COMPLETED": "COMPLETED", "MISSED": "MISSED", "CANCELLED": "CANCELLED"}
 
 
@@ -66,7 +67,9 @@ def mark_missed(db: Session, at: datetime | None = None, patient_id=None) -> int
         activity.lifecycle_status, activity.missed_at = "MISSED", at
         db.add(ActivityHistory(actor_user_id=None, patient_id=activity.patient_id, event_type="activity.missed", entity_type="care_activity",
                                entity_id=str(activity.id), summary=f"{activity.title} was missed", payload={"due_by": due_by(activity).isoformat()}, request_id=""))
-        _on_missed(db, activity, at)
+        # Only alert for recent misses: a backlog (e.g. the first run after an upgrade) is marked quietly.
+        if at - due_by(activity) <= LATE_WINDOW:
+            _on_missed(db, activity, at)
         changed += 1
     return changed
 
@@ -76,6 +79,7 @@ def complete(db: Session, activity: CareActivity, user_id, at: datetime | None =
     at = at or now()
     if activity.lifecycle_status == "COMPLETED": return activity
     if activity.lifecycle_status == "CANCELLED": raise StatusError("This activity was cancelled")
+    if activity.lifecycle_status == "SCHEDULED" and _aware(activity.scheduled_start) - at > EARLY_WINDOW: raise StatusError("Too early: record it as done on the day, once it is done")
     if activity.lifecycle_status == "MISSED" and at - due_by(activity) > LATE_WINDOW: raise StatusError("Too late to record this activity as done")
     late = activity.lifecycle_status == "MISSED" or at > due_by(activity)
     activity.lifecycle_status, activity.completed_at, activity.completed_by, activity.completed_late = "COMPLETED", at, user_id, late

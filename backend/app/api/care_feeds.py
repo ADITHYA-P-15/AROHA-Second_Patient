@@ -152,13 +152,18 @@ def _own_prescription(db, user, prescription_id) -> Prescription:
 def update_prescription(prescription_id: uuid.UUID, body: PrescriptionPatch, user=Depends(_current_user), db: Session = Depends(get_db)):
     p = _own_prescription(db, user, prescription_id)
     if p.status != "ACTIVE": raise HTTPException(409, "This prescription was stopped")
-    changes = body.model_dump(exclude_unset=True)
+    changes = {k: v for k, v in body.model_dump(exclude_unset=True).items() if getattr(p, k) != v}
+    if "end_date" in changes and changes["end_date"] is not None and changes["end_date"] < p.start_date: raise HTTPException(422, "end_date must be on or after start_date")
     for key, value in changes.items(): setattr(p, key, value)
     p.updated_at = now()
-    # Future doses follow the new instructions: cancel and regenerate them.
-    cancelled = feeds.cancel_future_doses(db, p, "Prescription changed"); db.flush()
-    created = feeds.generate_doses(db, p, actor_id=user.id)
-    _history(db, user, p.patient_id, "prescription.updated", "prescription", p.id, f"{user.name} changed {p.medicine}: {', '.join(sorted(changes))}")
+    if {"times", "end_date"} & set(changes):
+        # The timetable changed: replace future doses. Otherwise keep them (and their caretakers) and update in place.
+        cancelled = feeds.cancel_future_doses(db, p, "Prescription changed"); db.flush()
+        created = feeds.generate_doses(db, p, actor_id=user.id)
+    else:
+        cancelled, created = 0, 0
+        feeds.refresh_future_doses(db, p)
+    _history(db, user, p.patient_id, "prescription.updated", "prescription", p.id, f"{user.name} changed {p.medicine}: {', '.join(sorted(changes)) or 'no changes'}")
     reassess(db, [p.patient_id], TriggerEvent.ACTIVITY_RESCHEDULED, {"prescription_id": str(p.id)}); db.commit()
     return {**_prescription_dict(db, p), "doses_cancelled": cancelled, "doses_created": created}
 
@@ -178,6 +183,10 @@ def stop_prescription(prescription_id: uuid.UUID, body: StopIn | None = None, us
 def list_appointments(patient_id: uuid.UUID, include_past: bool = False, user=Depends(_current_user), db: Session = Depends(get_db)):
     patient, _ = _member(db, user, patient_id)
     query = select(CareActivity).where(CareActivity.patient_id == patient.id, CareActivity.category == "APPOINTMENT")
+    if user.role == Role.CARETAKER:  # like the care plan: caretakers see the appointments they escort
+        from app.models import Caregiver, CareAssignment
+        own = select(CareAssignment.activity_id).join(Caregiver, Caregiver.id == CareAssignment.caregiver_id).where(Caregiver.user_id == user.id, CareAssignment.status.in_(feeds.ACTIVE))
+        query = query.where(CareActivity.id.in_(own))
     if not include_past: query = query.where(CareActivity.scheduled_start >= now(), CareActivity.lifecycle_status == "SCHEDULED")
     return {"items": [_appointment_dict(a) for a in db.scalars(query.order_by(CareActivity.scheduled_start).limit(200))]}
 
@@ -198,7 +207,7 @@ def cancel_appointment(activity_id: uuid.UUID, body: StopIn | None = None, user=
     if not a or a.category != "APPOINTMENT": raise HTTPException(404, "Appointment not found")
     _professional(db, user, a.patient_id)
     if a.lifecycle_status == "SCHEDULED":
-        a.lifecycle_status, a.gap_reason = "CANCELLED", ((body.reason if body else "") or "Cancelled by the hospital")[:120]
+        feeds.cancel_activity(db, a, (body.reason if body else "") or "Cancelled by the hospital")
         _history(db, user, a.patient_id, "appointment.cancelled", "care_activity", a.id, f"{user.name} cancelled {a.title}")
         reassess(db, [a.patient_id], TriggerEvent.ACTIVITY_RESCHEDULED, {"activity_id": str(a.id)}); db.commit()
     return _appointment_dict(a)
@@ -218,6 +227,8 @@ def set_main_caretaker(patient_id: uuid.UUID, body: MainCaretakerIn, user=Depend
     links = db.scalars(select(CaregiverPatientLink).where(CaregiverPatientLink.patient_id == patient.id)).all()
     target = next((l for l in links if l.caregiver_id == body.caregiver_id), None)
     if not target: raise HTTPException(404, "That caretaker is not on this care team")
+    from app.models import Caregiver
+    if not db.get(Caregiver, target.caregiver_id).is_active: raise HTTPException(409, "That care profile is inactive")
     for link in links: link.is_main_caretaker = link is target
     db.flush()
     # Hand the main caretaker any upcoming feed activities that nobody holds yet.

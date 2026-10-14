@@ -35,7 +35,7 @@ class PasswordIn(Input):
 
 class PatientIn(Input):
     name: str = Field(min_length=1, max_length=160)
-    birth_year: int | None = Field(default=None, ge=1900, le=2100)
+    birth_year: int = Field(ge=1900, le=2100)  # required: the hospital finds the patient with the CareCircle ID + birth year
     care_notes: str = Field(default="", max_length=5000)
     clinical_notes: str = Field(default="", max_length=5000)
     mobility_level: str = Field(default="INDEPENDENT", pattern="^(INDEPENDENT|NEEDS_AID|WHEELCHAIR|BEDBOUND)$")

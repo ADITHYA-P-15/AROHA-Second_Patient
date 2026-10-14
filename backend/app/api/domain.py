@@ -42,7 +42,7 @@ class PatientCorePatch(Input):
 
     @model_validator(mode="after")
     def valid_nulls(self):
-        for name in ("name", "care_notes", "clinical_notes", "mobility_level", "language_pref"):
+        for name in ("name", "birth_year", "care_notes", "clinical_notes", "mobility_level", "language_pref"):
             if name in self.model_fields_set and getattr(self, name) is None: raise ValueError(f"{name} cannot be null")
         return self
 

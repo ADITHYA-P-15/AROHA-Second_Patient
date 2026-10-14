@@ -48,7 +48,7 @@ def test_primary_contact_registers_patient_with_care_code_and_patient_login():
     seen = patient.get(f"/api/v1/patients/{body['id']}").json()
     assert seen["care_code"] is None and seen["clinical_notes"] == "Private fictional note"
     caretaker_client, _, _ = account("CARETAKER")
-    assert caretaker_client.post("/api/v1/patients", headers=H, json={"name": "Not allowed"}).status_code == 403
+    assert caretaker_client.post("/api/v1/patients", headers=H, json={"name": "Not allowed", "birth_year": 1950}).status_code == 403
     assert account("PRIMARY_CONTACT")[0].get(f"/api/v1/patients/{body['id']}").status_code == 403
 
 

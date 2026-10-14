@@ -20,6 +20,7 @@ DOSE_WINDOW_DAYS = 14
 DOSE_MINUTES = 15
 DOSE_GRACE = timedelta(minutes=60)  # a dose not recorded within an hour of its due time is missed
 APPOINTMENT_TRAVEL_MIN = 30
+APPOINTMENT_GRACE = timedelta(minutes=60)  # the escort records it after the visit; missed only if not recorded an hour after it ends
 ACTIVE = ("PROPOSED", "AWAITING_CONFIRMATION", "CONFIRMED")
 
 
@@ -64,8 +65,9 @@ def generate_doses(db: Session, prescription: Prescription, *, through: date | N
     last = min(prescription.end_date or (today + timedelta(days=DOSE_WINDOW_DAYS)), through or (today + timedelta(days=DOSE_WINDOW_DAYS)))
     patient = db.get(Patient, prescription.patient_id)
     # Cancelled doses (e.g. replaced by an edit) do not block regenerating the same due time.
+    window_start = to_utc(datetime.combine(first, time.min, zone))
     existing = {_aware_utc(a.scheduled_start) for a in db.scalars(select(CareActivity).where(CareActivity.source == "PRESCRIPTION", CareActivity.source_id == prescription.id,
-                                                                                            CareActivity.lifecycle_status != "CANCELLED"))}
+                                                                                            CareActivity.lifecycle_status != "CANCELLED", CareActivity.scheduled_start >= window_start))}
     created = 0
     day = first
     while day <= last:
@@ -88,14 +90,30 @@ def cancel_future_doses(db: Session, prescription: Prescription, reason: str) ->
     rows = db.scalars(select(CareActivity).where(CareActivity.source == "PRESCRIPTION", CareActivity.source_id == prescription.id,
                                                  CareActivity.lifecycle_status == "SCHEDULED", CareActivity.scheduled_start > now())).all()
     for row in rows:
-        row.lifecycle_status = "CANCELLED"; row.gap_reason = reason[:120]
+        cancel_activity(db, row, reason)
+    return len(rows)
+
+
+def cancel_activity(db: Session, activity: CareActivity, reason: str) -> None:
+    """Cancel a pending activity and release whoever held or was asked to hold it."""
+    activity.lifecycle_status, activity.gap_reason = "CANCELLED", reason[:120]
+    for assignment in db.scalars(select(CareAssignment).where(CareAssignment.activity_id == activity.id, CareAssignment.status.in_(ACTIVE))):
+        assignment.status, assignment.updated_at = "CANCELLED", now()
+
+
+def refresh_future_doses(db: Session, prescription: Prescription) -> int:
+    """Dose or instructions changed but not the timetable: update pending doses in place, keeping their caretakers."""
+    rows = db.scalars(select(CareActivity).where(CareActivity.source == "PRESCRIPTION", CareActivity.source_id == prescription.id,
+                                                 CareActivity.lifecycle_status == "SCHEDULED", CareActivity.scheduled_start > now())).all()
+    for row in rows:
+        row.title, row.description = f"{prescription.medicine} {prescription.dose}".strip(), prescription.instructions
     return len(rows)
 
 
 def create_appointment(db: Session, patient: Patient, *, title: str, start: datetime, minutes: int, location: str, notes: str,
                        needs_escort: bool, importance: str, actor_id) -> CareActivity:
     appointment = CareActivity(patient_id=patient.id, title=title, category="APPOINTMENT", description=notes, location_note=location,
-                               scheduled_start=to_utc(start), scheduled_end=to_utc(start + timedelta(minutes=minutes)), deadline=to_utc(start),
+                               scheduled_start=to_utc(start), scheduled_end=to_utc(start + timedelta(minutes=minutes)), deadline=to_utc(start + timedelta(minutes=minutes) + APPOINTMENT_GRACE),
                                importance=importance, requires_caregiver=needs_escort, required_support=["APPOINTMENT_ESCORT"] if needs_escort else [],
                                buffer_before_min=APPOINTMENT_TRAVEL_MIN if needs_escort else 0, buffer_after_min=APPOINTMENT_TRAVEL_MIN if needs_escort else 0,
                                lifecycle_status="SCHEDULED", coverage_status="UNASSESSED", is_synthetic=patient.is_synthetic, created_by=actor_id,

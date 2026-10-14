@@ -321,7 +321,7 @@ def lower_incident(incident_id: uuid.UUID, body: IncidentLevelIn, request: Reque
     inc = locked_incident(db, incident_id)
     if not inc: raise HTTPException(404, "Incident not found")
     patient, member = patient_access(db, user, inc.patient_id)
-    privileged = user.role in (Role.PROFESSIONAL, Role.PROFESSIONAL) or bool(member and member.team_role == TeamRole.PRIMARY_CONTACT)
+    privileged = bool(member and member.team_role == TeamRole.PRIMARY_CONTACT) or (user.role == Role.PROFESSIONAL and may_read_incident(db, inc, user, member))
     if not privileged: raise HTTPException(403, "Permission denied")
     if inc.status in ("RESOLVED", "CANCELLED"): raise HTTPException(409, "Closed incidents cannot be lowered")
     if body.to_level >= inc.current_level: raise HTTPException(422, "Lowering level must be lower")
@@ -563,7 +563,7 @@ def join_patient(body: PatientLookupIn, request: Request, user: User = Depends(c
         audit(db, user, patient.id, "care_team.professional_joined", "care_team_member", user.id, f"{user.name} (healthcare professional) joined the care team", request.state.request_id)
         for contact in db.scalars(select(CareTeamMember.user_id).where(CareTeamMember.patient_id == patient.id, CareTeamMember.team_role == TeamRole.PRIMARY_CONTACT)):
             db.add(Notification(user_id=contact, patient_id=patient.id, kind="STATUS", severity="LOW", title="A healthcare professional joined",
-                                body=f"{user.name} joined {patient.name}'s care team using the CareCircle ID. Remove them in Care team if this is unexpected.", requires_ack=False, channel="INBOX"))
+                                body=f"{user.name} joined {patient.name}'s care team using the CareCircle ID. If this is unexpected, remove them in Care team (this also issues a new ID).", requires_ack=False, channel="INBOX"))
         db.commit()
     return patient_dict(patient, True, True)
 
@@ -593,6 +593,16 @@ def add_team(patient_id: uuid.UUID, body: TeamIn, request: Request, user: User =
     return {"id": m.id, "user_id": target.id, "team_role": team_role.value, "role_label": role_label(target.role.value, team_role.value)}
 
 
+@app.post("/api/v1/patients/{patient_id}/care-code/regenerate")
+def regenerate_care_code(patient_id: uuid.UUID, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Issue a new CareCircle ID (e.g. it was shared by mistake). Professionals already on the team stay on it."""
+    p, _ = _primary_contact(db, user, patient_id)
+    p.care_code = new_care_code(db)
+    audit(db, user, p.id, "patient.care_code_changed", "patient", p.id, "CareCircle ID changed", request.state.request_id)
+    db.commit()
+    return {"care_code": p.care_code}
+
+
 @app.post("/api/v1/patients/{patient_id}/care-team/me/care-profile", status_code=201)
 def opt_in_care_profile(patient_id: uuid.UUID, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
     """A primary contact who also carries out care activities (e.g. takes the patient to appointments)."""
@@ -609,8 +619,14 @@ def remove_team(patient_id: uuid.UUID, member_id: uuid.UUID, request: Request, u
     member = db.scalar(select(CareTeamMember).where(CareTeamMember.id == member_id, CareTeamMember.patient_id == p.id))
     if not member: raise HTTPException(404, "Care team member not found")
     if member.team_role == TeamRole.PRIMARY_CONTACT and db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == p.id, CareTeamMember.team_role == TeamRole.PRIMARY_CONTACT, CareTeamMember.id != member.id)) is None: raise HTTPException(409, "Cannot remove the last primary contact")
-    unlink_care_profile(db, member.user_id, p.id)
-    db.delete(member); audit(db, user, p.id, "care_team.member_removed", "care_team_member", member_id, "Care team member removed", request.state.request_id)
+    if member.user_id != user.id and (member.is_primary_coordinator or member.team_role == TeamRole.PATIENT_SELF):
+        raise HTTPException(409, "The person who registered the patient, and the patient's own login, can only leave by themselves")
+    released = unlink_care_profile(db, member.user_id, p.id, actor=user)
+    summary = "Care team member removed" + (f"; {released} upcoming tasks released for cover" if released else "")
+    if member.team_role == TeamRole.PROFESSIONAL:
+        # A new CareCircle ID stops the removed professional from simply joining again with the old one.
+        p.care_code = new_care_code(db); summary += "; CareCircle ID changed"
+    db.delete(member); audit(db, user, p.id, "care_team.member_removed", "care_team_member", member_id, summary, request.state.request_id)
     db.flush(); reconcile_patient(db, p.id); db.commit(); return Response(status_code=204)
 
 

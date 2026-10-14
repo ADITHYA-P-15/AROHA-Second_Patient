@@ -40,6 +40,18 @@ def upgrade():
     bind.execute(sa.text("UPDATE caregivers SET kind = 'PRIMARY_CONTACT' WHERE kind = 'FAMILY'"))
     bind.execute(sa.text("UPDATE caregivers SET kind = 'CARETAKER' WHERE kind <> 'PRIMARY_CONTACT'"))
     bind.execute(sa.text("UPDATE caregivers SET is_active = :off WHERE user_id IS NULL OR user_id IN (SELECT id FROM users WHERE role IN ('PROFESSIONAL', 'PATIENT'))"), {"off": False})
+    # Work held by a profile that can no longer be offered work is released, so the cover flow can reassign it.
+    bind.execute(sa.text("UPDATE care_assignments SET status = 'CANCELLED' WHERE status IN ('PROPOSED','AWAITING_CONFIRMATION','CONFIRMED') "
+                         "AND caregiver_id IN (SELECT id FROM caregivers WHERE is_active = :off) "
+                         "AND activity_id IN (SELECT id FROM care_activities WHERE lifecycle_status = 'SCHEDULED')"), {"off": False})
+    # Clinical visits are the hospital's work now; what remains for caretakers is escorting the patient.
+    activities = sa.table("care_activities", sa.column("id", sa.Uuid()), sa.column("required_support", sa.JSON()), sa.column("lifecycle_status", sa.String()))
+    for row in bind.execute(sa.select(activities.c.id, activities.c.required_support).where(activities.c.lifecycle_status == "SCHEDULED")).fetchall():
+        support = list(row.required_support or [])
+        if "CLINICAL_VISIT" in support:
+            converted = sorted({"APPOINTMENT_ESCORT" if code == "CLINICAL_VISIT" else code for code in support})
+            bind.execute(activities.update().where(activities.c.id == row.id).values(required_support=converted))
+
     with op.batch_alter_table("caregivers", table_args=keep) as batch:
         batch.create_check_constraint("ck_caregiver_kind", "kind IN ('CARETAKER','PRIMARY_CONTACT')")
 

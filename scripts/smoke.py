@@ -76,7 +76,8 @@ def main():
     status,_,_=pro.request('POST','/api/v1/patients/join',{'care_code':care_code,'birth_year':1950}); check('professional joins with CareCircle ID',status==201)
     status,_,_=c.request('PUT',f'/api/v1/patients/{pid}/main-caretaker',{'caregiver_id':cid}); check('main caretaker set',status==200)
     status,_,_=c.request('PUT',f'/api/v1/caregivers/{cid}/schedule',{'windows':[{'weekday':d,'start_min':0,'end_min':1440} for d in range(7)]})
-    status,rx,_=pro.request('POST',f'/api/v1/patients/{pid}/prescriptions',{'medicine':'Smoke medicine','dose':'1 tab','times':['09:00'],'start_date':day.isoformat(),'end_date':day.isoformat()}); check('professional prescribes (dose feed)',status==201 and rx.get('doses_created')==1)
+    soon=datetime.now(app_tz)+timedelta(minutes=60)  # within the two-hour window in which a dose can be recorded as done
+    status,rx,_=pro.request('POST',f'/api/v1/patients/{pid}/prescriptions',{'medicine':'Smoke medicine','dose':'1 tab','times':[soon.strftime('%H:%M')],'start_date':soon.date().isoformat(),'end_date':soon.date().isoformat()}); check('professional prescribes (dose feed)',status==201 and rx.get('doses_created')==1)
     status,appt,_=pro.request('POST',f'/api/v1/patients/{pid}/appointments',{'title':'Smoke appointment','start':(scheduled_start+timedelta(hours=6)).isoformat(),'duration_minutes':30}); check('professional schedules appointment',status==201 and appt.get('status')=='PENDING')
     status,acts,_=ct.request('GET',f'/api/v1/patients/{pid}/activities?limit=100'); dose=next((a for a in acts.get('items',[]) if a.get('source')=='PRESCRIPTION'),None); check('caretaker sees assigned dose as PENDING',status==200 and dose and dose.get('care_status')=='PENDING')
     status,donej,_=ct.request('POST',f"/api/v1/activities/{dose['id'] if dose else 'x'}/complete",{}); check('caretaker records dose as done',status==200 and donej.get('care_status')=='COMPLETED')

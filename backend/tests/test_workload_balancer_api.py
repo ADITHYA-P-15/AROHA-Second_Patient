@@ -96,7 +96,7 @@ def test_apply_rechecks_eligibility_and_supports_confirm_now():
 
 def test_other_patient_details_are_masked_and_counted():
     client, pid, people, _ = setup_overload()
-    other = client.post("/api/v1/patients", headers=H, json={"name": "Second synthetic patient"}).json()["id"]
+    other = client.post("/api/v1/patients", headers=H, json={"name": "Second synthetic patient", "birth_year": 1950}).json()["id"]
     neighbour_user = next(c["user_id"] for c in client.get(f"/api/v1/patients/{pid}/caregivers").json()["items"] if c["id"] == people["neighbour"])
     with SessionLocal() as db:
         neighbour_email = db.get(User, uuid.UUID(neighbour_user)).email

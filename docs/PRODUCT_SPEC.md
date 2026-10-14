@@ -24,7 +24,7 @@ There is no administrator role. Demo data is created by the seed. Doctor and nur
 7. **Status from the clock.** The scheduler compares each activity's deadline with the current time:
    - `PENDING`: not done and the deadline has not passed.
    - `COMPLETED`: marked done by the caretaker (or recorded by the primary contact). A dose recorded after its deadline is kept as *completed late*.
-   - `MISSED`: the deadline passed and it was not done. A dose is missed 60 minutes after its due time; an appointment is missed at its start time.
+   - `MISSED`: the deadline passed and it was not done. A dose is missed 60 minutes after its due time; an appointment is missed if it is not recorded as done within 60 minutes after it ends (the escort records it after the visit). Nothing can be recorded as done more than two hours before it starts.
    - `CANCELLED`: cancelled by the prescriber / scheduler or the primary contact.
 8. **Automatic cover.** When a caretaker takes leave, says "I can't make it", or is over their workload limit, CareCircle automatically offers each affected activity to the best eligible caretaker (Backup Matcher ranking). If they decline, it moves to the next. The replacement must accept before the activity counts as covered, and the original caretaker keeps it until then. The primary contact is told only when nobody can take it.
 9. **Look ahead.** The coverage forecast (24 h / 3 days / 7 days) flags activities with no confirmed caretaker or only one eligible caretaker, with a secure-by deadline.

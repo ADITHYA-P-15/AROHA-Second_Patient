@@ -131,7 +131,7 @@ Cumulative record of features built one at a time on top of the phased roadmap i
   - Prescriptions expand into dose activities (rolling 14 days); appointments need an escort.
   - New feed activities go to the main caretaker when eligible.
   - Routine doses use time, not daily task slots.
-- **Status:** PENDING → COMPLETED (on time / late) or MISSED, set by the scheduler at each deadline. `_on_missed` notifies and is the SMS hook. Adherence is reported per medicine.
+- **Status:** PENDING → COMPLETED (on time / late) or MISSED, set by the scheduler at each deadline (dose: due + 60 min; appointment: end + 60 min). `_on_missed` notifies for recent misses only, and is the SMS hook. Adherence is reported per medicine.
 - **Automatic cover:** leave, declines and unassigned activities (72 h) are offered to the best match without a tap. Overload is relieved one move per run, with a standby. The primary contact hears only when nobody can take it.
 - **Cut:**
   - Admin panel and demo scenarios.
