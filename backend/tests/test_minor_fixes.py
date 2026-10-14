@@ -4,26 +4,16 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.core.db import SessionLocal
-from app.core.security import hash_password
 from app.main import app
-from app.models import Role, User
+from tests.helpers import join_as_professional
 
 H = {"X-Requested-With": "second-patient"}
-
-
-def _user(role, name):
-    email = f"fix-{uuid.uuid4().hex}@example.com"
-    with SessionLocal() as db:
-        db.add(User(email=email, name=name, role=role, password_hash=hash_password("SafePass!123"), is_synthetic=True)); db.commit()
-    client = TestClient(app)
-    assert client.post("/api/v1/auth/login", headers=H, json={"email": email, "password": "SafePass!123"}).status_code == 200
-    return client, email
 
 
 def _patient():
     coord = TestClient(app)
     assert coord.post("/api/v1/auth/register", headers=H, json={"name": "Coordinator", "email": f"fix-{uuid.uuid4().hex}@example.com", "password": "SafePass!123"}).status_code == 201
-    return coord, coord.post("/api/v1/patients", headers=H, json={"name": "Synthetic fix patient"}).json()["id"]
+    return coord, coord.post("/api/v1/patients", headers=H, json={"name": "Synthetic fix patient", "birth_year": 1950}).json()["id"]
 
 
 def test_level_three_escalation_falls_back_to_coordinator():
@@ -38,8 +28,7 @@ def test_level_three_escalation_falls_back_to_coordinator():
 
 def test_nurse_cannot_resolve_incident_they_cannot_see_and_history_rejects_negative_offset():
     coord, pid = _patient()
-    nurse, email = _user(Role.NURSE, "Synthetic nurse")
-    assert coord.post(f"/api/v1/patients/{pid}/care-team", headers=H, json={"email": email, "team_role": "NURSE"}).status_code == 201
+    nurse, _, _ = join_as_professional(coord, pid)
     low = coord.post(f"/api/v1/patients/{pid}/messages", headers=H, json={"body": "I need water", "channel": "TEXT", "on_behalf": True}).json()
     assert low["current_level"] < 3
     assert nurse.get(f"/api/v1/incidents/{low['id']}").status_code == 403

@@ -9,7 +9,7 @@ DAY0 = datetime(2026, 10, 14, tzinfo=ZONE)
 ANYTIME = [{"weekday": d, "start_min": 0, "end_min": 1440} for d in range(7)]
 
 
-def cg(cid, kind="FAMILY", caps=("APPOINTMENT_ESCORT",), day=3, *, overrides=(), schedule=None):
+def cg(cid, kind="CARETAKER", caps=("APPOINTMENT_ESCORT",), day=3, *, overrides=(), schedule=None):
     return {"id": cid, "name": cid.title(), "kind": kind, "capabilities": list(caps), "max_activities_per_day": day, "max_hours_per_week": 40.0,
             "is_active": True, "is_designated_backup": False, "schedule": ANYTIME if schedule is None else schedule, "overrides": list(overrides)}
 
@@ -74,7 +74,7 @@ def test_secure_by_lead_times_and_waking_hours():
 
 
 def test_days_flag_insufficient_capacity_and_absent_people_are_not_suggested():
-    visit = act("visit", 1, 11, support=("CLINICAL_VISIT",), title="Nurse visit")
+    visit = act("visit", 1, 11, support=("MOBILITY_ASSIST",), title="Nurse visit")
     absent = cg("karthik", overrides=[{"start_at": visit["window_start"], "end_at": visit["window_end"], "status": "UNAVAILABLE"}])
     result = run([cg("anita"), absent], [visit], [], demand=[{"date": "2026-10-16", "level": "ELEVATED", "tasks": 4, "reasons": ["Busy day"]}])
     day = next(d for d in result["days"] if d["date"] == "2026-10-15")

@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.core.clock import now
 from app.core.config import settings
 from app.main import app, seed
+from tests.helpers import caretaker
 
 H = {"X-Requested-With": "second-patient"}
 
@@ -16,7 +17,7 @@ def register_patient(c, name="Phase 2 patient"):
     suffix = uuid.uuid4().hex
     email = f"p2-{suffix}@example.com"
     assert c.post("/api/v1/auth/register", headers=H, json={"name":"P2 coordinator","email":email,"password":"SafePass!123"}).status_code == 201
-    patient = c.post("/api/v1/patients", headers=H, json={"name":name,"clinical_notes":"Private"})
+    patient = c.post("/api/v1/patients", headers=H, json={"name":name,"birth_year":1950,"clinical_notes":"Private"})
     assert patient.status_code == 201
     return patient.json()["id"]
 
@@ -34,8 +35,7 @@ def test_phase2_profile_caregiver_schedule_activity_warning_and_assignment_flow(
     monkeypatch.setattr(domain,"reassess",lambda session,patients,trigger,context=None:calls.append((tuple(patients),trigger)))
     c=TestClient(app); pid=register_patient(c)
     assert c.get(f"/api/v1/patients/{pid}").json()["my_permissions"] == ["plan:read","plan:manage","network:manage"]
-    result=c.post(f"/api/v1/patients/{pid}/caregivers",headers=H,json={"name":"Limited caregiver","kind":"NEIGHBOUR","capabilities":[],"relationship":"neighbour"})
-    assert result.status_code==201; cid=result.json()["id"]
+    cid,_=caretaker(c,pid,"Limited caregiver",caps=())
     day=(now().astimezone(ZoneInfo("Asia/Kolkata")).date()+timedelta(days=1)).weekday()
     assert c.put(f"/api/v1/caregivers/{cid}/schedule",headers=H,json={"windows":[{"weekday":day,"start_min":0,"end_min":1440}]}).status_code==200
     start,end=future_times()
@@ -46,7 +46,7 @@ def test_phase2_profile_caregiver_schedule_activity_warning_and_assignment_flow(
     asid=assigned.json()["id"]
     assert c.post(f"/api/v1/assignments/{asid}/request-confirmation",headers=H,json={}).json()["status"]=="AWAITING_CONFIRMATION"
     assert c.post(f"/api/v1/assignments/{asid}/confirm",headers=H,json={}).json()["status"]=="CONFIRMED"
-    assert calls and calls[0][1]==domain.TriggerEvent.ASSIGNMENT_ADDED
+    assert any(trigger==domain.TriggerEvent.ASSIGNMENT_ADDED for _,trigger in calls)
     assert c.get(f"/api/v1/patients/{pid}/overview").status_code==200
 
 
@@ -69,7 +69,7 @@ def test_idor_househelp_clinical_privacy_and_role_confirmation():
 
 def test_schedule_validation_and_90_day_range():
     c=TestClient(app); pid=register_patient(c)
-    cg=c.post(f"/api/v1/patients/{pid}/caregivers",headers=H,json={"name":"Scheduler","kind":"OTHER","capabilities":[]}).json()
+    cg={"id":caretaker(c,pid,"Scheduler",caps=())[0]}
     bad=c.put(f"/api/v1/caregivers/{cg['id']}/schedule",headers=H,json={"windows":[{"weekday":1,"start_min":500,"end_min":700},{"weekday":1,"start_min":600,"end_min":800}]})
     assert bad.status_code==422
     start=(now()+timedelta(days=1)).isoformat(); end=(now()+timedelta(days=92)).isoformat()

@@ -24,13 +24,12 @@ from zoneinfo import ZoneInfo
 
 from app.engine.availability import Window, effective_windows, is_available_for
 
-PROFESSIONAL_SUPPORT = frozenset({"CLINICAL_VISIT"})
+# Clinical work belongs to healthcare professionals and is not a caretaker activity, so no support code is professional-only.
+PROFESSIONAL_SUPPORT = frozenset()
 TRAINED_SUPPORT = frozenset({"MEDICATION_ASSIST", "MOBILITY_ASSIST"})
-ALL_SUPPORT = frozenset({"TRANSPORT", "MEDICATION_ASSIST", "PRESCRIPTION_PICKUP", "DAILY_ASSIST", "MOBILITY_ASSIST", "LAB_ESCORT", "SUPPLIES", "CLINICAL_VISIT", "APPOINTMENT_ESCORT"})
-PROFESSIONAL_KINDS = frozenset({"NURSE"})
+ALL_SUPPORT = frozenset({"TRANSPORT", "MEDICATION_ASSIST", "PRESCRIPTION_PICKUP", "DAILY_ASSIST", "MOBILITY_ASSIST", "LAB_ESCORT", "SUPPLIES", "APPOINTMENT_ESCORT"})
+PROFESSIONAL_KINDS = frozenset()
 DELEGATION_RULES = (
-    {"class": "PROFESSIONAL", "label": "Qualified healthcare professional", "supports": sorted(PROFESSIONAL_SUPPORT),
-     "description": "Only a caregiver recorded as a healthcare professional (nurse) with the required capability can take this task."},
     {"class": "TRAINED", "label": "Trained caregiver", "supports": sorted(TRAINED_SUPPORT),
      "description": "Delegable to any caregiver whose recorded capabilities include the required support."},
     {"class": "GENERAL", "label": "General caregiver", "supports": sorted(ALL_SUPPORT - PROFESSIONAL_SUPPORT - TRAINED_SUPPORT),

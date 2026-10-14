@@ -39,15 +39,13 @@ def _current_user(request: Request, db: Session = Depends(get_db)):
 
 
 def _scope(db: Session, user, patient_id, *, write=False):
-    """Coordinators and administrators manage; family contacts read; caregivers, patients and doctors are excluded."""
-    if user.role not in {Role.ADMIN, Role.FAMILY}:
+    """Oversight screens belong to the patient's primary contacts; caretakers, professionals and patients use their own views."""
+    if user.role != Role.PRIMARY_CONTACT:
         raise HTTPException(403, "The Workload Balancer is available to primary contacts")
     patient, member = require_patient_access(db, user, patient_id, "patient:read")
-    if user.role == Role.ADMIN or member.team_role == TeamRole.COORDINATOR:
-        return patient, "COORDINATOR" if user.role != Role.ADMIN else "ADMIN"
-    if member.team_role == TeamRole.FAMILY and not write:
-        return patient, "FAMILY"
-    raise HTTPException(403, "Coordinator permission required" if write else "Workload Balancer access denied")
+    if member.team_role == TeamRole.PRIMARY_CONTACT:
+        return patient, "PRIMARY_CONTACT"
+    raise HTTPException(403, "Primary contact permission required")
 
 
 @router.get("/patients/{patient_id}/workload-balance")
@@ -56,7 +54,7 @@ def workload_balance(patient_id: uuid.UUID, days: int = Query(7, ge=1, le=28), u
     at = now()
     start, end = horizon(at, days)
     result = evaluate_workload(build_snapshot(db, patient.id, start, end), at, start, end, settings.app_timezone)
-    can_apply = role_view in {"COORDINATOR", "ADMIN"}
+    can_apply = role_view == "PRIMARY_CONTACT"
     if not can_apply:
         for item in result["recommendations"]: item["from"]["assignment_id"] = None
     return {"patient": {"id": patient.id, "name": patient.name, "is_synthetic": patient.is_synthetic}, "as_of": at,

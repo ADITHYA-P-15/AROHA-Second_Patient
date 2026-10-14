@@ -19,8 +19,9 @@ from app.models import (ActivityDependency, ActivityHistory, AvailabilityOverrid
 from app.services.reassess import TriggerEvent, reassess
 
 router = APIRouter(prefix="/api/v1", tags=["core domain"])
-SUPPORT = {"TRANSPORT", "MEDICATION_ASSIST", "PRESCRIPTION_PICKUP", "DAILY_ASSIST", "MOBILITY_ASSIST", "LAB_ESCORT", "SUPPLIES", "CLINICAL_VISIT", "APPOINTMENT_ESCORT"}
-KINDS = {"FAMILY", "HOUSEHELP", "NURSE", "NEIGHBOUR", "VOLUNTEER", "OTHER"}
+# Support a caretaker can provide. Clinical work is the professional's and is not a care activity.
+SUPPORT = {"TRANSPORT", "MEDICATION_ASSIST", "PRESCRIPTION_PICKUP", "DAILY_ASSIST", "MOBILITY_ASSIST", "LAB_ESCORT", "SUPPLIES", "APPOINTMENT_ESCORT"}
+KINDS = {"CARETAKER", "PRIMARY_CONTACT"}  # every care profile belongs to a caretaker or primary-contact account
 CATEGORIES = {"APPOINTMENT", "TRANSPORT", "PRESCRIPTION", "MEDICATION", "FOLLOW_UP", "DAILY_ROUTINE", "MOBILITY", "LAB", "SUPPLIES", "POST_APPOINTMENT", "OTHER"}
 TERMINAL = {"DECLINED", "REJECTED", "CANCELLED", "SUPERSEDED"}
 ACTIVE = {"PROPOSED", "AWAITING_CONFIRMATION", "CONFIRMED"}
@@ -210,18 +211,17 @@ class ReasonIn(Input):
 
 def _member(db, user, pid, write=False):
     patient, member = require_patient_access(db, user, pid, "patient:update" if write else "patient:read")
-    if write and user.role != Role.ADMIN and (member is None or member.team_role != TeamRole.COORDINATOR):
+    if write and (member is None or member.team_role != TeamRole.PRIMARY_CONTACT):
         raise HTTPException(403, "Coordinator permission required")
     return patient, member
 
 
 def _is_coordinator(db, user, pid):
-    if user.role == Role.ADMIN: return True
     try:
         member = _member(db, user, pid)[1]
     except HTTPException:
         return False
-    return bool(member and member.team_role == TeamRole.COORDINATOR)
+    return bool(member and member.team_role == TeamRole.PRIMARY_CONTACT)
 
 
 def _linked_patient_ids(db, caregiver_id):
@@ -234,8 +234,6 @@ def _as_aware(value):
 
 
 def _can_edit_caregiver(db, user, cg):
-    if user.role == Role.ADMIN:
-        return True
     if cg.user_id == user.id:
         return True
     return any(_is_coordinator(db, user, pid) for pid in _linked_patient_ids(db, cg.id))
@@ -244,7 +242,7 @@ def _can_edit_caregiver(db, user, cg):
 def _caregiver_dict(db, user, cg, pid=None):
     links = db.scalars(select(CaregiverPatientLink).where(CaregiverPatientLink.caregiver_id == cg.id)).all()
     link = next((x for x in links if x.patient_id == pid), None)
-    show_phone = user.role == Role.ADMIN or cg.user_id == user.id or (pid is not None and _is_coordinator(db, user, pid))
+    show_phone = cg.user_id == user.id or (pid is not None and _is_coordinator(db, user, pid))
     return {"id": cg.id, "user_id": cg.user_id, "name": cg.name, "kind": cg.kind, "phone": cg.phone if show_phone else None, "capabilities": cg.capabilities, "max_activities_per_day": cg.max_activities_per_day, "max_hours_per_week": cg.max_hours_per_week, "is_active": cg.is_active, "notes": cg.notes, "relationship": link.relationship if link else "", "is_designated_backup": link.is_designated_backup if link else False, "linked_patient_count": len(links), "is_synthetic": cg.is_synthetic}
 
 
@@ -253,19 +251,19 @@ def _activity_dict(db, user, a):
     primary_confirmed = any(x.role == "PRIMARY" and x.status == "CONFIRMED" for x in assignments)
     member = db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == a.patient_id, CareTeamMember.user_id == user.id))
     permissions = ["plan:read"]
-    if user.role == Role.ADMIN or (member and member.team_role == TeamRole.COORDINATOR): permissions += ["plan:manage", "assignment:manage"]
-    if user.role == Role.DOCTOR: permissions += ["clinical_notes:read"]
-    if user.role in (Role.FAMILY, Role.HOUSEHELP, Role.NURSE): permissions += ["availability:edit_own"]
+    if (member and member.team_role == TeamRole.PRIMARY_CONTACT): permissions += ["plan:manage", "assignment:manage"]
+    if user.role == Role.PROFESSIONAL: permissions += ["clinical_notes:read"]
+    if user.role in (Role.PRIMARY_CONTACT, Role.CARETAKER): permissions += ["availability:edit_own"]
     own_caregiver = db.scalar(select(Caregiver.id).where(Caregiver.user_id == user.id))
     if own_caregiver and any(x.caregiver_id == own_caregiver and x.status in ACTIVE for x in assignments): permissions.append("assignment:respond_own")
-    if user.role in (Role.HOUSEHELP, Role.NURSE):
+    if user.role == Role.CARETAKER:
         own_id = db.scalar(select(Caregiver.id).where(Caregiver.user_id == user.id))
         if not own_id or not db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == a.id, CareAssignment.caregiver_id == own_id, CareAssignment.status.in_(ACTIVE))):
             raise HTTPException(403, "This activity is not assigned to you")
     assignment_rows = []
     for item in assignments:
         caregiver = db.get(Caregiver, item.caregiver_id)
-        if user.role in (Role.HOUSEHELP, Role.NURSE) and caregiver.user_id != user.id: continue
+        if user.role == Role.CARETAKER and caregiver.user_id != user.id: continue
         assignment_rows.append({"id": item.id, "caregiver_id": item.caregiver_id, "caregiver_name": caregiver.name, "role": item.role, "status": item.status, "confirmed_at": item.confirmed_at, "is_mine": caregiver.user_id == user.id})
     return {"id": a.id, "patient_id": a.patient_id, "series_id": a.series_id, "title": a.title, "description": a.description, "category": a.category, "scheduled_start": to_utc(_as_aware(a.scheduled_start)), "scheduled_end": to_utc(_as_aware(a.scheduled_end)), "deadline": to_utc(_as_aware(a.deadline)) if a.deadline else None, "importance": a.importance, "requires_caregiver": a.requires_caregiver, "required_support": a.required_support, "buffer_before_min": a.buffer_before_min, "buffer_after_min": a.buffer_after_min, "location_note": a.location_note, "lifecycle_status": a.lifecycle_status, "coverage_status": a.coverage_status, "is_synthetic": a.is_synthetic, "assignments": assignment_rows, "preliminary_support_status": "Support confirmed" if primary_confirmed else "Not confirmed", "preliminary_label": "Preliminary — full coverage analysis arrives with the care-gap engine", "my_permissions": permissions}
 
@@ -304,10 +302,11 @@ def _warnings(db, activity, caregiver):
 @router.get("/patients/{pid}")
 def patient_extended(pid: uuid.UUID, user: User = Depends(__import__("app.main", fromlist=["current_user"]).current_user), db: Session = Depends(get_db)):
     patient, member = _member(db, user, pid)
-    show_clinical = user.role == Role.ADMIN or user.role in (Role.DOCTOR, Role.NURSE) or user.role == Role.PATIENT and member and member.team_role == TeamRole.PATIENT_SELF or user.role == Role.FAMILY and member and member.team_role == TeamRole.COORDINATOR
-    base = {"id": patient.id, "name": patient.name, "birth_year": patient.birth_year, "care_notes": patient.care_notes, "clinical_notes": patient.clinical_notes if show_clinical else None, "mobility_level": patient.mobility_level, "language_pref": patient.language_pref, "continuity_status": patient.continuity_status}
+    show_clinical = user.role == Role.PROFESSIONAL or user.role == Role.PATIENT and member and member.team_role == TeamRole.PATIENT_SELF or user.role == Role.PRIMARY_CONTACT and member and member.team_role == TeamRole.PRIMARY_CONTACT
+    shares_code = member is not None and member.team_role in (TeamRole.PRIMARY_CONTACT, TeamRole.PROFESSIONAL)
+    base = {"id": patient.id, "name": patient.name, "care_code": patient.care_code if shares_code else None, "is_synthetic": patient.is_synthetic, "birth_year": patient.birth_year, "care_notes": patient.care_notes, "clinical_notes": patient.clinical_notes if show_clinical else None, "mobility_level": patient.mobility_level, "language_pref": patient.language_pref, "continuity_status": patient.continuity_status}
     base["support_needs"] = [{"id": x.id, "support_code": x.support_code, "notes": x.notes} for x in db.scalars(select(PatientSupportNeed).where(PatientSupportNeed.patient_id == pid))]
-    base["my_permissions"] = ["plan:read"] + (["plan:manage", "network:manage"] if user.role == Role.ADMIN or member and member.team_role == TeamRole.COORDINATOR else [])
+    base["my_permissions"] = ["plan:read"] + (["plan:manage", "network:manage"] if member and member.team_role == TeamRole.PRIMARY_CONTACT else []) + (["care:prescribe", "care:schedule"] if member and member.team_role == TeamRole.PROFESSIONAL else [])
     return base
 
 
@@ -349,7 +348,7 @@ def overview(pid: uuid.UUID, user: User = Depends(__import__("app.main", fromlis
 def list_caregivers(pid: uuid.UUID, user: User = Depends(__import__("app.main", fromlist=["current_user"]).current_user), db: Session = Depends(get_db)):
     _member(db, user, pid)
     rows = db.scalars(select(Caregiver).join(CaregiverPatientLink).where(CaregiverPatientLink.patient_id == pid).order_by(Caregiver.name)).all()
-    if user.role in (Role.HOUSEHELP, Role.NURSE):
+    if user.role == Role.CARETAKER:
         rows = [cg for cg in rows if cg.user_id == user.id]
     return {"items": [_caregiver_dict(db, user, x, pid) for x in rows]}
 
@@ -357,12 +356,13 @@ def list_caregivers(pid: uuid.UUID, user: User = Depends(__import__("app.main", 
 @router.post("/patients/{pid}/caregivers", status_code=201)
 def create_caregiver(pid: uuid.UUID, body: CaregiverIn, request: Request, user: User = Depends(__import__("app.main", fromlist=["current_user"]).current_user), db: Session = Depends(get_db)):
     _member(db, user, pid, True)
-    if body.user_id:
-        linked_user = db.get(User, body.user_id)
-        if not linked_user: raise HTTPException(404, "Linked user not found")
-        expected = {"FAMILY": Role.FAMILY, "HOUSEHELP": Role.HOUSEHELP, "NURSE": Role.NURSE}
-        if body.kind in expected and linked_user.role != expected[body.kind]: raise HTTPException(422, "Caregiver kind and linked user role are incompatible")
-        if db.scalar(select(Caregiver.id).where(Caregiver.user_id == body.user_id)): raise HTTPException(409, "User already has a caregiver profile")
+    # Every care profile belongs to an account on this patient's team (caretaker, or a primary contact who also helps).
+    if not body.user_id: raise HTTPException(422, "Invite the caretaker to the care team; care profiles belong to CareCircle accounts")
+    linked_user = db.get(User, body.user_id)
+    team = db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == pid, CareTeamMember.user_id == body.user_id)) if linked_user else None
+    if not team or team.team_role not in (TeamRole.CARETAKER, TeamRole.PRIMARY_CONTACT): raise HTTPException(422, "That person must be a caretaker or primary contact on this care team")
+    if body.kind != linked_user.role.value: raise HTTPException(422, "Caregiver kind must match the account role")
+    if db.scalar(select(Caregiver.id).where(Caregiver.user_id == body.user_id)): raise HTTPException(409, "User already has a caregiver profile")
     cg = Caregiver(user_id=body.user_id, name=body.name.strip(), kind=body.kind, phone=body.phone, capabilities=body.capabilities, max_activities_per_day=body.max_activities_per_day, max_hours_per_week=body.max_hours_per_week, notes=body.notes, created_by=user.id, is_synthetic=True)
     db.add(cg); db.flush(); link = CaregiverPatientLink(caregiver_id=cg.id, patient_id=pid, relationship=body.relationship, is_designated_backup=body.is_designated_backup); db.add(link)
     _history(db, user, request, pid, "caregiver.created", "caregiver", cg.id, "Caregiver added to network")
@@ -398,8 +398,8 @@ def get_caregiver(cid: uuid.UUID, user: User = Depends(__import__("app.main", fr
     cg = db.get(Caregiver, cid)
     if not cg: raise HTTPException(404, "Caregiver not found")
     pids = _linked_patient_ids(db, cid)
-    if not (user.role == Role.ADMIN or cg.user_id == user.id or any(_is_coordinator(db, user, p) for p in pids)): raise HTTPException(403, "Caregiver access denied")
-    return _caregiver_dict(db, user, cg, next((p for p in pids if (user.role == Role.ADMIN or cg.user_id == user.id or _member(db, user, p)[1].team_role == TeamRole.COORDINATOR)), None))
+    if not (cg.user_id == user.id or any(_is_coordinator(db, user, p) for p in pids)): raise HTTPException(403, "Caregiver access denied")
+    return _caregiver_dict(db, user, cg, next((p for p in pids if (cg.user_id == user.id or _member(db, user, p)[1].team_role == TeamRole.PRIMARY_CONTACT)), None))
 
 
 @router.patch("/caregivers/{cid}")
@@ -482,7 +482,7 @@ def list_activities(pid: uuid.UUID, start: datetime | None = Query(default=None,
     if lifecycle_status: stmt = stmt.where(CareActivity.lifecycle_status == lifecycle_status)
     if category: stmt = stmt.where(CareActivity.category == category)
     rows = db.scalars(stmt.order_by(CareActivity.scheduled_start).offset(offset).limit(limit)).all()
-    if user.role in (Role.HOUSEHELP, Role.NURSE):
+    if user.role == Role.CARETAKER:  # caretakers see their own work; professionals and family see the whole plan
         own = db.scalar(select(Caregiver.id).where(Caregiver.user_id == user.id))
         rows = [a for a in rows if own and db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == a.id, CareAssignment.caregiver_id == own, CareAssignment.status.in_(ACTIVE)))]
     if caregiver_id: rows = [a for a in rows if db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == a.id, CareAssignment.caregiver_id == caregiver_id))]
@@ -592,7 +592,7 @@ def complete_activity(aid: uuid.UUID, request: Request, user: User = Depends(__i
     _member(db, user, a.patient_id)
     own = db.scalar(select(Caregiver).where(Caregiver.user_id == user.id, Caregiver.id.in_(select(CaregiverPatientLink.caregiver_id).where(CaregiverPatientLink.patient_id == a.patient_id))))
     member = db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == a.patient_id, CareTeamMember.user_id == user.id))
-    coordinator = user.role == Role.ADMIN or (member and member.team_role == TeamRole.COORDINATOR)
+    coordinator = (member and member.team_role == TeamRole.PRIMARY_CONTACT)
     if not coordinator and not (own and db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == aid, CareAssignment.caregiver_id == own.id, CareAssignment.status == "CONFIRMED"))): raise HTTPException(403, "Only coordinator or assigned caregiver can complete")
     if a.lifecycle_status != "SCHEDULED": raise HTTPException(409, "Activity is already terminal")
     a.lifecycle_status = "COMPLETED"; _history(db, user, request, a.patient_id, "activity.completed", "care_activity", aid, "Care activity completed")
@@ -677,7 +677,7 @@ def _transition(aid, action, body, request, user, db):
     if not assignment: raise HTTPException(404, "Assignment not found")
     act = db.get(CareActivity, assignment.activity_id); cg = db.get(Caregiver, assignment.caregiver_id)
     member = db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == act.patient_id, CareTeamMember.user_id == user.id))
-    coordinator = user.role == Role.ADMIN or member and member.team_role == TeamRole.COORDINATOR
+    coordinator = member and member.team_role == TeamRole.PRIMARY_CONTACT
     self_user = cg.user_id == user.id
     matrix = {"request-confirmation": {"PROPOSED": "AWAITING_CONFIRMATION"}, "confirm": {"PROPOSED": "CONFIRMED", "AWAITING_CONFIRMATION": "CONFIRMED"}, "decline": {"AWAITING_CONFIRMATION": "DECLINED"}, "reject": {"AWAITING_CONFIRMATION": "REJECTED"}, "cancel": {"PROPOSED": "CANCELLED", "AWAITING_CONFIRMATION": "CANCELLED", "CONFIRMED": "CANCELLED"}}
     if assignment.status not in matrix[action]: raise HTTPException(409, f"Illegal transition from {assignment.status}")

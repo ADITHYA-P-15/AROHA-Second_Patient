@@ -26,11 +26,11 @@ def set_deadline(incident: Incident, policy: dict, deadline_kind: str, at, scale
 def _recipients(db: Session, patient_id, level: int):
     if level == 0: return []
     rows = db.execute(select(CareTeamMember, User).join(User).where(CareTeamMember.patient_id == patient_id)).all()
-    roles = ({TeamRole.HOUSEHELP} if level == 1 else {TeamRole.COORDINATOR} if level == 2 else {TeamRole.NURSE} if level == 3 else {TeamRole.DOCTOR} if level == 4 else {TeamRole.COORDINATOR, TeamRole.FAMILY, TeamRole.HOUSEHELP, TeamRole.NURSE, TeamRole.DOCTOR})
+    roles = ({TeamRole.CARETAKER} if level == 1 else {TeamRole.PRIMARY_CONTACT} if level == 2 else {TeamRole.PROFESSIONAL} if level in (3, 4) else {TeamRole.PRIMARY_CONTACT, TeamRole.CARETAKER, TeamRole.PROFESSIONAL})
     recipients = [user for member, user in rows if member.team_role in roles and user.is_active]
-    # No nurse (L3) or doctor (L4) on the team: route to the primary contact instead of notifying nobody.
+    # No healthcare professional on the team yet: route to the primary contact instead of notifying nobody.
     if level in (3, 4) and not recipients:
-        recipients = [user for member, user in rows if member.team_role == TeamRole.COORDINATOR and user.is_active]
+        recipients = [user for member, user in rows if member.team_role == TeamRole.PRIMARY_CONTACT and user.is_active]
     return recipients
 
 

@@ -7,9 +7,9 @@ from sqlalchemy import select
 
 from app.core.clock import now
 from app.core.db import SessionLocal
-from app.core.security import hash_password
 from app.main import app
-from app.models import CareAssignment, CoverRequest, Role, User
+from app.models import CareAssignment, CoverRequest
+from tests.helpers import account, caretaker, join_as_professional, primary_contact_with_patient
 from app.services.backup_matcher import run_cover_tick, sync_patient
 from app.services.workload_balancer import _aware
 
@@ -17,30 +17,8 @@ H = {"X-Requested-With": "second-patient"}
 ANYTIME = [{"weekday": d, "start_min": 0, "end_min": 1440} for d in range(7)]
 
 
-def register(client, name="Coordinator"):
-    email = f"bm-{uuid.uuid4().hex}@example.com"
-    assert client.post("/api/v1/auth/register", headers=H, json={"name": name, "email": email, "password": "SafePass!123"}).status_code == 201
-    return email
-
-
-def user_client(role=Role.HOUSEHELP, name="Synthetic caretaker"):
-    email = f"bm-user-{uuid.uuid4().hex}@example.com"
-    with SessionLocal() as db:
-        row = User(email=email, name=name, role=role, password_hash=hash_password("SafePass!123"), is_synthetic=True)
-        db.add(row); db.commit(); user_id = str(row.id)
-    client = TestClient(app)
-    assert client.post("/api/v1/auth/login", headers=H, json={"email": email, "password": "SafePass!123"}).status_code == 200
-    return client, email, user_id
-
-
-def caregiver(coord, pid, name, kind="FAMILY", caps=("TRANSPORT",), user_id=None, day=3):
-    body = {"name": name, "kind": kind, "capabilities": list(caps), "max_activities_per_day": day, "max_hours_per_week": 40}
-    if user_id: body["user_id"] = user_id
-    created = coord.post(f"/api/v1/patients/{pid}/caregivers", headers=H, json=body)
-    assert created.status_code == 201
-    cid = created.json()["id"]
-    assert coord.put(f"/api/v1/caregivers/{cid}/schedule", headers=H, json={"windows": ANYTIME}).status_code == 200
-    return cid
+def caregiver(coord, pid, name, caps=("TRANSPORT",), day=3):
+    return caretaker(coord, pid, name, caps=caps, day=day)
 
 
 def task(coord, pid, title, hour, days=2):
@@ -51,13 +29,10 @@ def task(coord, pid, title, hour, days=2):
 
 
 def setup():
-    coord = TestClient(app); register(coord)
-    pid = coord.post("/api/v1/patients", headers=H, json={"name": "Synthetic cover patient"}).json()["id"]
-    helper, helper_email, helper_user = user_client()
-    assert coord.post(f"/api/v1/patients/{pid}/care-team", headers=H, json={"email": helper_email, "team_role": "HOUSEHELP"}).status_code == 201
-    people = {"helper": caregiver(coord, pid, "Helper Hema", "HOUSEHELP", user_id=helper_user),
-              "one": caregiver(coord, pid, "Backup One"), "two": caregiver(coord, pid, "Backup Two", "NEIGHBOUR"),
-              "busy": caregiver(coord, pid, "Busy Bala"), "nocar": caregiver(coord, pid, "No Car Nila", "HOUSEHELP", ("DAILY_ASSIST",))}
+    coord, pid = primary_contact_with_patient("Synthetic cover patient")
+    helper_id, helper = caregiver(coord, pid, "Helper Hema")
+    people = {"helper": helper_id, "one": caregiver(coord, pid, "Backup One")[0], "two": caregiver(coord, pid, "Backup Two")[0],
+              "busy": caregiver(coord, pid, "Busy Bala")[0], "nocar": caregiver(coord, pid, "No Car Nila", ("DAILY_ASSIST",))[0]}
     return coord, pid, helper, people
 
 
@@ -152,12 +127,11 @@ def test_offer_rechecks_eligibility_expiry_and_access():
     req = coord.post(f"/api/v1/activities/{aid}/cover-requests", headers=H, json={}).json()
     bad = coord.post(f"/api/v1/cover-requests/{req['id']}/offer", headers=H, json={"caregiver_id": people["nocar"]})
     assert bad.status_code == 409 and "lacks the transport capability" in bad.json()["error"]["message"]
-    family = TestClient(app); family_email = register(family, "Family contact")
-    assert coord.post(f"/api/v1/patients/{pid}/care-team", headers=H, json={"email": family_email, "team_role": "FAMILY"}).status_code == 201
-    assert family.get(f"/api/v1/patients/{pid}/cover-requests").status_code == 200
-    assert family.post(f"/api/v1/cover-requests/{req['id']}/offer", headers=H, json={"caregiver_id": people["one"]}).status_code == 403
+    professional, _, _ = join_as_professional(coord, pid)
+    assert professional.get(f"/api/v1/patients/{pid}/cover-requests").status_code == 403
+    assert professional.post(f"/api/v1/cover-requests/{req['id']}/offer", headers=H, json={"caregiver_id": people["one"]}).status_code == 403
     assert helper.post(f"/api/v1/cover-requests/{req['id']}/accept", headers=H, json={"caregiver_id": people["helper"]}).status_code == 403
-    outsider = TestClient(app); register(outsider, "Outsider")
+    outsider, _, _ = account("PRIMARY_CONTACT", "Outsider")
     assert outsider.get(f"/api/v1/cover-requests/{req['id']}").status_code == 403
     with SessionLocal() as db:
         run_cover_tick(db, start + timedelta(minutes=1)); db.commit()
@@ -212,7 +186,7 @@ def test_review_regressions_privacy_standby_confirmed_holder_and_no_reopen():
     assert not [r for r in open_requests(coord, pid) if r["activity"]["id"] == did]
 
 
-def test_auto_advance_to_someone_without_the_app_alerts_coordinators_and_offers_time_out():
+def test_auto_advance_and_unanswered_offers_time_out():
     coord, pid, helper, people = setup()
     aid, start = task(coord, pid, "Dialysis ride", 9, days=1)
     req = coord.post(f"/api/v1/activities/{aid}/cover-requests", headers=H, json={}).json()
@@ -222,9 +196,6 @@ def test_auto_advance_to_someone_without_the_app_alerts_coordinators_and_offers_
         row = db.get(CoverRequest, uuid.UUID(req["id"]))
         assert row.status == "OFFERED" and str(row.offered_caregiver_id) in (people["one"], people["two"])
         first_offer = row.offered_caregiver_id
-        from app.models import Notification
-        alert = db.scalar(select(Notification).where(Notification.patient_id == uuid.UUID(pid), Notification.title.startswith("Please call")))
-        assert alert is not None and alert.requires_ack
         # No answer within the limit: the next person is asked automatically.
         sync_patient(db, uuid.UUID(pid), _aware(row.offered_at) + timedelta(hours=3)); db.commit()
         db.refresh(row)

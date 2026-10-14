@@ -117,17 +117,5 @@ def evaluate_attention(snapshot: dict, now: datetime, settings: dict | None = No
         item = AttentionItem(f"{kind}:{incident_id}", kind, sev, "NEEDS_NOW", _get(incident, "title", "Open incident"), reason, (reason,), (_iso_id(_get(incident, "related_activity_id")),) if _get(incident, "related_activity_id") else (), incident_id, _get(incident, "current_deadline_at"), ({"option": "ACKNOWLEDGE_INCIDENT", "incident_id": incident_id},))
         items[item.dedupe_key] = item
 
-    acknowledged_briefs = {str(x) for x in snapshot.get("acknowledged_brief_ids", ())}
-    for brief in snapshot.get("briefs", ()):
-        if _get(brief, "status") == "DRAFT":
-            bid = _iso_id(_get(brief, "id"))
-            item = AttentionItem(f"BRIEF_PENDING:{bid}", "BRIEF_PENDING", "MEDIUM", "AT_RISK", "Handover draft is waiting to be published", "The end-of-day handover has not been published yet.", ("The end-of-day handover has not been published yet.",), suggested_actions=({"option": "OPEN_HANDOVER", "brief_id": bid},))
-            items[item.dedupe_key] = item
-        elif _get(brief, "status") == "PUBLISHED" and _get(brief, "to_user_id") and _iso_id(_get(brief, "id")) not in acknowledged_briefs:
-            bid = _iso_id(_get(brief, "id"))
-            reason = "The published handover is waiting for its recipient to acknowledge it."
-            item = AttentionItem(f"HANDOVER_UNACKED:{bid}", "HANDOVER_UNACKED", "MEDIUM", "NEEDS_NOW", "Handover acknowledgement is pending", reason, (reason,), suggested_actions=({"option": "ACK_HANDOVER", "brief_id": bid},))
-            items[item.dedupe_key] = item
-
     rank = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
     return sorted(items.values(), key=lambda x: (-rank[x.severity], x.due_at or datetime.max.replace(tzinfo=now.tzinfo), x.dedupe_key))

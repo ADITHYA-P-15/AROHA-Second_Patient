@@ -1,7 +1,6 @@
 from datetime import UTC, date, datetime, timedelta
 
 from app.engine.attention import evaluate_attention
-from app.engine.brief_builder import build_handover_brief, build_morning_brief
 from app.engine.daily_plan import build_daily_plan
 
 
@@ -54,16 +53,6 @@ def test_daily_plan_uses_local_daypart_and_batches_routine_tasks():
     assert plan["blocks"][0]["daypart"] == "Morning"
     assert len(plan["blocks"][0]["activities"]) == 2
 
-
-def test_briefs_are_template_only_deterministic_and_escape_html():
-    at = datetime(2026, 10, 14, 1, tzinfo=UTC)
-    snapshot = {"attention": {"needs_now": [{"title": "<script>", "reason": "Needs review"}], "decisions_waiting": [], "at_risk": []}, "plan": {"blocks": []}, "counts": {"on_track": 2}}
-    first = build_morning_brief(snapshot, now=at)
-    assert first == build_morning_brief(snapshot, now=at)
-    assert "&lt;script&gt;" in first["rendered_html"]
-    handover = build_handover_brief({}, now=at, notes="handover <img src=x>")
-    assert "&lt;img" in handover["rendered_html"]
-    assert handover["ai_enhanced"] is False
 
 
 def test_deadline_reason_uses_app_timezone():

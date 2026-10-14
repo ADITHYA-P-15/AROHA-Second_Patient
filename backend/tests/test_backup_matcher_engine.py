@@ -10,7 +10,7 @@ NOW = START - timedelta(hours=12)
 ANYTIME = [{"weekday": d, "start_min": 0, "end_min": 1440} for d in range(7)]
 
 
-def cg(cid, kind="FAMILY", caps=("TRANSPORT",), day=3, week=40.0, *, backup=False, schedule=None, overrides=()):
+def cg(cid, kind="CARETAKER", caps=("TRANSPORT",), day=3, week=40.0, *, backup=False, schedule=None, overrides=()):
     return {"id": cid, "name": cid.title(), "kind": kind, "capabilities": list(caps), "max_activities_per_day": day, "max_hours_per_week": week,
             "is_active": True, "is_designated_backup": backup, "schedule": ANYTIME if schedule is None else schedule, "overrides": list(overrides)}
 
@@ -38,7 +38,7 @@ def by_id(result):
 
 def test_example_available_committed_and_missing_capability_are_explained():
     ride, other = act("ride", 10), act("errand", 10, 30)
-    result = rank([cg("anna"), cg("bala"), cg("chitra", "HOUSEHELP", ("DAILY_ASSIST",))], [ride], [held("bala", other, own=False)])
+    result = rank([cg("anna"), cg("bala"), cg("chitra", "CARETAKER", ("DAILY_ASSIST",))], [ride], [held("bala", other, own=False)])
     rows = by_id(result)
     assert rows["anna"]["headline"] == "Anna can provide transport and is available 10:00–11:00."
     assert rows["bala"]["status"] == "COMMITTED" and rows["bala"]["headline"] == "Bala is already committed at that time."
@@ -46,11 +46,6 @@ def test_example_available_committed_and_missing_capability_are_explained():
     assert result["summary"] == "1 of 3 people in the network can take this." and result["best"]["caregiver_id"] == "anna"
     assert [c["caregiver_id"] for c in result["candidates"]] == ["anna", "bala", "chitra"]
 
-
-def test_professional_tasks_need_qualified_caregivers():
-    visit = act("visit", 9, support=("CLINICAL_VISIT",))
-    rows = by_id(rank([cg("nurse", "NURSE", ("CLINICAL_VISIT",)), cg("family", "FAMILY", ("CLINICAL_VISIT",))], [visit], [], target="visit"))
-    assert rows["nurse"]["eligible"] and rows["family"]["status"] == "NOT_QUALIFIED"
 
 
 def test_continuity_outranks_slightly_more_headroom():

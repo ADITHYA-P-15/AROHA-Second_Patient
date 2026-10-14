@@ -53,7 +53,7 @@ def _history(db, req, actor, event, summary, payload=None):
 
 
 def _coordinator_ids(db, patient_id):
-    return list(db.scalars(select(CareTeamMember.user_id).where(CareTeamMember.patient_id == patient_id, CareTeamMember.team_role == TeamRole.COORDINATOR)))
+    return list(db.scalars(select(CareTeamMember.user_id).where(CareTeamMember.patient_id == patient_id, CareTeamMember.team_role == TeamRole.PRIMARY_CONTACT)))
 
 
 def _notify(db, user_ids, patient_id, *, kind, title, body, severity="MEDIUM", requires_ack=False, skip=None):

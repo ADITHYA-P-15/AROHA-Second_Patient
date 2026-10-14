@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.core.clock import now
 from app.main import app
+from tests.helpers import join_as_professional
 
 H = {"X-Requested-With": "second-patient"}
 
@@ -13,12 +14,12 @@ H = {"X-Requested-With": "second-patient"}
 def make_patient(client):
     suffix = uuid.uuid4().hex
     assert client.post("/api/v1/auth/register", headers=H, json={"name": "Coordinator", "email": f"cc-{suffix}@example.com", "password": "SafePass!123"}).status_code == 201
-    response = client.post("/api/v1/patients", headers=H, json={"name": "Synthetic Command Center Patient"})
+    response = client.post("/api/v1/patients", headers=H, json={"name": "Synthetic Command Center Patient", "birth_year": 1950})
     assert response.status_code == 201
     return response.json()["id"]
 
 
-def test_command_center_reminder_brief_handover_and_idor():
+def test_command_center_reminders_and_access():
     client = TestClient(app)
     patient_id = make_patient(client)
     day = now().astimezone(ZoneInfo("Asia/Kolkata")).date()
@@ -35,19 +36,11 @@ def test_command_center_reminder_brief_handover_and_idor():
     done = client.post(f"/api/v1/action-items/{item_id}/done", headers=H, json={})
     assert done.status_code == 200 and done.json()["status"] == "DONE"
 
-    morning = client.post(f"/api/v1/patients/{patient_id}/briefs/morning", headers=H, json={"for_date": day.isoformat()})
-    assert morning.status_code == 200 and morning.json()["ai_enhanced"] is False
-    exported = client.get(f"/api/v1/briefs/{morning.json()['id']}?format=text")
-    assert exported.status_code == 200 and exported.headers["content-type"].startswith("text/plain")
-    draft = client.post(f"/api/v1/patients/{patient_id}/briefs/handover/draft", headers=H, json={"for_date": day.isoformat(), "notes": "Review <script>alert(1)</script>"})
-    assert draft.status_code == 201
-    html = client.get(f"/api/v1/briefs/{draft.json()['id']}?format=html")
-    assert html.status_code == 200 and "&lt;script&gt;" in html.text and "<script>" not in html.text
-    published = client.post(f"/api/v1/briefs/{draft.json()['id']}/publish", headers=H, json={})
-    assert published.status_code == 200 and published.json()["status"] == "PUBLISHED"
-    acknowledged = client.post(f"/api/v1/briefs/{draft.json()['id']}/acknowledge", headers=H, json={})
-    assert acknowledged.status_code == 200 and acknowledged.json()["acknowledged"] is True
+    assert "briefs" not in center.json()  # morning briefs and handovers were cut
+    assert client.get(f"/api/v1/patients/{patient_id}/briefs").status_code == 404
 
+    professional, _, _ = join_as_professional(client, patient_id)
+    assert professional.get("/api/v1/command-center", params={"patient_id": patient_id}).status_code == 403
     outsider = TestClient(app)
     suffix = uuid.uuid4().hex
     assert outsider.post("/api/v1/auth/register", headers=H, json={"name": "Outsider", "email": f"cc-out-{suffix}@example.com", "password": "SafePass!123"}).status_code == 201

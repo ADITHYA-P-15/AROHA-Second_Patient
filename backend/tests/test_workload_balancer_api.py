@@ -7,26 +7,16 @@ from sqlalchemy import select
 
 from app.core.clock import now
 from app.core.db import SessionLocal
-from app.core.security import hash_password
 from app.main import app
-from app.models import ActivityHistory, CareAssignment, Role, User
+from app.models import ActivityHistory, CareAssignment, User
+from tests.helpers import account, caretaker, join_as_professional, primary_contact_with_patient
 
 H = {"X-Requested-With": "second-patient"}
 ANYTIME = [{"weekday": d, "start_min": 0, "end_min": 1440} for d in range(7)]
 
 
-def register(client, name="Coordinator"):
-    email = f"wb-{uuid.uuid4().hex}@example.com"
-    assert client.post("/api/v1/auth/register", headers=H, json={"name": name, "email": email, "password": "SafePass!123"}).status_code == 201
-    return email
-
-
-def caregiver(client, pid, name, kind="FAMILY", caps=("TRANSPORT",), day=3):
-    response = client.post(f"/api/v1/patients/{pid}/caregivers", headers=H, json={"name": name, "kind": kind, "capabilities": list(caps), "max_activities_per_day": day, "max_hours_per_week": 40})
-    assert response.status_code == 201
-    cid = response.json()["id"]
-    assert client.put(f"/api/v1/caregivers/{cid}/schedule", headers=H, json={"windows": ANYTIME}).status_code == 200
-    return cid
+def caregiver(client, pid, name, kind="CARETAKER", caps=("TRANSPORT",), day=3):
+    return caretaker(client, pid, name, caps=caps, day=day)[0]
 
 
 def task(client, pid, title, hour, cid, support=("TRANSPORT",)):
@@ -39,12 +29,10 @@ def task(client, pid, title, hour, cid, support=("TRANSPORT",)):
 
 
 def setup_overload():
-    client = TestClient(app)
-    register(client)
-    pid = client.post("/api/v1/patients", headers=H, json={"name": "Synthetic balancer patient"}).json()["id"]
+    client, pid = primary_contact_with_patient("Synthetic balancer patient")
     busy = caregiver(client, pid, "Busy Daughter", day=1)
-    neighbour = caregiver(client, pid, "Kind Neighbour", "NEIGHBOUR")
-    helper = caregiver(client, pid, "Home Helper", "HOUSEHELP", ("DAILY_ASSIST",))
+    neighbour = caregiver(client, pid, "Kind Neighbour")
+    helper = caregiver(client, pid, "Home Helper", caps=("DAILY_ASSIST",))
     first = task(client, pid, "Morning transport", 9, busy)
     second = task(client, pid, "Afternoon transport", 15, busy)
     return client, pid, {"busy": busy, "neighbour": neighbour, "helper": helper}, (first, second)
@@ -109,7 +97,10 @@ def test_apply_rechecks_eligibility_and_supports_confirm_now():
 def test_other_patient_details_are_masked_and_counted():
     client, pid, people, _ = setup_overload()
     other = client.post("/api/v1/patients", headers=H, json={"name": "Second synthetic patient"}).json()["id"]
-    assert client.post(f"/api/v1/patients/{other}/caregivers/{people['neighbour']}/link", headers=H, json={"relationship": "neighbour"}).status_code == 201
+    neighbour_user = next(c["user_id"] for c in client.get(f"/api/v1/patients/{pid}/caregivers").json()["items"] if c["id"] == people["neighbour"])
+    with SessionLocal() as db:
+        neighbour_email = db.get(User, uuid.UUID(neighbour_user)).email
+    assert client.post(f"/api/v1/patients/{other}/care-team", headers=H, json={"email": neighbour_email, "team_role": "CARETAKER"}).status_code == 201
     task(client, other, "Private errand for another patient", 12, people["neighbour"])
     body = client.get(f"/api/v1/patients/{pid}/workload-balance")
     assert "Private errand" not in body.text and "Second synthetic patient" not in body.text
@@ -119,14 +110,14 @@ def test_other_patient_details_are_masked_and_counted():
 
 def test_role_access_is_enforced():
     client, pid, _, (first, _) = setup_overload()
-    family = TestClient(app)
-    family_email = register(family, "Family contact")
-    assert client.post(f"/api/v1/patients/{pid}/care-team", headers=H, json={"email": family_email, "team_role": "FAMILY"}).status_code == 201
-    view = family.get(f"/api/v1/patients/{pid}/workload-balance")
-    assert view.status_code == 200 and view.json()["permissions"]["can_apply"] is False
-    assert all(r["from"]["assignment_id"] is None for r in view.json()["recommendations"])
-    assert family.post(f"/api/v1/patients/{pid}/workload-balance/apply", headers=H, json={"activity_id": first, "from_caregiver_id": str(uuid.uuid4()), "to_caregiver_id": str(uuid.uuid4())}).status_code == 403
-    outsider = TestClient(app); register(outsider, "Outsider")
+    # Another relative added as primary contact has the same oversight rights.
+    relative, relative_email, _ = account("PRIMARY_CONTACT", "Second relative")
+    assert client.post(f"/api/v1/patients/{pid}/care-team", headers=H, json={"email": relative_email, "team_role": "PRIMARY_CONTACT"}).status_code == 201
+    assert relative.get(f"/api/v1/patients/{pid}/workload-balance").json()["permissions"]["can_apply"] is True
+    professional, _, _ = join_as_professional(client, pid)
+    assert professional.get(f"/api/v1/patients/{pid}/workload-balance").status_code == 403
+    assert professional.post(f"/api/v1/patients/{pid}/workload-balance/apply", headers=H, json={"activity_id": first, "from_caregiver_id": str(uuid.uuid4()), "to_caregiver_id": str(uuid.uuid4())}).status_code == 403
+    outsider, _, _ = account("PRIMARY_CONTACT", "Outsider")
     assert outsider.get(f"/api/v1/patients/{pid}/workload-balance").status_code == 403
     assert client.get(f"/api/v1/patients/{pid}/workload-balance", params={"days": 60}).status_code == 422
     assert TestClient(app).get(f"/api/v1/patients/{pid}/workload-balance").status_code == 401
@@ -134,22 +125,13 @@ def test_role_access_is_enforced():
 
 def test_caretaker_role_is_excluded_and_linked_receiver_is_notified():
     client, pid, people, (first, _) = setup_overload()
-    email = f"wb-helper-{uuid.uuid4().hex}@example.com"
-    with SessionLocal() as db:
-        helper_user = User(email=email, name="Synthetic caretaker", role=Role.HOUSEHELP, password_hash=hash_password("SafePass!123"), is_synthetic=True)
-        db.add(helper_user); db.commit(); helper_id = str(helper_user.id)
-    assert client.post(f"/api/v1/patients/{pid}/care-team", headers=H, json={"email": email, "team_role": "HOUSEHELP"}).status_code == 201
-    linked = client.post(f"/api/v1/patients/{pid}/caregivers", headers=H, json={"name": "Linked Caretaker", "kind": "HOUSEHELP", "user_id": helper_id, "capabilities": ["TRANSPORT"], "max_activities_per_day": 3, "max_hours_per_week": 40})
-    assert linked.status_code == 201
-    assert client.put(f"/api/v1/caregivers/{linked.json()['id']}/schedule", headers=H, json={"windows": ANYTIME}).status_code == 200
-    caretaker = TestClient(app)
-    assert caretaker.post("/api/v1/auth/login", headers=H, json={"email": email, "password": "SafePass!123"}).status_code == 200
-    assert caretaker.get(f"/api/v1/patients/{pid}/workload-balance").status_code == 403
-    applied = client.post(f"/api/v1/patients/{pid}/workload-balance/apply", headers=H, json={"activity_id": first, "from_caregiver_id": people["busy"], "to_caregiver_id": linked.json()["id"]})
+    linked_id, caretaker_client = caretaker(client, pid, "Linked Caretaker", caps=("TRANSPORT",))
+    assert caretaker_client.get(f"/api/v1/patients/{pid}/workload-balance").status_code == 403
+    applied = client.post(f"/api/v1/patients/{pid}/workload-balance/apply", headers=H, json={"activity_id": first, "from_caregiver_id": people["busy"], "to_caregiver_id": linked_id})
     assert applied.status_code == 200
-    inbox = caretaker.get("/api/v1/notifications").json()["items"]
+    inbox = caretaker_client.get("/api/v1/notifications").json()["items"]
     assert any(n["title"] == "Can you take this care task?" and n["requires_ack"] and n["channel"] == "INBOX" for n in inbox)
     # If the new caregiver declines, the previous caregiver is still the confirmed backup, so cover is not silently lost.
-    assert caretaker.post(f"/api/v1/assignments/{applied.json()['assignment']['id']}/decline", headers=H, json={"reason": "Unavailable"}).status_code == 200
+    assert caretaker_client.post(f"/api/v1/assignments/{applied.json()['assignment']['id']}/decline", headers=H, json={"reason": "Unavailable"}).status_code == 200
     plan = client.get(f"/api/v1/activities/{first}").json()["assignments"]
     assert any(a["role"] == "BACKUP" and a["status"] == "CONFIRMED" and a["caregiver_id"] == people["busy"] for a in plan)

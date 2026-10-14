@@ -25,7 +25,7 @@ def _scope(db, user, patient_id):
         return workload_scope(db, user, patient_id)
     except HTTPException as exc:
         if exc.status_code != 403: raise
-        raise HTTPException(403, "The coverage forecast is available to primary contacts and family contacts") from None
+        raise HTTPException(403, "The coverage forecast is available to primary contacts") from None
 
 
 @router.get("/patients/{patient_id}/coverage-forecast")
@@ -33,7 +33,7 @@ def coverage_forecast(patient_id: uuid.UUID, user=Depends(_current_user), db: Se
     patient, role_view = _scope(db, user, patient_id)
     at = now()
     result = svc.plan(db, patient.id, at)  # read-only: the 60-second scheduler owns the findings log
-    can_act = role_view in {"COORDINATOR", "ADMIN"}
+    can_act = role_view == "PRIMARY_CONTACT"
     if not can_act:
         for finding in result["findings"]:
             if finding["holder"]: finding["holder"]["assignment_id"] = None

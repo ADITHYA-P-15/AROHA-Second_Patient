@@ -13,8 +13,8 @@ H = {"X-Requested-With": "second-patient"}
 
 def test_login_logout_and_me_flow():
     seed(); c = TestClient(app)
-    assert c.post("/api/v1/auth/login", headers=H, json={"email":"admin@secondpatient.demo","password":settings.demo_password}).status_code == 200
-    assert c.get("/api/v1/auth/me").json()["role"] == "ADMIN"
+    assert c.post("/api/v1/auth/login", headers=H, json={"email":"anita.iyer@secondpatient.demo","password":settings.demo_password}).status_code == 200
+    assert c.get("/api/v1/auth/me").json()["role"] == "PRIMARY_CONTACT"
     assert c.post("/api/v1/auth/logout", headers=H).status_code == 204
     assert c.get("/api/v1/auth/me").status_code == 401
 
@@ -48,12 +48,12 @@ def test_security_headers_and_cookie_flags():
 def test_permission_matrix_read_and_write_expectations():
     from app.core.permissions import allowed
     from app.models import TeamRole
-    assert allowed(Role.FAMILY,TeamRole.COORDINATOR,"careplan:manage")
-    assert not allowed(Role.FAMILY,TeamRole.FAMILY,"careplan:manage")
-    assert allowed(Role.HOUSEHELP,TeamRole.HOUSEHELP,"assignment:confirm_own")
-    assert not allowed(Role.HOUSEHELP,TeamRole.HOUSEHELP,"clinical_notes:read")
-    assert allowed(Role.DOCTOR,TeamRole.DOCTOR,"clinical_notes:read")
-    assert allowed(Role.ADMIN,None,"any:future-action")
+    assert allowed(Role.PRIMARY_CONTACT,TeamRole.PRIMARY_CONTACT,"careplan:manage")
+    assert not allowed(Role.PROFESSIONAL,TeamRole.PROFESSIONAL,"careplan:manage")
+    assert allowed(Role.CARETAKER,TeamRole.CARETAKER,"assignment:confirm_own")
+    assert not allowed(Role.CARETAKER,TeamRole.CARETAKER,"clinical_notes:read")
+    assert allowed(Role.PROFESSIONAL,TeamRole.PROFESSIONAL,"clinical_notes:read")
+    assert not allowed(Role.PRIMARY_CONTACT,None,"any:future-action")
 
 
 def test_unexpected_error_envelope_does_not_disclose_stack_trace():
@@ -70,9 +70,10 @@ def test_unexpected_error_envelope_does_not_disclose_stack_trace():
     assert "Traceback" not in response.text and response.json()["error"]["request_id"]
 
 
-def test_all_eight_seeded_accounts_can_authenticate_and_domain_data_is_present():
+def test_all_seeded_accounts_can_authenticate_and_domain_data_is_present():
     seed()
-    accounts=[("admin@secondpatient.demo","ADMIN"),("anita.iyer@secondpatient.demo","FAMILY"),("karthik.iyer@secondpatient.demo","FAMILY"),("meera.pai@secondpatient.demo","FAMILY"),("ramesh.iyer@secondpatient.demo","PATIENT"),("savitha@secondpatient.demo","HOUSEHELP"),("divya.menon@secondpatient.demo","NURSE"),("dr.arjun.nair@secondpatient.demo","DOCTOR")]
+    from app.main import DEMO_ACCOUNTS
+    accounts=[(email, role.value) for email, _, role in DEMO_ACCOUNTS]
     for email,role in accounts:
         c=TestClient(app); result=c.post("/api/v1/auth/login",headers=H,json={"email":email,"password":settings.demo_password})
         assert result.status_code==200 and result.json()["role"]==role

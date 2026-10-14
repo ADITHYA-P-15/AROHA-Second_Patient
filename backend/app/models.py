@@ -9,21 +9,18 @@ from app.core.db import Base
 
 
 class Role(str, enum.Enum):
+    """The four people CareCircle serves."""
     PATIENT = "PATIENT"
-    FAMILY = "FAMILY"
-    HOUSEHELP = "HOUSEHELP"
-    NURSE = "NURSE"
-    DOCTOR = "DOCTOR"
-    ADMIN = "ADMIN"
+    PRIMARY_CONTACT = "PRIMARY_CONTACT"  # blood relative who registers and oversees
+    CARETAKER = "CARETAKER"  # carries out doses and appointments
+    PROFESSIONAL = "PROFESSIONAL"  # hospital side: prescribes and schedules
 
 
 class TeamRole(str, enum.Enum):
     PATIENT_SELF = "PATIENT_SELF"
-    COORDINATOR = "COORDINATOR"
-    FAMILY = "FAMILY"
-    HOUSEHELP = "HOUSEHELP"
-    NURSE = "NURSE"
-    DOCTOR = "DOCTOR"
+    PRIMARY_CONTACT = "PRIMARY_CONTACT"
+    CARETAKER = "CARETAKER"
+    PROFESSIONAL = "PROFESSIONAL"
 
 
 def uuid_pk():
@@ -37,7 +34,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(160))
     password_hash: Mapped[str] = mapped_column(String(255))
-    role: Mapped[Role] = mapped_column(Enum(Role, native_enum=False), default=Role.FAMILY)
+    role: Mapped[Role] = mapped_column(Enum(Role, native_enum=False, length=24), default=Role.PRIMARY_CONTACT)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
     token_version: Mapped[int] = mapped_column(Integer, default=0)
@@ -50,6 +47,8 @@ class Patient(Base):
     __table_args__ = (CheckConstraint("birth_year IS NULL OR (birth_year >= 1900 AND birth_year <= 2100)", name="ck_patients_birth_year"), CheckConstraint("mobility_level IN ('INDEPENDENT','NEEDS_AID','WHEELCHAIR','BEDBOUND')", name="ck_patients_mobility"))
     id: Mapped[uuid.UUID] = uuid_pk()
     name: Mapped[str] = mapped_column(String(160))
+    # Shared by the family with the hospital: a professional finds the patient with this ID plus the birth year.
+    care_code: Mapped[str | None] = mapped_column(String(12), unique=True, index=True, nullable=True)
     birth_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     care_notes: Mapped[str] = mapped_column(Text, default="")
     clinical_notes: Mapped[str] = mapped_column(Text, default="")
@@ -68,7 +67,7 @@ class CareTeamMember(Base):
     id: Mapped[uuid.UUID] = uuid_pk()
     patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    team_role: Mapped[TeamRole] = mapped_column(Enum(TeamRole, native_enum=False))
+    team_role: Mapped[TeamRole] = mapped_column(Enum(TeamRole, native_enum=False, length=24))
     is_primary_coordinator: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
 
@@ -99,7 +98,7 @@ class PatientSupportNeed(Base):
 
 class Caregiver(Base):
     __tablename__ = "caregivers"
-    __table_args__ = (CheckConstraint("max_activities_per_day >= 0"), CheckConstraint("max_hours_per_week >= 0"), CheckConstraint("kind IN ('FAMILY','HOUSEHELP','NURSE','NEIGHBOUR','VOLUNTEER','OTHER')", name="ck_caregiver_kind"))
+    __table_args__ = (CheckConstraint("max_activities_per_day >= 0"), CheckConstraint("max_hours_per_week >= 0"), CheckConstraint("kind IN ('CARETAKER','PRIMARY_CONTACT')", name="ck_caregiver_kind"))
     id: Mapped[uuid.UUID] = uuid_pk()
     user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), unique=True, nullable=True)
     name: Mapped[str] = mapped_column(String(160))
@@ -337,53 +336,6 @@ class ActionItem(Base):
     resolved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     reopened_count: Mapped[int] = mapped_column(Integer, default=0)
     version: Mapped[int] = mapped_column(Integer, default=1)
-
-
-class DailyBrief(Base):
-    __tablename__ = "daily_briefs"
-    __table_args__ = (
-        CheckConstraint("kind IN ('MORNING','HANDOVER')", name="ck_daily_brief_kind"),
-        CheckConstraint("status IN ('DRAFT','PUBLISHED')", name="ck_daily_brief_status"),
-        Index("uq_daily_brief_published", "patient_id", "kind", "for_date", unique=True, postgresql_where=text("status = 'PUBLISHED'"), sqlite_where=text("status = 'PUBLISHED'")),
-        Index("ix_daily_brief_patient_date", "patient_id", "for_date"),
-    )
-    id: Mapped[uuid.UUID] = uuid_pk()
-    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
-    kind: Mapped[str] = mapped_column(String(12))
-    for_date: Mapped[object] = mapped_column(DateTime(timezone=False))
-    status: Mapped[str] = mapped_column(String(12), default="DRAFT")
-    generated_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
-    generated_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    auto_generated: Mapped[bool] = mapped_column(Boolean, default=False)
-    content: Mapped[dict] = mapped_column(JSON, default=dict)
-    rendered_text: Mapped[str] = mapped_column(Text, default="")
-    rendered_html: Mapped[str] = mapped_column(Text, default="")
-    author_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    from_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    to_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    ai_enhanced: Mapped[bool] = mapped_column(Boolean, default=False)
-    version: Mapped[int] = mapped_column(Integer, default=1)
-
-
-class BriefAcknowledgement(Base):
-    __tablename__ = "brief_acknowledgements"
-    __table_args__ = (UniqueConstraint("brief_id", "user_id", name="uq_brief_ack_user"),)
-    id: Mapped[uuid.UUID] = uuid_pk()
-    brief_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("daily_briefs.id", ondelete="CASCADE"), index=True)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    acknowledged_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
-    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
-
-
-class HandoverItem(Base):
-    __tablename__ = "handover_items"
-    __table_args__ = (CheckConstraint("disposition IN ('DONE','CARRY_OVER','DROPPED','FYI')", name="ck_handover_item_disposition"),)
-    id: Mapped[uuid.UUID] = uuid_pk()
-    brief_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("daily_briefs.id", ondelete="CASCADE"), index=True)
-    activity_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("care_activities.id", ondelete="SET NULL"), nullable=True)
-    action_item_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("action_items.id", ondelete="SET NULL"), nullable=True)
-    disposition: Mapped[str] = mapped_column(String(16), default="CARRY_OVER")
-    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
 class CommandCenterSetting(Base):

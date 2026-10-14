@@ -1,6 +1,8 @@
 from datetime import datetime
 from uuid import UUID
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
@@ -10,6 +12,13 @@ class Input(BaseModel):
 
 class RegisterIn(Input):
     name: str = Field(min_length=1, max_length=160)
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    # Patients do not self-register: their primary contact creates the patient (and optionally the patient's login).
+    role: Literal["PRIMARY_CONTACT", "CARETAKER", "PROFESSIONAL"] = "PRIMARY_CONTACT"
+
+
+class PatientAccountIn(Input):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
 
@@ -31,6 +40,12 @@ class PatientIn(Input):
     clinical_notes: str = Field(default="", max_length=5000)
     mobility_level: str = Field(default="INDEPENDENT", pattern="^(INDEPENDENT|NEEDS_AID|WHEELCHAIR|BEDBOUND)$")
     language_pref: str = Field(default="en", max_length=8)
+    patient_account: PatientAccountIn | None = None
+
+
+class PatientLookupIn(Input):
+    care_code: str = Field(min_length=6, max_length=12)
+    birth_year: int = Field(ge=1900, le=2100)
 
 
 class PatientPatch(Input):
@@ -51,7 +66,7 @@ class PatientPatch(Input):
 
 class TeamIn(Input):
     email: EmailStr
-    team_role: str
+    team_role: Literal["CARETAKER", "PRIMARY_CONTACT"] = "CARETAKER"
 
 
 class UserOut(BaseModel):

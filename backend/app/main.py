@@ -23,8 +23,9 @@ from app.core.config import settings
 from app.core.db import Base, engine, get_db, SessionLocal
 from app.core.security import create_token, hash_password, verify_password
 from app.core.permissions import require_patient_access
-from app.models import ActivityHistory, CareTeamMember, Patient, Role, TeamRole, User, Caregiver, CaregiverPatientLink, CaregiverWeeklySchedule, AvailabilityOverride, CareActivity, ActivityDependency, CareAssignment, PatientSupportNeed, PatientMessage, Incident, IncidentEvent, Notification, EscalationPolicy, AppSetting, ActionItem, BriefAcknowledgement, DailyBrief, HandoverItem
-from app.schemas import LoginIn, PasswordIn, PatientIn, PatientPatch, RegisterIn, TeamIn
+from app.models import ActivityHistory, CareTeamMember, Patient, Role, TeamRole, User, Caregiver, CaregiverPatientLink, CaregiverWeeklySchedule, AvailabilityOverride, CareActivity, ActivityDependency, CareAssignment, PatientSupportNeed, PatientMessage, Incident, IncidentEvent, Notification, EscalationPolicy, AppSetting, ActionItem
+from app.schemas import LoginIn, PasswordIn, PatientIn, PatientLookupIn, PatientPatch, RegisterIn, TeamIn
+from app.services.care_team import ensure_care_profile, new_care_code, normalise_code, unlink_care_profile
 from app.engine.escalation_classifier import classify_message
 from app.engine.escalation_machine import DEFAULT_POLICY, deadline_minutes
 from app.services.escalation import policy_for, run_escalation_tick, set_deadline
@@ -106,23 +107,20 @@ def patient_access(db, user, patient_id, action="read"):
     return require_patient_access(db, user, patient_id, permission)
 
 
+ROLE_LABELS = {"PATIENT": "Patient", "PRIMARY_CONTACT": "Primary contact", "CARETAKER": "Caretaker", "PROFESSIONAL": "Healthcare professional", "PATIENT_SELF": "Patient"}
+
+
 def user_dict(u, db=None):
-    label = role_label(u.role.value)
-    if db is not None and u.role == Role.FAMILY:
-        memberships = db.scalars(select(CareTeamMember.team_role).where(CareTeamMember.user_id == u.id)).all()
-        if memberships and TeamRole.COORDINATOR not in memberships: label = "Family contact"
-    return {"id": u.id, "email": u.email, "name": u.name, "role": u.role.value, "role_label": label, "is_synthetic": u.is_synthetic}
+    return {"id": u.id, "email": u.email, "name": u.name, "role": u.role.value, "role_label": role_label(u.role.value), "is_synthetic": u.is_synthetic}
 
 
 def role_label(role, team_role=None):
-    if team_role == TeamRole.COORDINATOR.value: return "Primary contact"
-    if team_role == TeamRole.FAMILY.value: return "Family contact"
-    return {"PATIENT": "Patient", "FAMILY": "Primary contact", "HOUSEHELP": "Personal caretaker", "NURSE": "Healthcare professional", "DOCTOR": "Doctor", "ADMIN": "Administrator"}.get(role, role)
+    return ROLE_LABELS.get(team_role or role, role)
 
 
-def patient_dict(p, show_clinical):
+def patient_dict(p, show_clinical, show_code=False):
     created_at = p.created_at.replace(tzinfo=UTC) if p.created_at.tzinfo is None else p.created_at
-    return {"id": p.id, "name": p.name, "birth_year": p.birth_year, "care_notes": p.care_notes, "clinical_notes": p.clinical_notes if show_clinical else None, "is_synthetic": p.is_synthetic, "created_at": created_at}
+    return {"id": p.id, "name": p.name, "care_code": p.care_code if show_code else None, "birth_year": p.birth_year, "care_notes": p.care_notes, "clinical_notes": p.clinical_notes if show_clinical else None, "is_synthetic": p.is_synthetic, "created_at": created_at}
 
 
 class PatientMessageIn(BaseModel):
@@ -150,35 +148,9 @@ class IncidentLevelIn(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
-class EscalationPolicyIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    ack_minutes: dict[str, int]
-    resolve_minutes: dict[str, int]
-    family_contact_delay_fraction: float = Field(ge=0, le=1)
-    quiet_hours: dict[str, str]
-
-    @model_validator(mode="after")
-    def bounds(self):
-        required = {"1", "2", "3", "4", "5"}
-        if set(self.ack_minutes) != required or set(self.resolve_minutes) != required:
-            raise ValueError("Timer configuration must include levels 1 through 5")
-        if any(not 1 <= value <= 1440 for value in (*self.ack_minutes.values(), *self.resolve_minutes.values())):
-            raise ValueError("Timer values must be between 1 minute and 24 hours")
-        if self.ack_minutes["5"] > 5:
-            raise ValueError("Emergency acknowledgement cadence cannot exceed 5 minutes")
-        if set(self.quiet_hours) != {"start", "end"} or any(not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value) for value in self.quiet_hours.values()):
-            raise ValueError("Quiet hours must contain start and end in HH:MM format")
-        return self
-
-
-class DemoEscalationSpeedIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    scale: float = Field(gt=0, le=10)
-
-
 def can_see_clinical(user, member):
-    if user.role in (Role.ADMIN, Role.NURSE, Role.DOCTOR): return member is not None or user.role == Role.ADMIN
-    return (user.role == Role.PATIENT and member is not None and member.team_role == TeamRole.PATIENT_SELF) or (user.role == Role.FAMILY and member is not None and member.team_role == TeamRole.COORDINATOR)
+    if user.role == Role.PROFESSIONAL: return member is not None
+    return (user.role == Role.PATIENT and member is not None and member.team_role == TeamRole.PATIENT_SELF) or (user.role == Role.PRIMARY_CONTACT and member is not None and member.team_role == TeamRole.PRIMARY_CONTACT)
 
 
 @app.get("/api/health")
@@ -196,11 +168,11 @@ def meta(db: Session = Depends(get_db)):
 def incident_recipients(db, patient_id, level):
     if level == 0: return []
     members = db.execute(select(CareTeamMember, User).join(User).where(CareTeamMember.patient_id == patient_id)).all()
-    roles = ({TeamRole.HOUSEHELP} if level == 1 else {TeamRole.COORDINATOR} if level == 2 else {TeamRole.NURSE} if level == 3 else {TeamRole.DOCTOR} if level == 4 else {TeamRole.COORDINATOR, TeamRole.FAMILY, TeamRole.HOUSEHELP, TeamRole.NURSE, TeamRole.DOCTOR})
+    roles = ({TeamRole.CARETAKER} if level == 1 else {TeamRole.PRIMARY_CONTACT} if level == 2 else {TeamRole.PROFESSIONAL} if level in (3, 4) else {TeamRole.PRIMARY_CONTACT, TeamRole.CARETAKER, TeamRole.PROFESSIONAL})
     recipients = [u for m, u in members if m.team_role in roles and u.is_active]
-    # No nurse (L3) or doctor (L4) on the team: route to the primary contact instead of notifying nobody.
+    # No healthcare professional on the team yet: route to the primary contact instead of notifying nobody.
     if level in (3, 4) and not recipients:
-        recipients = [u for m, u in members if m.team_role == TeamRole.COORDINATOR and u.is_active]
+        recipients = [u for m, u in members if m.team_role == TeamRole.PRIMARY_CONTACT and u.is_active]
     return recipients
 
 
@@ -217,16 +189,15 @@ def current_escalation_scale(db=None):
 
 
 def may_act_on_incident(db, incident, user, member):
-    if user.role == Role.ADMIN or (member and member.team_role == TeamRole.COORDINATOR): return True
+    if (member and member.team_role == TeamRole.PRIMARY_CONTACT): return True
     event = db.scalar(select(IncidentEvent).where(IncidentEvent.incident_id == incident.id, IncidentEvent.level == incident.current_level, IncidentEvent.kind.in_(("CREATED", "MANUAL_ESCALATED", "AUTO_ESCALATED"))).order_by(IncidentEvent.at.desc()))
     return bool(event and str(user.id) in (event.recipient_user_ids or []))
 
 
 def may_read_incident(db, incident, user, member):
-    if user.role == Role.ADMIN or user.role == Role.PATIENT and member and member.team_role == TeamRole.PATIENT_SELF: return True
-    if member and member.team_role == TeamRole.COORDINATOR: return True
-    if user.role == Role.NURSE: return incident.current_level >= 3
-    if user.role == Role.DOCTOR: return incident.current_level >= 4 or incident.current_level == 5
+    if user.role == Role.PATIENT and member and member.team_role == TeamRole.PATIENT_SELF: return True
+    if member and member.team_role == TeamRole.PRIMARY_CONTACT: return True
+    if user.role == Role.PROFESSIONAL: return incident.current_level >= 3  # health concerns and emergencies
     return db.scalar(select(Notification.id).where(Notification.incident_id == incident.id, Notification.user_id == user.id)) is not None
 
 
@@ -271,7 +242,7 @@ def patient_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Requ
         if not recipients: inc.current_deadline_at = created_at
     msg = PatientMessage(patient_id=patient.id, sender_user_id=user.id, on_behalf=body.on_behalf, reported_role=user.role.value, channel=body.channel, body=safe_body, language_hint=body.language_hint, idempotency_key=key, incident_id=inc.id)
     db.add(msg)
-    missing_doctor = level == 4 and db.scalar(select(CareTeamMember.id).where(CareTeamMember.patient_id == patient.id, CareTeamMember.team_role == TeamRole.DOCTOR)) is None
+    missing_doctor = level == 4 and db.scalar(select(CareTeamMember.id).where(CareTeamMember.patient_id == patient.id, CareTeamMember.team_role == TeamRole.PROFESSIONAL)) is None
     notice_title = "No doctor on this care team" if missing_doctor else "Emergency report" if level == 5 else "Care request"
     notice_body = "No doctor on this care team — contact the clinic, or call 108/112 if urgent." if missing_doctor else safe_summary
     for recipient in recipients:
@@ -297,7 +268,7 @@ def list_incidents(patient_id: uuid.UUID | None = None, status: str | None = Non
     if patient_id is not None:
         _, member = patient_access(db, user, patient_id)
         query = query.where(Incident.patient_id == patient_id)
-    elif user.role != Role.ADMIN:
+    else:
         ids = select(CareTeamMember.patient_id).where(CareTeamMember.user_id == user.id)
         query = query.where(Incident.patient_id.in_(ids))
     if status: query = query.where(Incident.status == status.upper())
@@ -327,7 +298,7 @@ def escalate_incident(incident_id: uuid.UUID, body: IncidentLevelIn, request: Re
     inc = locked_incident(db, incident_id)
     if not inc: raise HTTPException(404, "Incident not found")
     patient, member = patient_access(db, user, inc.patient_id)
-    if not member and user.role != Role.ADMIN: raise HTTPException(403, "Permission denied")
+    if not member: raise HTTPException(403, "Permission denied")
     if inc.status in ("RESOLVED", "CANCELLED"): raise HTTPException(409, "Closed incidents cannot be escalated")
     if body.to_level <= inc.current_level: raise HTTPException(422, "Escalation level must be higher")
     inc.current_level = body.to_level; inc.version += 1
@@ -347,7 +318,7 @@ def lower_incident(incident_id: uuid.UUID, body: IncidentLevelIn, request: Reque
     inc = locked_incident(db, incident_id)
     if not inc: raise HTTPException(404, "Incident not found")
     patient, member = patient_access(db, user, inc.patient_id)
-    privileged = user.role in (Role.ADMIN, Role.NURSE, Role.DOCTOR) or bool(member and member.team_role == TeamRole.COORDINATOR)
+    privileged = user.role in (Role.PROFESSIONAL, Role.PROFESSIONAL) or bool(member and member.team_role == TeamRole.PRIMARY_CONTACT)
     if not privileged: raise HTTPException(403, "Permission denied")
     if inc.status in ("RESOLVED", "CANCELLED"): raise HTTPException(409, "Closed incidents cannot be lowered")
     if body.to_level >= inc.current_level: raise HTTPException(422, "Lowering level must be lower")
@@ -422,112 +393,6 @@ def notification_read(notification_id: uuid.UUID, user: User = Depends(current_u
     return {"id": item.id, "read_at": item.read_at}
 
 
-@app.get("/api/v1/patients/{patient_id}/escalation-policy")
-def get_escalation_policy(patient_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    patient_access(db, user, patient_id)
-    row = db.scalar(select(EscalationPolicy).where(EscalationPolicy.patient_id == patient_id))
-    system = row or db.scalar(select(EscalationPolicy).where(EscalationPolicy.patient_id.is_(None)))
-    return {"patient_id": patient_id, "config": system.config if system else DEFAULT_POLICY, "version": system.version if system else 1, "is_system_default": row is None}
-
-
-@app.put("/api/v1/patients/{patient_id}/escalation-policy")
-def update_escalation_policy(patient_id: uuid.UUID, body: EscalationPolicyIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    patient, member = patient_access(db, user, patient_id, "update")
-    if user.role != Role.ADMIN and (not member or member.team_role != TeamRole.COORDINATOR): raise HTTPException(403, "Coordinator permission required")
-    row = db.scalar(select(EscalationPolicy).where(EscalationPolicy.patient_id == patient.id))
-    if not row:
-        row = EscalationPolicy(patient_id=patient.id, config=body.model_dump(), version=1, updated_by=user.id); db.add(row)
-    else:
-        row.config = body.model_dump(); row.version += 1; row.updated_by = user.id; row.updated_at = now()
-    audit(db, user, patient.id, "POLICY_UPDATED", "escalation_policy", row.id or "new", "Escalation policy updated", request.state.request_id)
-    db.commit(); db.refresh(row)
-    return {"patient_id": patient.id, "config": row.config, "version": row.version, "is_system_default": False}
-
-
-@app.post("/api/v1/patients/{patient_id}/escalation-policy/reset")
-def reset_escalation_policy(patient_id: uuid.UUID, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    patient, member = patient_access(db, user, patient_id, "update")
-    if user.role != Role.ADMIN and (not member or member.team_role != TeamRole.COORDINATOR): raise HTTPException(403, "Coordinator permission required")
-    row = db.scalar(select(EscalationPolicy).where(EscalationPolicy.patient_id == patient.id))
-    if row: db.delete(row)
-    audit(db, user, patient.id, "POLICY_UPDATED", "escalation_policy", patient.id, "Escalation policy reset", request.state.request_id)
-    db.commit()
-    system = db.scalar(select(EscalationPolicy).where(EscalationPolicy.patient_id.is_(None)))
-    return {"patient_id": patient.id, "config": system.config if system else DEFAULT_POLICY, "version": system.version if system else 1, "is_system_default": True}
-
-
-@app.post("/api/v1/admin/demo/escalation-speed")
-def set_demo_escalation_speed(body: DemoEscalationSpeedIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    if user.role != Role.ADMIN or not settings.demo_mode: raise HTTPException(404, "Not found")
-    setting = db.get(AppSetting, "escalation_time_scale")
-    if not setting:
-        setting = AppSetting(key="escalation_time_scale", value={"scale": body.scale}); db.add(setting)
-    else: setting.value = {"scale": body.scale}
-    db.commit()
-    return {"scale": body.scale, "demo_mode": True}
-
-
-@app.post("/api/v1/admin/demo/scenarios/{scenario_name}")
-def run_demo_escalation_scenario(scenario_name: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    if user.role != Role.ADMIN or not settings.demo_mode: raise HTTPException(404, "Not found")
-    if scenario_name in {"command_center_messy_day", "command_center_clear_day"}:
-        patient = db.scalar(select(Patient).where(Patient.is_synthetic.is_(True)).order_by(Patient.created_at.asc()))
-        if not patient: raise HTTPException(404, "Synthetic demo patient not found")
-        titles = ("Demo · unassigned same-day pickup", "Demo · awaiting caregiver confirmation")
-        activities = db.scalars(select(CareActivity).where(CareActivity.patient_id == patient.id, CareActivity.title.in_(titles))).all()
-        if scenario_name == "command_center_clear_day":
-            for activity in activities: activity.lifecycle_status = "CANCELLED"
-            db.commit()
-            return {"scenario": scenario_name, "status": "cleared", "activities": len(activities)}
-        if activities: return {"scenario": scenario_name, "status": "already_seeded", "patient_id": str(patient.id)}
-        coordinator = db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == patient.id, CareTeamMember.team_role == TeamRole.COORDINATOR))
-        caregiver = db.scalar(select(Caregiver).where(Caregiver.user_id.is_not(None), Caregiver.is_synthetic.is_(True)).order_by(Caregiver.name))
-        if not coordinator or not caregiver: raise HTTPException(409, "Synthetic coordinator or caregiver is not seeded")
-        zone = ZoneInfo(settings.app_timezone)
-        local_start = now().astimezone(zone).replace(second=0, microsecond=0) + timedelta(hours=2)
-        start = local_start.astimezone(UTC)
-        first = CareActivity(patient_id=patient.id, title=titles[0], category="PRESCRIPTION", scheduled_start=start, scheduled_end=start + timedelta(minutes=45), deadline=start + timedelta(hours=3), importance="HIGH", requires_caregiver=True, required_support=["PRESCRIPTION_PICKUP"], lifecycle_status="SCHEDULED", is_synthetic=True, created_by=user.id)
-        second = CareActivity(patient_id=patient.id, title=titles[1], category="DAILY_ROUTINE", scheduled_start=start + timedelta(hours=1), scheduled_end=start + timedelta(hours=1, minutes=30), deadline=start + timedelta(hours=2), importance="MEDIUM", requires_caregiver=True, required_support=["DAILY_ASSIST"], lifecycle_status="SCHEDULED", is_synthetic=True, created_by=user.id)
-        db.add_all([first, second]); db.flush()
-        db.add(CareAssignment(activity_id=second.id, caregiver_id=caregiver.id, role="PRIMARY", status="AWAITING_CONFIRMATION", assigned_by=user.id, assigned_at=now()))
-        db.add(ActivityHistory(actor_user_id=user.id, patient_id=patient.id, event_type="command_center.demo_seeded", entity_type="care_activity", entity_id=str(first.id), summary="Synthetic command-center demo scenario added", payload={"is_synthetic": True}))
-        db.flush(); reconcile_patient(db, patient.id); db.commit()
-        return {"scenario": scenario_name, "status": "seeded", "patient_id": str(patient.id)}
-    if scenario_name == "reset_incidents":
-        patient_ids=list(db.scalars(select(Patient.id).where(Patient.is_synthetic.is_(True))))
-        if patient_ids:
-            incident_ids=list(db.scalars(select(Incident.id).where(Incident.patient_id.in_(patient_ids))))
-            if incident_ids:
-                db.query(Notification).filter(Notification.incident_id.in_(incident_ids)).delete(synchronize_session=False)
-                db.query(IncidentEvent).filter(IncidentEvent.incident_id.in_(incident_ids)).delete(synchronize_session=False)
-                db.query(PatientMessage).filter(PatientMessage.incident_id.in_(incident_ids)).delete(synchronize_session=False)
-                db.query(Incident).filter(Incident.id.in_(incident_ids)).delete(synchronize_session=False)
-            for patient_id in patient_ids: reconcile_patient(db, patient_id)
-        db.commit()
-        return {"scenario": scenario_name, "status": "reset"}
-    scenarios={"daily_help":("DAILY_HELP",1,"Care request","A patient needs daily assistance."),
-               "missed_task":("TASK",1,"TASK_OVERDUE","A scheduled care activity is overdue."),
-               "health_concern":("HEALTH_CONCERN",3,"Health concern","A patient reported a health concern."),
-               "logistics_failure":("LOGISTICS",2,"Coordination needed","A patient reported a support coordination gap."),
-               "sos":("EMERGENCY",5,"Emergency report","A patient submitted an SOS report.")}
-    if scenario_name not in scenarios: raise HTTPException(404, "Unknown demo scenario")
-    patient=db.scalar(select(Patient).where(Patient.is_synthetic.is_(True)).order_by(Patient.created_at.asc()))
-    if not patient: raise HTTPException(404, "Synthetic demo patient not found")
-    category,level,title,summary=scenarios[scenario_name]
-    recipients=incident_recipients(db,patient.id,level)
-    if level==1 and not recipients: level=2;recipients=incident_recipients(db,patient.id,level)
-    inc=Incident(patient_id=patient.id,source="SOS" if scenario_name=="sos" else "TASK_OVERDUE" if scenario_name=="missed_task" else "MANUAL",category=category,initial_level=level,current_level=level,importance="HIGH" if scenario_name=="missed_task" else "MEDIUM",severity="HIGH" if level>=3 else "MEDIUM",status="OPEN",title=title,safe_summary=f"{patient.name}: {summary}",dedupe_key=f"scenario:{scenario_name}:{uuid.uuid4()}",classification={"rule_ids":[f"scenario_{scenario_name}"],"reasons":["Created by an administrator demo scenario"],"classifier_version":"demo-scenario-1"})
-    db.add(inc);db.flush()
-    if level>0: set_deadline(inc,policy_for(db,patient.id),"ACK",now(),current_escalation_scale(db))
-    for recipient in recipients:
-        db.add(Notification(user_id=recipient.id,patient_id=patient.id,incident_id=inc.id,kind="INCIDENT",severity=inc.severity,title=title,body=inc.safe_summary,requires_ack=True))
-    db.add(IncidentEvent(incident_id=inc.id,kind="CREATED",level=level,actor_user_id=user.id,recipient_user_ids=[str(person.id) for person in recipients],meta={"scenario":scenario_name}))
-    if recipients: db.add(IncidentEvent(incident_id=inc.id,kind="NOTIFIED",level=level,actor_user_id=None,recipient_user_ids=[str(person.id) for person in recipients]))
-    audit(db,user,patient.id,"INCIDENT_CREATED","incident",inc.id,"Synthetic demo scenario created")
-    db.commit();db.refresh(inc)
-    return {"scenario":scenario_name,"incident_id":inc.id,"incident":incident_payload(inc)}
-
-
 @app.post("/api/v1/incidents/{incident_id}/resolve")
 def resolve_incident(incident_id: uuid.UUID, body: IncidentResolveIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
     inc = locked_incident(db, incident_id)
@@ -538,7 +403,7 @@ def resolve_incident(incident_id: uuid.UUID, body: IncidentResolveIn, request: R
         if may_read_incident(db, inc, user, member): return incident_payload(inc)
         raise HTTPException(403, "Incident access denied")
     # Care professionals may resolve incidents they can see, not every incident on the care team.
-    if not may_act_on_incident(db, inc, user, member) and not (user.role in (Role.NURSE, Role.DOCTOR) and may_read_incident(db, inc, user, member)): raise HTTPException(403, "Only an incident recipient or care professional can resolve")
+    if not may_act_on_incident(db, inc, user, member) and not (user.role in (Role.PROFESSIONAL, Role.PROFESSIONAL) and may_read_incident(db, inc, user, member)): raise HTTPException(403, "Only an incident recipient or care professional can resolve")
     if inc.current_level == 5 and (inc.status == "OPEN" or not body.note): raise HTTPException(422, "Emergency resolution requires acknowledgement and a note")
     inc.status = "RESOLVED"; inc.resolved_at = now(); inc.resolution_code = body.code; inc.resolution_note = body.note; inc.version += 1
     inc.current_deadline_at = None; inc.deadline_kind = None
@@ -554,12 +419,13 @@ def resolve_incident(incident_id: uuid.UUID, body: IncidentResolveIn, request: R
 
 @app.post("/api/v1/auth/register", status_code=201)
 def register(body: RegisterIn, response: Response, db: Session = Depends(get_db)):
+    """Primary contacts, caretakers and healthcare professionals sign up; patients are registered by their primary contact."""
     email = str(body.email).lower()
     if not password_is_strong(body.password, body.name, email):
         raise HTTPException(422, "Password does not meet basic strength requirements")
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(409, "An account with this email already exists")
-    user = User(email=email, name=body.name.strip(), password_hash=hash_password(body.password), role=Role.FAMILY)
+    user = User(email=email, name=body.name.strip(), password_hash=hash_password(body.password), role=Role(body.role))
     db.add(user); db.commit(); db.refresh(user)
     response.set_cookie(COOKIE, create_token(user), httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=settings.session_hours * 3600, path="/")
     return user_dict(user, db)
@@ -608,8 +474,7 @@ def password_is_strong(password: str, name: str, email: str) -> bool:
     return len(password) >= 8 and any(c.isalpha() for c in password) and any(c.isdigit() for c in password) and lowered not in {name.lower(), email.lower(), "password", "password123"}
 
 
-# Extended patient representations and the Phase 2 domain API are registered
-# ahead of the original foundation routes sharing patient URL paths.
+# GET/PATCH /patients/{id} are served by the domain router (extended representation).
 from app.api.domain import router as domain_router
 app.include_router(domain_router)
 from app.api.command_center import router as command_center_router
@@ -622,120 +487,169 @@ from app.api.coverage_planner import router as coverage_planner_router
 app.include_router(coverage_planner_router)
 
 
+lookup_attempts: dict[str, deque[float]] = defaultdict(deque)
+
+
+def _primary_contact(db, user, patient_id):
+    patient, member = patient_access(db, user, patient_id)
+    if user.role != Role.PRIMARY_CONTACT or member.team_role != TeamRole.PRIMARY_CONTACT: raise HTTPException(403, "Primary contact permission required")
+    return patient, member
+
+
+def _show_code(user, member) -> bool:
+    return member is not None and member.team_role in (TeamRole.PRIMARY_CONTACT, TeamRole.PROFESSIONAL)
+
+
 @app.get("/api/v1/patients")
 def list_patients(limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0), user: User = Depends(current_user), db: Session = Depends(get_db)):
-    stmt = select(Patient) if user.role == Role.ADMIN else select(Patient).join(CareTeamMember).where(CareTeamMember.user_id == user.id)
-    total = len(db.scalars(stmt).all())
-    patients = db.scalars(stmt.order_by(Patient.created_at.desc()).offset(offset).limit(limit)).all()
-    return {"items": [patient_dict(p, can_see_clinical(user, db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == p.id, CareTeamMember.user_id == user.id)))) for p in patients], "total": total, "limit": limit, "offset": offset}
+    stmt = select(Patient, CareTeamMember).join(CareTeamMember).where(CareTeamMember.user_id == user.id)
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    rows = db.execute(stmt.order_by(Patient.created_at.desc()).offset(offset).limit(limit)).all()
+    return {"items": [patient_dict(p, can_see_clinical(user, m), _show_code(user, m)) for p, m in rows], "total": total, "limit": limit, "offset": offset}
 
 
 @app.post("/api/v1/patients", status_code=201)
 def create_patient(body: PatientIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    if user.role not in (Role.FAMILY, Role.ADMIN): raise HTTPException(403, "Permission denied")
-    p = Patient(**body.model_dump(), created_by=user.id, is_synthetic=settings.demo_mode)
+    """A primary contact registers the patient. The patient gets a CareCircle ID to share with the hospital."""
+    if user.role != Role.PRIMARY_CONTACT: raise HTTPException(403, "Only a primary contact can register a patient")
+    values = body.model_dump(exclude={"patient_account"})
+    p = Patient(**values, care_code=new_care_code(db), created_by=user.id, is_synthetic=settings.demo_mode)
     db.add(p); db.flush()
-    db.add(CareTeamMember(patient_id=p.id, user_id=user.id, team_role=TeamRole.COORDINATOR, is_primary_coordinator=True))
-    audit(db, user, p.id, "patient.created", "patient", p.id, "Patient profile created", request.state.request_id)
+    db.add(CareTeamMember(patient_id=p.id, user_id=user.id, team_role=TeamRole.PRIMARY_CONTACT, is_primary_coordinator=True))
+    if body.patient_account:
+        email = str(body.patient_account.email).lower()
+        if db.scalar(select(User).where(User.email == email)): raise HTTPException(409, "An account with this email already exists")
+        if not password_is_strong(body.patient_account.password, body.name, email): raise HTTPException(422, "Patient password does not meet basic strength requirements")
+        login = User(email=email, name=body.name.strip(), role=Role.PATIENT, password_hash=hash_password(body.patient_account.password), is_synthetic=settings.demo_mode)
+        db.add(login); db.flush()
+        db.add(CareTeamMember(patient_id=p.id, user_id=login.id, team_role=TeamRole.PATIENT_SELF))
+    audit(db, user, p.id, "patient.created", "patient", p.id, "Patient registered", request.state.request_id)
     db.commit(); db.refresh(p)
-    return patient_dict(p, True)
+    return patient_dict(p, True, True)
 
 
-@app.get("/api/v1/patients/{patient_id}")
-def get_patient(patient_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    p, m = patient_access(db, user, patient_id)
-    return patient_dict(p, can_see_clinical(user, m))
+def _lookup(db, user, request, care_code: str, birth_year: int):
+    if user.role != Role.PROFESSIONAL: raise HTTPException(403, "Only healthcare professionals can look up patients")
+    attempts = lookup_attempts[str(user.id)]
+    cutoff = time.monotonic() - 60
+    while attempts and attempts[0] < cutoff: attempts.popleft()
+    if len(attempts) >= 10: raise HTTPException(429, "Too many lookups; wait a minute", headers={"Retry-After": "60"})
+    attempts.append(time.monotonic())
+    patient = db.scalar(select(Patient).where(Patient.care_code == normalise_code(care_code)))
+    # One message for a wrong ID or a wrong birth year, so IDs cannot be probed.
+    if not patient or patient.birth_year != birth_year: raise HTTPException(404, "No patient matches that CareCircle ID and birth year")
+    return patient
 
 
-@app.patch("/api/v1/patients/{patient_id}")
-def patch_patient(patient_id: uuid.UUID, body: PatientPatch, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    p, m = patient_access(db, user, patient_id, "update")
-    if user.role != Role.ADMIN and not m.is_primary_coordinator and m.team_role != TeamRole.COORDINATOR: raise HTTPException(403, "Coordinator permission required")
-    for key, value in body.model_dump(exclude_unset=True).items(): setattr(p, key, value)
-    p.updated_at = now(); audit(db, user, p.id, "patient.updated", "patient", p.id, "Patient profile updated", request.state.request_id); db.commit(); db.refresh(p)
-    return patient_dict(p, can_see_clinical(user, m))
+@app.post("/api/v1/patients/lookup")
+def lookup_patient(body: PatientLookupIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    patient = _lookup(db, user, request, body.care_code, body.birth_year)
+    member = db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == patient.id, CareTeamMember.user_id == user.id))
+    return {"id": patient.id, "name": patient.name, "birth_year": patient.birth_year, "care_code": patient.care_code, "already_on_team": member is not None}
+
+
+@app.post("/api/v1/patients/join", status_code=201)
+def join_patient(body: PatientLookupIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """A healthcare professional joins the care team with the ID the family shared (the family's consent)."""
+    patient = _lookup(db, user, request, body.care_code, body.birth_year)
+    member = db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == patient.id, CareTeamMember.user_id == user.id))
+    if not member:
+        member = CareTeamMember(patient_id=patient.id, user_id=user.id, team_role=TeamRole.PROFESSIONAL); db.add(member)
+        audit(db, user, patient.id, "care_team.professional_joined", "care_team_member", user.id, f"{user.name} (healthcare professional) joined the care team", request.state.request_id)
+        for contact in db.scalars(select(CareTeamMember.user_id).where(CareTeamMember.patient_id == patient.id, CareTeamMember.team_role == TeamRole.PRIMARY_CONTACT)):
+            db.add(Notification(user_id=contact, patient_id=patient.id, kind="STATUS", severity="LOW", title="A healthcare professional joined",
+                                body=f"{user.name} joined {patient.name}'s care team using the CareCircle ID. Remove them in Care team if this is unexpected.", requires_ack=False, channel="INBOX"))
+        db.commit()
+    return patient_dict(patient, True, True)
 
 
 @app.get("/api/v1/patients/{patient_id}/care-team")
 def care_team(patient_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)):
     patient_access(db, user, patient_id)
     rows = db.execute(select(CareTeamMember, User).join(User).where(CareTeamMember.patient_id == patient_id)).all()
-    contact_visible = user.role in (Role.ADMIN, Role.FAMILY, Role.DOCTOR)
+    contact_visible = user.role in (Role.PRIMARY_CONTACT, Role.PROFESSIONAL)
     return {"items": [{"id": m.id, "user_id": u.id, "name": u.name, "email": u.email if contact_visible else None, "role": u.role.value, "role_label": role_label(u.role.value, m.team_role.value), "team_role": m.team_role.value, "is_primary_coordinator": m.is_primary_coordinator} for m, u in rows]}
 
 
 @app.post("/api/v1/patients/{patient_id}/care-team", status_code=201)
 def add_team(patient_id: uuid.UUID, body: TeamIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    p, member = patient_access(db, user, patient_id, "update")
-    if user.role != Role.ADMIN and (not member or member.team_role != TeamRole.COORDINATOR): raise HTTPException(403, "Coordinator permission required")
-    try: team_role = TeamRole(body.team_role)
-    except ValueError: raise HTTPException(422, "Invalid team role") from None
+    """A primary contact invites a caretaker (or another relative as primary contact) by their CareCircle account email."""
+    p, _ = _primary_contact(db, user, patient_id)
+    team_role = TeamRole(body.team_role)
     target = db.scalar(select(User).where(User.email == str(body.email).lower()))
-    if not target: raise HTTPException(404, "User not found")
-    expected = {TeamRole.PATIENT_SELF: Role.PATIENT, TeamRole.COORDINATOR: Role.FAMILY, TeamRole.FAMILY: Role.FAMILY, TeamRole.HOUSEHELP: Role.HOUSEHELP, TeamRole.NURSE: Role.NURSE, TeamRole.DOCTOR: Role.DOCTOR}
-    if target.role != expected[team_role]: raise HTTPException(422, "User role is incompatible with requested team role")
+    if not target: raise HTTPException(404, "No CareCircle account uses that email; ask them to sign up first")
+    if target.role.value != team_role.value: raise HTTPException(422, f"That account is registered as {role_label(target.role.value)}, not {role_label(team_role.value)}")
     if db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == p.id, CareTeamMember.user_id == target.id)): raise HTTPException(409, "User is already on this care team")
-    m = CareTeamMember(patient_id=p.id, user_id=target.id, team_role=team_role); db.add(m); audit(db, user, p.id, "care_team.member_added", "care_team_member", target.id, "Care team member added", request.state.request_id); db.commit(); db.refresh(m)
+    m = CareTeamMember(patient_id=p.id, user_id=target.id, team_role=team_role); db.add(m)
+    if team_role == TeamRole.CARETAKER:
+        ensure_care_profile(db, target, p.id, created_by=user.id)
+    audit(db, user, p.id, "care_team.member_added", "care_team_member", target.id, f"{role_label(team_role.value)} {target.name} added", request.state.request_id)
+    db.commit(); db.refresh(m)
     return {"id": m.id, "user_id": target.id, "team_role": team_role.value, "role_label": role_label(target.role.value, team_role.value)}
+
+
+@app.post("/api/v1/patients/{patient_id}/care-team/me/care-profile", status_code=201)
+def opt_in_care_profile(patient_id: uuid.UUID, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """A primary contact who also carries out care activities (e.g. takes the patient to appointments)."""
+    p, _ = _primary_contact(db, user, patient_id)
+    profile = ensure_care_profile(db, user, p.id, created_by=user.id)
+    audit(db, user, p.id, "care_team.care_profile", "caregiver", profile.id, f"{user.name} can now be assigned care activities", request.state.request_id)
+    db.commit()
+    return {"caregiver_id": profile.id}
 
 
 @app.delete("/api/v1/patients/{patient_id}/care-team/{member_id}", status_code=204)
 def remove_team(patient_id: uuid.UUID, member_id: uuid.UUID, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    p, access = patient_access(db, user, patient_id, "update")
-    if user.role != Role.ADMIN and (not access or access.team_role != TeamRole.COORDINATOR): raise HTTPException(403, "Coordinator permission required")
+    p, _ = _primary_contact(db, user, patient_id)
     member = db.scalar(select(CareTeamMember).where(CareTeamMember.id == member_id, CareTeamMember.patient_id == p.id))
     if not member: raise HTTPException(404, "Care team member not found")
-    if member.team_role == TeamRole.COORDINATOR and db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == p.id, CareTeamMember.team_role == TeamRole.COORDINATOR, CareTeamMember.id != member.id)) is None: raise HTTPException(409, "Cannot remove the last coordinator")
-    db.delete(member); audit(db, user, p.id, "care_team.member_removed", "care_team_member", member_id, "Care team member removed", request.state.request_id); db.commit(); return Response(status_code=204)
+    if member.team_role == TeamRole.PRIMARY_CONTACT and db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == p.id, CareTeamMember.team_role == TeamRole.PRIMARY_CONTACT, CareTeamMember.id != member.id)) is None: raise HTTPException(409, "Cannot remove the last primary contact")
+    unlink_care_profile(db, member.user_id, p.id)
+    db.delete(member); audit(db, user, p.id, "care_team.member_removed", "care_team_member", member_id, "Care team member removed", request.state.request_id)
+    db.flush(); reconcile_patient(db, p.id); db.commit(); return Response(status_code=204)
 
 
 @app.get("/api/v1/patients/{patient_id}/history")
 def history(patient_id: uuid.UUID, limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0), user: User = Depends(current_user), db: Session = Depends(get_db)):
     p, member = patient_access(db, user, patient_id)
-    if user.role not in (Role.ADMIN, Role.DOCTOR) and not (member and member.team_role in (TeamRole.COORDINATOR, TeamRole.FAMILY)): raise HTTPException(403, "Permission denied")
-    limit = max(1, min(limit, 100)); rows = db.scalars(select(ActivityHistory).where(ActivityHistory.patient_id == p.id).order_by(ActivityHistory.occurred_at.desc()).offset(offset).limit(limit)).all()
+    if member.team_role not in (TeamRole.PRIMARY_CONTACT, TeamRole.PROFESSIONAL): raise HTTPException(403, "Permission denied")
+    rows = db.scalars(select(ActivityHistory).where(ActivityHistory.patient_id == p.id).order_by(ActivityHistory.occurred_at.desc()).offset(offset).limit(limit)).all()
     return {"items": [{"id": e.id, "occurred_at": e.occurred_at.replace(tzinfo=UTC) if e.occurred_at.tzinfo is None else e.occurred_at, "event_type": e.event_type, "summary": e.summary, "outcome": e.outcome} for e in rows], "total": db.query(ActivityHistory).filter_by(patient_id=p.id).count(), "limit": limit, "offset": offset}
 
 
-@app.post("/api/v1/admin/demo/reset")
-def demo_reset(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    if user.role != Role.ADMIN: raise HTTPException(403, "Admin access required")
-    if not settings.demo_mode: raise HTTPException(404, "Not found")
-    db.query(ActivityHistory).delete()
-    db.query(BriefAcknowledgement).delete(); db.query(HandoverItem).delete(); db.query(DailyBrief).delete(); db.query(ActionItem).delete()
-    db.query(CareAssignment).delete(); db.query(ActivityDependency).delete(); db.query(CareActivity).delete(); db.query(AvailabilityOverride).delete(); db.query(CaregiverWeeklySchedule).delete(); db.query(CaregiverPatientLink).delete(); db.query(Caregiver).delete(); db.query(PatientSupportNeed).delete()
-    db.query(CareTeamMember).delete(); db.query(Patient).delete(); db.commit()
-    run_seed(db)
-    audit(db, user, None, "demo.reset", "demo", "demo", "Synthetic demo data reset")
-    db.commit()
-    return {"status": "reset"}
+DEMO_ACCOUNTS = [
+    ("anita.iyer@secondpatient.demo", "Anita Iyer", Role.PRIMARY_CONTACT),
+    ("karthik.iyer@secondpatient.demo", "Karthik Iyer", Role.PRIMARY_CONTACT),
+    ("meera.pai@secondpatient.demo", "Meera Pai", Role.PRIMARY_CONTACT),
+    ("ramesh.iyer@secondpatient.demo", "Ramesh Iyer", Role.PATIENT),
+    ("savitha@secondpatient.demo", "Savitha", Role.CARETAKER),
+    ("lakshmi@secondpatient.demo", "Lakshmi Rao", Role.CARETAKER),
+    ("suresh.kamath@secondpatient.demo", "Suresh Kamath", Role.CARETAKER),
+    ("divya.menon@secondpatient.demo", "Divya Menon", Role.PROFESSIONAL),
+    ("dr.arjun.nair@secondpatient.demo", "Dr. Arjun Nair", Role.PROFESSIONAL),
+]
 
 
 def seed(db=None):
     own = db is None
     if own:
         db = next(get_db())
-    accounts = [
-        ("admin@secondpatient.demo", "Demo Administrator", Role.ADMIN),
-        ("anita.iyer@secondpatient.demo", "Anita Iyer", Role.FAMILY),
-        ("karthik.iyer@secondpatient.demo", "Karthik Iyer", Role.FAMILY),
-        ("meera.pai@secondpatient.demo", "Meera Pai", Role.FAMILY),
-        ("ramesh.iyer@secondpatient.demo", "Ramesh Iyer", Role.PATIENT),
-        ("savitha@secondpatient.demo", "Savitha", Role.HOUSEHELP),
-        ("divya.menon@secondpatient.demo", "Divya Menon", Role.NURSE),
-        ("dr.arjun.nair@secondpatient.demo", "Dr. Arjun Nair", Role.DOCTOR),
-    ]
     users = {}
-    for email, name, role in accounts:
+    for email, name, role in DEMO_ACCOUNTS:
         user = db.scalar(select(User).where(User.email == email))
         if not user:
             user = User(email=email, name=name, role=role, is_synthetic=True, password_hash=hash_password(settings.demo_password)); db.add(user); db.flush()
         users[email] = user
-    if not db.scalar(select(Patient)):
-        p1 = Patient(name="Ramesh Iyer", birth_year=1954, care_notes="Mobility-limited; post-procedure follow-up support.", clinical_notes="Fictional demo note: follow-up plan discussed.", created_by=users["anita.iyer@secondpatient.demo"].id, is_synthetic=True)
-        p2 = Patient(name="Sharada Pai", birth_year=1946, care_notes="Lives alone; Savitha helps daily.", clinical_notes="Fictional demo note.", created_by=users["meera.pai@secondpatient.demo"].id, is_synthetic=True)
+    # Create the demo patients unless they already exist (other, real patients may share the database).
+    if not db.scalar(select(Patient.id).where(Patient.care_code.in_(("CC-RAM354", "CC-SHA746")))) and not db.scalar(select(Patient.id).where(Patient.name == "Ramesh Iyer", Patient.is_synthetic.is_(True), Patient.created_by == users["anita.iyer@secondpatient.demo"].id)):
+        p1 = Patient(name="Ramesh Iyer", birth_year=1954, care_code="CC-RAM354", care_notes="Mobility-limited; post-procedure follow-up support.", clinical_notes="Fictional demo note: follow-up plan discussed.", created_by=users["anita.iyer@secondpatient.demo"].id, is_synthetic=True)
+        p2 = Patient(name="Sharada Pai", birth_year=1946, care_code="CC-SHA746", care_notes="Lives alone; Savitha helps daily.", clinical_notes="Fictional demo note.", created_by=users["meera.pai@secondpatient.demo"].id, is_synthetic=True)
         db.add_all([p1, p2]); db.flush()
-        entries = [(p1, "anita.iyer@secondpatient.demo", TeamRole.COORDINATOR, True), (p1, "karthik.iyer@secondpatient.demo", TeamRole.FAMILY, False), (p1, "ramesh.iyer@secondpatient.demo", TeamRole.PATIENT_SELF, False), (p1, "savitha@secondpatient.demo", TeamRole.HOUSEHELP, False), (p1, "divya.menon@secondpatient.demo", TeamRole.NURSE, False), (p1, "dr.arjun.nair@secondpatient.demo", TeamRole.DOCTOR, False), (p2, "meera.pai@secondpatient.demo", TeamRole.COORDINATOR, True), (p2, "savitha@secondpatient.demo", TeamRole.HOUSEHELP, False)]
+        entries = [(p1, "anita.iyer@secondpatient.demo", TeamRole.PRIMARY_CONTACT, True), (p1, "karthik.iyer@secondpatient.demo", TeamRole.PRIMARY_CONTACT, False),
+                   (p1, "ramesh.iyer@secondpatient.demo", TeamRole.PATIENT_SELF, False), (p1, "savitha@secondpatient.demo", TeamRole.CARETAKER, False),
+                   (p1, "lakshmi@secondpatient.demo", TeamRole.CARETAKER, False), (p1, "suresh.kamath@secondpatient.demo", TeamRole.CARETAKER, False),
+                   (p1, "divya.menon@secondpatient.demo", TeamRole.PROFESSIONAL, False), (p1, "dr.arjun.nair@secondpatient.demo", TeamRole.PROFESSIONAL, False),
+                   (p2, "meera.pai@secondpatient.demo", TeamRole.PRIMARY_CONTACT, True), (p2, "savitha@secondpatient.demo", TeamRole.CARETAKER, False)]
         db.add_all([CareTeamMember(patient_id=p.id, user_id=users[email].id, team_role=role, is_primary_coordinator=primary) for p, email, role, primary in entries])
         db.flush()
     db.commit()

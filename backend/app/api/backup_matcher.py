@@ -56,7 +56,7 @@ def _scope(db, user, patient_id, *, write=False):
         return workload_scope(db, user, patient_id, write=write)
     except HTTPException as exc:
         if exc.status_code != 403: raise
-        raise HTTPException(403, "Only the primary contact can manage cover requests" if write else "Cover requests are visible to primary contacts and family contacts") from None
+        raise HTTPException(403, "Only the primary contact can manage cover requests" if write else "Cover requests are visible to primary contacts") from None
 
 
 def _own_caregiver(db, user):
@@ -109,7 +109,7 @@ def list_cover_requests(patient_id: uuid.UUID, status: Literal["open", "closed",
     rows = db.scalars(query.order_by(CoverRequest.opened_at.desc()).limit(100)).all()
     at = now()
     return {"items": [_serialize(db, r, full=status == "open", at=at) for r in rows], "role_view": role_view,
-            "permissions": {"can_manage": role_view in {"COORDINATOR", "ADMIN"}}}
+            "permissions": {"can_manage": role_view == "PRIMARY_CONTACT"}}
 
 
 @router.get("/patients/{patient_id}/cover-requests/metrics")
@@ -141,7 +141,7 @@ def open_cover_request(activity_id: uuid.UUID, body: OpenIn, user=Depends(_curre
 def get_cover_request(request_id: uuid.UUID, user=Depends(_current_user), db: Session = Depends(get_db)):
     req = _request(db, request_id)
     own = _own_caregiver(db, user)
-    if own and req.offered_caregiver_id == own.id and user.role != Role.ADMIN:
+    if own and req.offered_caregiver_id == own.id:
         data = _serialize(db, req, full=False)
         return {**data, "replaced": None, "reason_note": "", "my_offer": True}
     _scope(db, user, req.patient_id)

@@ -7,9 +7,9 @@ from sqlalchemy import select
 
 from app.core.clock import now
 from app.core.db import SessionLocal
-from app.core.security import hash_password
 from app.main import app
-from app.models import CoverageFinding, Role, User
+from app.models import CoverageFinding
+from tests.helpers import account, caretaker, join_as_professional, primary_contact_with_patient
 from app.services.workload_balancer import _aware
 from app.services import coverage_planner as planner
 
@@ -18,14 +18,10 @@ ANYTIME = [{"weekday": d, "start_min": 0, "end_min": 1440} for d in range(7)]
 
 
 def setup():
-    coord = TestClient(app)
-    assert coord.post("/api/v1/auth/register", headers=H, json={"name": "Coordinator", "email": f"cp-{uuid.uuid4().hex}@example.com", "password": "SafePass!123"}).status_code == 201
-    pid = coord.post("/api/v1/patients", headers=H, json={"name": "Synthetic forecast patient"}).json()["id"]
+    coord, pid = primary_contact_with_patient("Synthetic forecast patient")
 
     def caregiver(name, caps=("TRANSPORT",)):
-        cid = coord.post(f"/api/v1/patients/{pid}/caregivers", headers=H, json={"name": name, "kind": "FAMILY", "capabilities": list(caps), "max_activities_per_day": 3, "max_hours_per_week": 40}).json()["id"]
-        assert coord.put(f"/api/v1/caregivers/{cid}/schedule", headers=H, json={"windows": ANYTIME}).status_code == 200
-        return cid
+        return caretaker(coord, pid, name, caps=caps)[0]
 
     people = {"only": caregiver("Only Driver"), "other": caregiver("Errand Helper", ("SUPPLIES",))}
     return coord, pid, people
@@ -64,8 +60,7 @@ def test_forecast_flags_single_point_and_gap_then_logs_outcomes():
     assert data["permissions"]["can_act"] is True and kinds[covered]["holder"]["assignment_id"]
 
     # Securing a confirmed backup clears the single point before its deadline.
-    helper = coord.post(f"/api/v1/patients/{pid}/caregivers", headers=H, json={"name": "Second Driver", "kind": "NEIGHBOUR", "capabilities": ["TRANSPORT"]}).json()["id"]
-    coord.put(f"/api/v1/caregivers/{helper}/schedule", headers=H, json={"windows": ANYTIME})
+    helper = caretaker(coord, pid, "Second Driver")[0]
     backup = coord.post(f"/api/v1/activities/{covered}/assignments", headers=H, json={"caregiver_id": helper, "role": "BACKUP", "confirm_now": True})
     assert backup.status_code == 201
     after = coord.get(f"/api/v1/patients/{pid}/coverage-forecast").json()
@@ -90,17 +85,10 @@ def test_forecast_log_is_idempotent_and_access_is_scoped():
     assert rows_for(aid) == []  # viewing never writes; the scheduler owns the log
     tick(); tick()
     assert rows_for(aid) == [("GAP", "GAP", "OPEN", None)]
-    family = TestClient(app)
-    email = f"cp-fam-{uuid.uuid4().hex}@example.com"
-    family.post("/api/v1/auth/register", headers=H, json={"name": "Family", "email": email, "password": "SafePass!123"})
-    assert coord.post(f"/api/v1/patients/{pid}/care-team", headers=H, json={"email": email, "team_role": "FAMILY"}).status_code == 201
-    view = family.get(f"/api/v1/patients/{pid}/coverage-forecast").json()
-    assert view["permissions"]["can_act"] is False
-    nurse_email = f"cp-nurse-{uuid.uuid4().hex}@example.com"
-    with SessionLocal() as db:
-        db.add(User(email=nurse_email, name="Nurse", role=Role.NURSE, password_hash=hash_password("SafePass!123"), is_synthetic=True)); db.commit()
-    coord.post(f"/api/v1/patients/{pid}/care-team", headers=H, json={"email": nurse_email, "team_role": "NURSE"})
-    nurse = TestClient(app); nurse.post("/api/v1/auth/login", headers=H, json={"email": nurse_email, "password": "SafePass!123"})
+    relative, relative_email, _ = account("PRIMARY_CONTACT", "Second relative")
+    assert coord.post(f"/api/v1/patients/{pid}/care-team", headers=H, json={"email": relative_email, "team_role": "PRIMARY_CONTACT"}).status_code == 201
+    assert relative.get(f"/api/v1/patients/{pid}/coverage-forecast").json()["permissions"]["can_act"] is True
+    nurse, _, _ = join_as_professional(coord, pid)
     denied = nurse.get(f"/api/v1/patients/{pid}/coverage-forecast")
     assert denied.status_code == 403 and "coverage forecast" in denied.json()["error"]["message"]
     outsider = TestClient(app)
@@ -142,14 +130,12 @@ def test_review_regressions_actions_lead_somewhere():
     assert opened.status_code == 201
     # A confirmed holder working outside usual hours is not flagged as a gap.
     night, _ = task(coord, pid, "Night ride", 50)  # same slot as rides A/B, so Only Driver cannot be the alternative
-    narrow = coord.post(f"/api/v1/patients/{pid}/caregivers", headers=H, json={"name": "Day Driver", "kind": "FAMILY", "capabilities": ["TRANSPORT"]}).json()["id"]
-    coord.put(f"/api/v1/caregivers/{narrow}/schedule", headers=H, json={"windows": []})
+    narrow = caretaker(coord, pid, "Day Driver", windows=[])[0]
     assert coord.post(f"/api/v1/activities/{night}/assignments", headers=H, json={"caregiver_id": narrow, "confirm_now": True}).status_code == 201
     finding = next(f for f in coord.get(f"/api/v1/patients/{pid}/coverage-forecast").json()["findings"] if f["activity"]["id"] == night)
     assert finding["kind"] == "SINGLE_POINT"  # covered; others are double-booked or lack the skill
     # Asking someone to stand by shows "waiting" and cannot be repeated.
-    standby = coord.post(f"/api/v1/patients/{pid}/caregivers", headers=H, json={"name": "Weekend Helper", "kind": "NEIGHBOUR", "capabilities": ["TRANSPORT"]}).json()["id"]
-    coord.put(f"/api/v1/caregivers/{standby}/schedule", headers=H, json={"windows": []})
+    standby = caretaker(coord, pid, "Weekend Helper", windows=[])[0]
     after = next(f for f in coord.get(f"/api/v1/patients/{pid}/coverage-forecast").json()["findings"] if f["activity"]["id"] == night)
     assert [n["name"] for n in after["near_miss"]] == ["Weekend Helper"]
     asked = coord.post(f"/api/v1/activities/{night}/assignments", headers=H, json={"caregiver_id": standby, "role": "BACKUP"})
