@@ -29,6 +29,8 @@ class PatientIn(Input):
     birth_year: int | None = Field(default=None, ge=1900, le=2100)
     care_notes: str = Field(default="", max_length=5000)
     clinical_notes: str = Field(default="", max_length=5000)
+    mobility_level: str = Field(default="INDEPENDENT", pattern="^(INDEPENDENT|NEEDS_AID|WHEELCHAIR|BEDBOUND)$")
+    language_pref: str = Field(default="en", max_length=8)
 
 
 class PatientPatch(Input):
@@ -36,6 +38,8 @@ class PatientPatch(Input):
     birth_year: int | None = Field(default=None, ge=1900, le=2100)
     care_notes: str | None = Field(default=None, max_length=5000)
     clinical_notes: str | None = Field(default=None, max_length=5000)
+    mobility_level: str | None = Field(default=None, pattern="^(INDEPENDENT|NEEDS_AID|WHEELCHAIR|BEDBOUND)$")
+    language_pref: str | None = Field(default=None, max_length=8)
 
     @model_validator(mode="after")
     def reject_null_for_required_text(self):

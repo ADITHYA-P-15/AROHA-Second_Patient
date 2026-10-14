@@ -20,7 +20,7 @@ from app.core.config import settings
 from app.core.db import Base, engine, get_db
 from app.core.security import create_token, hash_password, verify_password
 from app.core.permissions import require_patient_access
-from app.models import ActivityHistory, CareTeamMember, Patient, Role, TeamRole, User
+from app.models import ActivityHistory, CareTeamMember, Patient, Role, TeamRole, User, Caregiver, CaregiverPatientLink, CaregiverWeeklySchedule, AvailabilityOverride, CareActivity, ActivityDependency, CareAssignment, PatientSupportNeed
 from app.schemas import LoginIn, PasswordIn, PatientIn, PatientPatch, RegisterIn, TeamIn
 from app.seed import run_seed
 
@@ -106,7 +106,8 @@ def patient_dict(p, show_clinical):
 
 
 def can_see_clinical(user, member):
-    return user.role in (Role.ADMIN, Role.PATIENT, Role.FAMILY, Role.NURSE, Role.DOCTOR) and (user.role == Role.ADMIN or member is not None)
+    if user.role in (Role.ADMIN, Role.NURSE, Role.DOCTOR): return member is not None or user.role == Role.ADMIN
+    return (user.role == Role.PATIENT and member is not None and member.team_role == TeamRole.PATIENT_SELF) or (user.role == Role.FAMILY and member is not None and member.team_role == TeamRole.COORDINATOR)
 
 
 @app.get("/api/health")
@@ -117,7 +118,7 @@ def health(db: Session = Depends(get_db)):
 
 @app.get("/api/v1/meta")
 def meta():
-    return {"app_name": "The Second Patient", "version": "0.1.0", "git_sha": settings.git_sha, "phase": 1, "demo_mode": settings.demo_mode, "server_time": now().isoformat(), "timezone": settings.app_timezone, "ai_enabled": False}
+    return {"app_name": "The Second Patient", "version": "0.2.0", "git_sha": settings.git_sha, "phase": 2, "demo_mode": settings.demo_mode, "server_time": now().isoformat(), "timezone": settings.app_timezone, "ai_enabled": False}
 
 
 @app.post("/api/v1/auth/register", status_code=201)
@@ -176,12 +177,18 @@ def password_is_strong(password: str, name: str, email: str) -> bool:
     return len(password) >= 8 and any(c.isalpha() for c in password) and any(c.isdigit() for c in password) and lowered not in {name.lower(), email.lower(), "password", "password123"}
 
 
+# Extended patient representations and the Phase 2 domain API are registered
+# ahead of the original foundation routes sharing patient URL paths.
+from app.api.domain import router as domain_router
+app.include_router(domain_router)
+
+
 @app.get("/api/v1/patients")
 def list_patients(limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0), user: User = Depends(current_user), db: Session = Depends(get_db)):
     stmt = select(Patient) if user.role == Role.ADMIN else select(Patient).join(CareTeamMember).where(CareTeamMember.user_id == user.id)
     total = len(db.scalars(stmt).all())
     patients = db.scalars(stmt.order_by(Patient.created_at.desc()).offset(offset).limit(limit)).all()
-    return {"items": [patient_dict(p, can_see_clinical(user, True)) for p in patients], "total": total, "limit": limit, "offset": offset}
+    return {"items": [patient_dict(p, can_see_clinical(user, db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == p.id, CareTeamMember.user_id == user.id)))) for p in patients], "total": total, "limit": limit, "offset": offset}
 
 
 @app.post("/api/v1/patients", status_code=201)
@@ -255,7 +262,9 @@ def history(patient_id: uuid.UUID, limit: int = 50, offset: int = 0, user: User 
 def demo_reset(user: User = Depends(current_user), db: Session = Depends(get_db)):
     if user.role != Role.ADMIN: raise HTTPException(403, "Admin access required")
     if not settings.demo_mode: raise HTTPException(404, "Not found")
-    db.query(ActivityHistory).delete(); db.query(CareTeamMember).delete(); db.query(Patient).delete(); db.commit()
+    db.query(ActivityHistory).delete()
+    db.query(CareAssignment).delete(); db.query(ActivityDependency).delete(); db.query(CareActivity).delete(); db.query(AvailabilityOverride).delete(); db.query(CaregiverWeeklySchedule).delete(); db.query(CaregiverPatientLink).delete(); db.query(Caregiver).delete(); db.query(PatientSupportNeed).delete()
+    db.query(CareTeamMember).delete(); db.query(Patient).delete(); db.commit()
     run_seed(db)
     audit(db, user, None, "demo.reset", "demo", "demo", "Synthetic demo data reset")
     db.commit()
@@ -289,6 +298,9 @@ def seed(db=None):
         entries = [(p1, "anita.iyer@secondpatient.demo", TeamRole.COORDINATOR, True), (p1, "karthik.iyer@secondpatient.demo", TeamRole.FAMILY, False), (p1, "ramesh.iyer@secondpatient.demo", TeamRole.PATIENT_SELF, False), (p1, "savitha@secondpatient.demo", TeamRole.HOUSEHELP, False), (p1, "divya.menon@secondpatient.demo", TeamRole.NURSE, False), (p1, "dr.arjun.nair@secondpatient.demo", TeamRole.DOCTOR, False), (p2, "meera.pai@secondpatient.demo", TeamRole.COORDINATOR, True), (p2, "savitha@secondpatient.demo", TeamRole.HOUSEHELP, False)]
         db.add_all([CareTeamMember(patient_id=p.id, user_id=users[email].id, team_role=role, is_primary_coordinator=primary) for p, email, role, primary in entries])
         db.flush()
+    db.commit()
+    from app.seed.phase2 import seed_phase2
+    seed_phase2(db)
     db.commit()
     if own: db.close()
 
