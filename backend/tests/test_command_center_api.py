@@ -52,3 +52,15 @@ def test_command_center_reminder_brief_handover_and_idor():
     suffix = uuid.uuid4().hex
     assert outsider.post("/api/v1/auth/register", headers=H, json={"name": "Outsider", "email": f"cc-out-{suffix}@example.com", "password": "SafePass!123"}).status_code == 201
     assert outsider.get("/api/v1/command-center", params={"patient_id": patient_id}).status_code == 403
+
+
+def test_incident_reconcile_stores_uuid_on_sqlite():
+    client = TestClient(app)
+    patient_id = make_patient(client)
+    sent = client.post(f"/api/v1/patients/{patient_id}/messages", headers=H, json={"body": "I need water", "channel": "TEXT", "on_behalf": True})
+    assert sent.status_code == 201
+    day = now().astimezone(ZoneInfo("Asia/Kolkata")).date()
+    center = client.get("/api/v1/command-center", params={"patient_id": patient_id, "date": day.isoformat()})
+    assert center.status_code == 200
+    items = center.json()["needs_now"] + center.json()["at_risk"]
+    assert any(x["related_incident_id"] == sent.json()["id"] for x in items)

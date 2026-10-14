@@ -137,12 +137,12 @@ def reconcile_patient(db: Session, patient_id, at: datetime | None = None):
                 row.first_seen_at = at
                 row.version += 1
             else:
-                row = ActionItem(id=uuid.uuid4(), patient_id=patient_id, dedupe_key=item.dedupe_key, kind=item.kind, source="INCIDENT" if item.incident_id else "DERIVED", title=item.title, reason=item.reason, reasons=list(item.reasons), severity=item.severity, related_activity_ids=list(item.activity_ids), related_incident_id=item.incident_id, due_at=item.due_at, suggested_actions=list(item.suggested_actions), first_seen_at=at, last_seen_at=at)
+                row = ActionItem(id=uuid.uuid4(), patient_id=patient_id, dedupe_key=item.dedupe_key, kind=item.kind, source="INCIDENT" if item.incident_id else "DERIVED", title=item.title, reason=item.reason, reasons=list(item.reasons), severity=item.severity, related_activity_ids=list(item.activity_ids), related_incident_id=uuid.UUID(item.incident_id) if item.incident_id else None, due_at=item.due_at, suggested_actions=list(item.suggested_actions), first_seen_at=at, last_seen_at=at)
                 db.add(row)
                 _history(db, patient_id, "ACTION_ITEM_CREATED", row.id, "A coordination item needs review")
         row.kind, row.title, row.reason = item.kind, item.title, item.reason
         row.reasons, row.severity = list(item.reasons), item.severity
-        row.related_activity_ids, row.related_incident_id = list(item.activity_ids), item.incident_id
+        row.related_activity_ids, row.related_incident_id = list(item.activity_ids), uuid.UUID(item.incident_id) if item.incident_id else None
         row.due_at, row.suggested_actions, row.last_seen_at = item.due_at, list(item.suggested_actions), at
         if row.status == "SNOOZED" and row.snoozed_until and _aware(row.snoozed_until) <= _aware(at):
             row.status, row.snoozed_until = "OPEN", None
