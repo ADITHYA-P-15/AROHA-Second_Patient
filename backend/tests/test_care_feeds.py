@@ -110,9 +110,11 @@ def test_adherence_counts_on_time_late_and_missed():
     doctor.post(f"/api/v1/patients/{pid}/prescriptions", headers=H, json={"medicine": "Vitamin D", "dose": "1 tab", "times": ["07:00", "19:00"], "start_date": tomorrow().isoformat(), "end_date": tomorrow().isoformat()})
     morning, evening = sorted(doses(coord, pid), key=lambda a: a["scheduled_start"])
     with SessionLocal() as db:
-        for item, shift in ((morning, -2), (evening, -1)):
+        # Anchor to the clock: one dose 30 h overdue (too late to record), one 3 h overdue (can still be recorded late).
+        for item, hours_ago in ((morning, 30), (evening, 3)):
             row = db.get(CareActivity, uuid.UUID(item["id"]))
-            row.scheduled_start = _aware(row.scheduled_start) + timedelta(days=shift); row.scheduled_end = _aware(row.scheduled_end) + timedelta(days=shift); row.deadline = _aware(row.deadline) + timedelta(days=shift)
+            shift = now() - timedelta(hours=hours_ago) - _aware(row.scheduled_start)
+            row.scheduled_start = _aware(row.scheduled_start) + shift; row.scheduled_end = _aware(row.scheduled_end) + shift; row.deadline = _aware(row.deadline) + shift
         db.commit()
         mark_missed(db); db.commit()
     assert main.post(f"/api/v1/activities/{evening['id']}/complete", headers=H, json={}).json()["completed_late"] is True
