@@ -202,3 +202,74 @@ class CareAssignment(Base):
 
 
 Index("ix_assignment_caregiver_status", CareAssignment.caregiver_id, CareAssignment.status)
+
+
+class PatientMessage(Base):
+    __tablename__ = "patient_messages"
+    __table_args__ = (UniqueConstraint("sender_user_id", "idempotency_key", name="uq_message_sender_idempotency"), CheckConstraint("length(body) <= 1000"), CheckConstraint("channel IN ('TEXT','SOS_BUTTON','QUICK_REPLY','VOICE')"))
+    id: Mapped[uuid.UUID] = uuid_pk()
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
+    sender_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    on_behalf: Mapped[bool] = mapped_column(Boolean, default=False)
+    reported_role: Mapped[str] = mapped_column(String(32), default="PATIENT")
+    channel: Mapped[str] = mapped_column(String(16), default="TEXT")
+    body: Mapped[str] = mapped_column(String(1000))
+    language_hint: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    incident_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("incidents.id"), nullable=True)
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class Incident(Base):
+    __tablename__ = "incidents"
+    __table_args__ = (CheckConstraint("current_level >= 0 AND current_level <= 5"), CheckConstraint("initial_level >= 0 AND initial_level <= 5"), CheckConstraint("status IN ('OPEN','ACKNOWLEDGED','RESOLVED','CANCELLED')"), CheckConstraint("category IN ('EMERGENCY','HEALTH_CONCERN','MEDICATION','DAILY_HELP','LOGISTICS','TASK','INFO','UNCLASSIFIED')"), CheckConstraint("source IN ('PATIENT_MESSAGE','SOS','TASK_UNACKNOWLEDGED','TASK_OVERDUE','CARETAKER_REPORT','MANUAL','CARE_GAP','STRAIN')"), CheckConstraint("severity IN ('LOW','MEDIUM','HIGH')"), Index("ix_incident_patient_status", "patient_id", "status"))
+    id: Mapped[uuid.UUID] = uuid_pk()
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
+    source: Mapped[str] = mapped_column(String(32), default="PATIENT_MESSAGE")
+    category: Mapped[str] = mapped_column(String(32))
+    initial_level: Mapped[int] = mapped_column(Integer)
+    current_level: Mapped[int] = mapped_column(Integer)
+    severity: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(20), default="OPEN", index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    safe_summary: Mapped[str] = mapped_column(String(500))
+    dedupe_key: Mapped[str] = mapped_column(String(120), index=True)
+    classification: Mapped[dict] = mapped_column(JSON, default=dict)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, index=True)
+    acknowledged_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    resolution_note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class IncidentEvent(Base):
+    __tablename__ = "incident_events"
+    __table_args__ = (CheckConstraint("level >= 0 AND level <= 5"), CheckConstraint("kind IN ('CREATED','CLASSIFIED','NOTIFIED','ACKNOWLEDGED','AUTO_ESCALATED','MANUAL_ESCALATED','LEVEL_LOWERED','NO_RECIPIENTS','BACKUP_OFFERED','DECISION_TAKEN','VISIT_ADDED','INSTRUCTION_ISSUED','REMINDER_SENT','MERGED_MESSAGE','RESOLVED','CANCELLED')"))
+    id: Mapped[uuid.UUID] = uuid_pk()
+    incident_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("incidents.id", ondelete="CASCADE"), index=True)
+    at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, index=True)
+    kind: Mapped[str] = mapped_column(String(32))
+    level: Mapped[int] = mapped_column(Integer)
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    recipient_user_ids: Mapped[list] = mapped_column(JSON, default=list)
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    __table_args__ = (CheckConstraint("kind IN ('INCIDENT','REMINDER','DECISION','INSTRUCTION','DIGEST','STATUS')"), CheckConstraint("severity IN ('LOW','MEDIUM','HIGH')"))
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
+    incident_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("incidents.id", ondelete="CASCADE"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(20), default="INCIDENT")
+    severity: Mapped[str] = mapped_column(String(16))
+    title: Mapped[str] = mapped_column(String(160))
+    body: Mapped[str] = mapped_column(String(500))
+    requires_ack: Mapped[bool] = mapped_column(Boolean, default=False)
+    acked_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    read_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, index=True)

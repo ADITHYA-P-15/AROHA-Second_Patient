@@ -3,6 +3,7 @@ import json
 import re
 import time
 import uuid
+import unicodedata
 from collections import defaultdict, deque
 from datetime import UTC
 from pathlib import Path
@@ -98,8 +99,12 @@ def patient_access(db, user, patient_id, action="read"):
     return require_patient_access(db, user, patient_id, permission)
 
 
-def user_dict(u):
-    return {"id": u.id, "email": u.email, "name": u.name, "role": u.role.value, "role_label": role_label(u.role.value), "is_synthetic": u.is_synthetic}
+def user_dict(u, db=None):
+    label = role_label(u.role.value)
+    if db is not None and u.role == Role.FAMILY:
+        memberships = db.scalars(select(CareTeamMember.team_role).where(CareTeamMember.user_id == u.id)).all()
+        if memberships and TeamRole.COORDINATOR not in memberships: label = "Family contact"
+    return {"id": u.id, "email": u.email, "name": u.name, "role": u.role.value, "role_label": label, "is_synthetic": u.is_synthetic}
 
 
 def role_label(role, team_role=None):
@@ -127,6 +132,12 @@ class IncidentResolveIn(BaseModel):
     note: str | None = Field(default=None, max_length=1000)
 
 
+class IncidentLevelIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    to_level: int = Field(ge=0, le=5)
+    reason: str = Field(min_length=1, max_length=500)
+
+
 def can_see_clinical(user, member):
     if user.role in (Role.ADMIN, Role.NURSE, Role.DOCTOR): return member is not None or user.role == Role.ADMIN
     return (user.role == Role.PATIENT and member is not None and member.team_role == TeamRole.PATIENT_SELF) or (user.role == Role.FAMILY and member is not None and member.team_role == TeamRole.COORDINATOR)
@@ -144,13 +155,28 @@ def meta():
 
 
 def incident_recipients(db, patient_id, level):
+    if level == 0: return []
     members = db.execute(select(CareTeamMember, User).join(User).where(CareTeamMember.patient_id == patient_id)).all()
     roles = ({TeamRole.HOUSEHELP} if level == 1 else {TeamRole.COORDINATOR} if level == 2 else {TeamRole.NURSE} if level == 3 else {TeamRole.DOCTOR} if level == 4 else {TeamRole.COORDINATOR, TeamRole.FAMILY, TeamRole.HOUSEHELP, TeamRole.NURSE, TeamRole.DOCTOR})
     return [u for m, u in members if m.team_role in roles and u.is_active]
 
 
 def incident_payload(item):
-    return {"id": item.id, "patient_id": item.patient_id, "current_level": item.current_level, "category": item.category, "severity": item.severity, "status": item.status, "title": item.title, "safe_summary": item.safe_summary, "owner_user_id": item.owner_user_id, "created_at": item.created_at, "acknowledged_at": item.acknowledged_at, "resolved_at": item.resolved_at, "reasons": item.classification.get("reasons", [])}
+    return {"id": item.id, "patient_id": item.patient_id, "current_level": item.current_level, "category": item.category, "severity": item.severity, "status": item.status, "title": item.title, "safe_summary": item.safe_summary, "owner_user_id": item.owner_user_id, "created_at": item.created_at, "acknowledged_at": item.acknowledged_at, "resolved_at": item.resolved_at}
+
+
+def may_act_on_incident(db, incident, user, member):
+    if user.role == Role.ADMIN or (member and member.team_role == TeamRole.COORDINATOR): return True
+    event = db.scalar(select(IncidentEvent).where(IncidentEvent.incident_id == incident.id, IncidentEvent.level == incident.current_level, IncidentEvent.kind.in_(("CREATED", "MANUAL_ESCALATED", "AUTO_ESCALATED"))).order_by(IncidentEvent.at.desc()))
+    return bool(event and str(user.id) in (event.recipient_user_ids or []))
+
+
+def may_read_incident(db, incident, user, member):
+    if user.role == Role.ADMIN or user.role == Role.PATIENT and member and member.team_role == TeamRole.PATIENT_SELF: return True
+    if member and member.team_role == TeamRole.COORDINATOR: return True
+    if user.role == Role.NURSE: return incident.current_level >= 3
+    if user.role == Role.DOCTOR: return incident.current_level >= 4 or incident.current_level == 5
+    return db.scalar(select(Notification.id).where(Notification.incident_id == incident.id, Notification.user_id == user.id)) is not None
 
 
 @app.post("/api/v1/patients/{patient_id}/messages", status_code=201)
@@ -158,24 +184,31 @@ def patient_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Requ
     patient, member = patient_access(db, user, patient_id)
     if user.role == Role.PATIENT:
         if not member or member.team_role != TeamRole.PATIENT_SELF: raise HTTPException(403, "Patient access denied")
+        if body.on_behalf: raise HTTPException(422, "Patients cannot submit on behalf of another person")
     elif not body.on_behalf or not member:
         raise HTTPException(403, "Care team messages must be submitted on behalf of the patient")
     key = request.headers.get("Idempotency-Key")
     if key:
         if len(key) > 120: raise HTTPException(422, "Idempotency-Key is too long")
         prior = db.scalar(select(PatientMessage).where(PatientMessage.sender_user_id == user.id, PatientMessage.idempotency_key == key))
+        if prior and prior.patient_id != patient.id: raise HTTPException(409, "Idempotency-Key was already used for another patient")
         if prior and prior.incident_id:
             return incident_payload(db.get(Incident, prior.incident_id))
-    safe_body = "".join(ch for ch in body.body if ch >= " " or ch in "\n\t").strip()
+    safe_body = "".join(ch for ch in body.body if unicodedata.category(ch)[0] != "C" or ch in "\n\t").strip()
     if not safe_body: raise HTTPException(422, "Message is empty")
     classification = classify_message(safe_body, language_hint=body.language_hint, context={"mobility_level": patient.mobility_level}, sos=body.channel == "SOS_BUTTON")
     level = classification.level
+    no_recipients_levels = []
     recipients = incident_recipients(db, patient.id, level)
     if level == 1 and not recipients:
+        no_recipients_levels.append(level)
         level = 2
         recipients = incident_recipients(db, patient.id, level)
+    if level > 0 and not recipients:
+        no_recipients_levels.append(level)
     safe_summary = f"{patient.name} asked for help with {classification.category.lower().replace('_', ' ')} at {now().astimezone().strftime('%H:%M')}"
-    inc = Incident(patient_id=patient.id, source="SOS" if body.channel == "SOS_BUTTON" else "PATIENT_MESSAGE", category=classification.category, initial_level=level, current_level=level, severity=classification.severity, title="Emergency report" if level == 5 else "Care request", safe_summary=safe_summary, dedupe_key=f"message:{uuid.uuid4()}", classification=classification.as_dict())
+    source = "SOS" if body.channel == "SOS_BUTTON" else "CARETAKER_REPORT" if body.on_behalf else "PATIENT_MESSAGE"
+    inc = Incident(patient_id=patient.id, source=source, category=classification.category, initial_level=level, current_level=level, severity=classification.severity, title="Emergency report" if level == 5 else "Care request", safe_summary=safe_summary, dedupe_key=f"message:{uuid.uuid4()}", classification=classification.as_dict())
     db.add(inc); db.flush()
     msg = PatientMessage(patient_id=patient.id, sender_user_id=user.id, on_behalf=body.on_behalf, reported_role=user.role.value, channel=body.channel, body=safe_body, language_hint=body.language_hint, idempotency_key=key, incident_id=inc.id)
     db.add(msg)
@@ -183,6 +216,7 @@ def patient_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Requ
         db.add(Notification(user_id=recipient.id, patient_id=patient.id, incident_id=inc.id, kind="INCIDENT", severity=classification.severity, title="Emergency report" if level == 5 else "Care request", body=safe_summary, requires_ack=level > 0))
     db.add(IncidentEvent(incident_id=inc.id, kind="CREATED", level=level, actor_user_id=user.id, recipient_user_ids=[str(x.id) for x in recipients], meta={"category": classification.category, "rule_ids": [x.id for x in classification.matched_rules]}))
     db.add(IncidentEvent(incident_id=inc.id, kind="CLASSIFIED", level=level, actor_user_id=None, meta={"reasons": list(classification.reasons), "classifier_version": classification.classifier_version}))
+    for no_recipient_level in no_recipients_levels: db.add(IncidentEvent(incident_id=inc.id, kind="NO_RECIPIENTS", level=no_recipient_level, meta={"advanced_to": level}))
     audit(db, user, patient.id, "INCIDENT_CREATED", "incident", inc.id, "Care request routed", request.state.request_id)
     db.commit(); db.refresh(inc)
     return incident_payload(inc)
@@ -197,21 +231,72 @@ def patient_sos(patient_id: uuid.UUID, request: Request, user: User = Depends(cu
 def list_incidents(patient_id: uuid.UUID | None = None, status: str | None = None, user: User = Depends(current_user), db: Session = Depends(get_db)):
     query = select(Incident)
     if patient_id is not None:
-        patient_access(db, user, patient_id)
+        _, member = patient_access(db, user, patient_id)
         query = query.where(Incident.patient_id == patient_id)
     elif user.role != Role.ADMIN:
         ids = select(CareTeamMember.patient_id).where(CareTeamMember.user_id == user.id)
         query = query.where(Incident.patient_id.in_(ids))
     if status: query = query.where(Incident.status == status.upper())
-    return {"items": [incident_payload(x) for x in db.scalars(query.order_by(Incident.created_at.desc()).limit(100)).all()]}
+    items = db.scalars(query.order_by(Incident.created_at.desc()).limit(200)).all()
+    visible = []
+    for item in items:
+        _, member = patient_access(db, user, item.patient_id)
+        if may_read_incident(db, item, user, member): visible.append(incident_payload(item))
+    return {"items": visible[:100]}
+
+
+@app.get("/api/v1/incidents/{incident_id}")
+def get_incident(incident_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    inc = db.get(Incident, incident_id)
+    if not inc: raise HTTPException(404, "Incident not found")
+    _, member = patient_access(db, user, inc.patient_id)
+    if not may_read_incident(db, inc, user, member): raise HTTPException(403, "Incident access denied")
+    events = db.scalars(select(IncidentEvent).where(IncidentEvent.incident_id == inc.id).order_by(IncidentEvent.at.asc())).all()
+    timeline = [{"at": event.at, "kind": event.kind, "level": event.level} if user.role == Role.PATIENT else {"at": event.at, "kind": event.kind, "level": event.level, "note": event.note, "meta": event.meta} for event in events]
+    return {**incident_payload(inc), "timeline": timeline}
+
+
+@app.post("/api/v1/incidents/{incident_id}/escalate")
+def escalate_incident(incident_id: uuid.UUID, body: IncidentLevelIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    inc = db.get(Incident, incident_id)
+    if not inc: raise HTTPException(404, "Incident not found")
+    patient, member = patient_access(db, user, inc.patient_id)
+    if not member and user.role != Role.ADMIN: raise HTTPException(403, "Permission denied")
+    if body.to_level <= inc.current_level: raise HTTPException(422, "Escalation level must be higher")
+    inc.current_level = body.to_level; inc.version += 1
+    recipients = incident_recipients(db, patient.id, inc.current_level)
+    for recipient in recipients:
+        db.add(Notification(user_id=recipient.id, patient_id=patient.id, incident_id=inc.id, kind="INCIDENT", severity=inc.severity, title="Care request escalated", body=inc.safe_summary, requires_ack=True))
+    db.add(IncidentEvent(incident_id=inc.id, kind="MANUAL_ESCALATED", level=inc.current_level, actor_user_id=user.id, recipient_user_ids=[str(x.id) for x in recipients], note=body.reason))
+    audit(db, user, patient.id, "INCIDENT_ESCALATED", "incident", inc.id, "Care request escalated", request.state.request_id)
+    db.commit(); db.refresh(inc)
+    return incident_payload(inc)
+
+
+@app.post("/api/v1/incidents/{incident_id}/lower")
+def lower_incident(incident_id: uuid.UUID, body: IncidentLevelIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    inc = db.get(Incident, incident_id)
+    if not inc: raise HTTPException(404, "Incident not found")
+    patient, member = patient_access(db, user, inc.patient_id)
+    privileged = user.role in (Role.ADMIN, Role.NURSE, Role.DOCTOR) or bool(member and member.team_role == TeamRole.COORDINATOR)
+    if not privileged: raise HTTPException(403, "Permission denied")
+    if inc.status in ("RESOLVED", "CANCELLED"): raise HTTPException(409, "Closed incidents cannot be lowered")
+    if body.to_level >= inc.current_level: raise HTTPException(422, "Lowering level must be lower")
+    if inc.current_level == 5 and inc.status == "OPEN": raise HTTPException(409, "Emergency must be acknowledged before lowering")
+    inc.current_level = body.to_level; inc.version += 1
+    db.add(IncidentEvent(incident_id=inc.id, kind="LEVEL_LOWERED", level=inc.current_level, actor_user_id=user.id, note=body.reason))
+    audit(db, user, patient.id, "LEVEL_LOWERED", "incident", inc.id, "Care request routing level lowered", request.state.request_id)
+    db.commit(); db.refresh(inc)
+    return incident_payload(inc)
 
 
 @app.post("/api/v1/incidents/{incident_id}/acknowledge")
 def acknowledge_incident(incident_id: uuid.UUID, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
     inc = db.get(Incident, incident_id)
     if not inc: raise HTTPException(404, "Incident not found")
-    patient, _ = patient_access(db, user, inc.patient_id)
+    patient, member = patient_access(db, user, inc.patient_id)
     if user.role == Role.PATIENT: raise HTTPException(403, "Patient cannot acknowledge incidents")
+    if not may_act_on_incident(db, inc, user, member): raise HTTPException(403, "Only an incident recipient or primary contact can acknowledge")
     if inc.status in ("RESOLVED", "CANCELLED"): return incident_payload(inc)
     if inc.status == "OPEN":
         inc.status = "ACKNOWLEDGED"; inc.owner_user_id = user.id; inc.acknowledged_at = now(); inc.version += 1
@@ -222,12 +307,29 @@ def acknowledge_incident(incident_id: uuid.UUID, request: Request, user: User = 
     return incident_payload(inc)
 
 
+@app.get("/api/v1/notifications")
+def list_notifications(unread: bool = False, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    query = select(Notification).where(Notification.user_id == user.id)
+    if unread: query = query.where(Notification.read_at.is_(None))
+    rows = db.scalars(query.order_by(Notification.created_at.desc()).limit(100)).all()
+    return {"items": [{"id": n.id, "patient_id": n.patient_id, "incident_id": n.incident_id, "kind": n.kind, "severity": n.severity, "title": n.title, "body": n.body, "requires_ack": n.requires_ack, "read_at": n.read_at, "created_at": n.created_at} for n in rows], "unread_count": sum(n.read_at is None for n in rows)}
+
+
+@app.post("/api/v1/notifications/{notification_id}/read")
+def notification_read(notification_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    item = db.scalar(select(Notification).where(Notification.id == notification_id, Notification.user_id == user.id))
+    if not item: raise HTTPException(404, "Notification not found")
+    item.read_at = item.read_at or now(); db.commit()
+    return {"id": item.id, "read_at": item.read_at}
+
+
 @app.post("/api/v1/incidents/{incident_id}/resolve")
 def resolve_incident(incident_id: uuid.UUID, body: IncidentResolveIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
     inc = db.get(Incident, incident_id)
     if not inc: raise HTTPException(404, "Incident not found")
-    patient, _ = patient_access(db, user, inc.patient_id, "update")
+    patient, member = patient_access(db, user, inc.patient_id)
     if user.role == Role.PATIENT: raise HTTPException(403, "Patient cannot resolve incidents")
+    if not may_act_on_incident(db, inc, user, member) and user.role not in (Role.NURSE, Role.DOCTOR): raise HTTPException(403, "Only an incident recipient or care professional can resolve")
     if inc.current_level == 5 and (inc.status == "OPEN" or not body.note): raise HTTPException(422, "Emergency resolution requires acknowledgement and a note")
     inc.status = "RESOLVED"; inc.resolved_at = now(); inc.resolution_code = body.code; inc.resolution_note = body.note; inc.version += 1
     db.add(IncidentEvent(incident_id=inc.id, kind="RESOLVED", level=inc.current_level, actor_user_id=user.id, note="Incident resolved"))
@@ -246,7 +348,7 @@ def register(body: RegisterIn, response: Response, db: Session = Depends(get_db)
     user = User(email=email, name=body.name.strip(), password_hash=hash_password(body.password), role=Role.FAMILY)
     db.add(user); db.commit(); db.refresh(user)
     response.set_cookie(COOKIE, create_token(user), httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=settings.session_hours * 3600, path="/")
-    return user_dict(user)
+    return user_dict(user, db)
 
 
 @app.post("/api/v1/auth/login")
@@ -262,7 +364,7 @@ def login(body: LoginIn, request: Request, response: Response, db: Session = Dep
     if not user or not user.is_active or not verify_password(body.password, user.password_hash):
         raise HTTPException(401, "Invalid credentials")
     response.set_cookie(COOKIE, create_token(user), httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=settings.session_hours * 3600, path="/")
-    return user_dict(user)
+    return user_dict(user, db)
 
 
 @app.post("/api/v1/auth/logout", status_code=204)
@@ -276,7 +378,7 @@ def logout(response: Response, user: User = Depends(current_user), db: Session =
 
 @app.get("/api/v1/auth/me")
 def me(user: User = Depends(current_user)):
-    return user_dict(user)
+    return user_dict(user, db)
 
 
 @app.post("/api/v1/auth/change-password")
