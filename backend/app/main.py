@@ -29,6 +29,7 @@ from app.engine.escalation_classifier import classify_message
 from app.engine.escalation_machine import DEFAULT_POLICY, deadline_minutes
 from app.services.escalation import policy_for, run_escalation_tick, set_deadline
 from app.services.command_center import reconcile_patient, run_command_center_tick
+from app.services.backup_matcher import run_cover_tick
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.seed import run_seed
 
@@ -612,6 +613,8 @@ from app.api.command_center import router as command_center_router
 app.include_router(command_center_router)
 from app.api.workload import router as workload_router
 app.include_router(workload_router)
+from app.api.backup_matcher import router as backup_matcher_router
+app.include_router(backup_matcher_router)
 
 
 @app.get("/api/v1/patients")
@@ -761,6 +764,7 @@ def _run_escalation_tick():
         changed = run_escalation_tick(db, now(), scale=current_escalation_scale(db))
         if time.monotonic() - _last_command_center_tick >= 60:
             run_command_center_tick(db, now())
+            run_cover_tick(db, now())
             db.commit()
             _last_command_center_tick = time.monotonic()
         return changed

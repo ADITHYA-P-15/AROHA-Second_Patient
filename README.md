@@ -397,3 +397,44 @@ Sign in as Anita and open **Workload Balancer**. Tomorrow she has four tasks aga
 ### Checks
 
 `python -m pytest backend/tests -q` adds 15 Workload Balancer tests: 9 engine tests and 6 API tests covering role access, privacy masking, stale-apply rejection, re-validation, standby handoff, the two-hour rule, and notifications. `npm test` adds label-helper tests. The smoke script also calls the balancer endpoint.
+
+## Feature — Capability-Aware Backup Matcher
+
+### What changed
+
+When a caregiver declines a task or reports an absence, CareCircle opens a **cover request** automatically, with no searching or phone round needed to begin.
+
+- **Ranking:** it checks every linked caregiver for capability, qualification (professional-only tasks), availability in the task window, overlapping commitments including travel buffers, and daily or weekly workload. Eligible people are ranked by suitability and continuity: already the backup, has done this recurring task, or has recently supported the patient.
+- **Explanation:** each person gets a one-sentence reason, e.g. “Suresh Kamath can provide transport and is available 09:00–10:00” or “Savitha is available but lacks the transport capability”.
+- **Asking:** the primary contact taps **Ask** on the best match. If that person says no, the next best match is asked automatically.
+- **Covered:** the task counts as covered only after the replacement accepts and a confirmed assignment exists.
+- **Measures:** **time to secure a replacement** and **% of gaps resolved without manual searching** are reported on the screen and by the API.
+
+Caregivers can say **I can't make it** on their own task in Care Plan; they stay on it until a replacement confirms. Command Center buttons now go straight to the right flow (**Find cover**, **Rebalance**, **Request confirmation**). Rules, scoring, lifecycle and access are documented in [docs/BACKUP_MATCHER.md](docs/BACKUP_MATCHER.md).
+
+### New endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/patients/{id}/cover-requests?status=` | Open/closed cover requests with live ranking |
+| `GET /api/v1/patients/{id}/cover-requests/metrics?days=30` | Time to secure and matcher resolution rate |
+| `POST /api/v1/activities/{id}/cover-requests` | Primary contact asks for cover |
+| `GET /api/v1/cover-requests/{id}` | Detail, ranking and event trail |
+| `POST /api/v1/cover-requests/{id}/offer`, `/accept`, `/decline`, `/cancel` | Offer → accept/decline (auto-advance) → close |
+| `GET /api/v1/cover-offers/mine` | Offers waiting for the signed-in caregiver |
+
+### Demo
+
+Sign in as Karthik. In Care Plan, tap **I can't make it** on *Lab visit*. Then sign in as Anita and open **Cover Requests**. Two of four people can take it, and each person has a stated reason. Tap **Ask Suresh Kamath**, then **Record yes**, and the task is covered. The metrics now show the time to secure and 100% resolved through the matcher.
+
+### Decisions and limits
+
+- Migration `0007_backup_matcher` adds `cover_requests` and `cover_request_events`, plus a partial unique index allowing one open request per task.
+- Detection runs in the existing `reassess` transaction and the 60-second scheduler, for tasks up to 60 days ahead. It is idempotent per decline or absence, and a request the coordinator closes does not reopen.
+- Unanswered offers time out (at most 2 hours) and move on. If the next match does not use the app, primary contacts get a single “Please call …” prompt.
+- Travel is modelled through each task's before/after buffers and a 30-minute tight-connection rule. Real travel time needs locations, which are not recorded yet.
+- People without the app (for example a neighbour) are handled by the primary contact recording their yes or no. Notifications are in-app only.
+
+### Checks
+
+`python -m pytest backend/tests -q` adds 12 Backup Matcher tests: 6 engine tests (including the example scenario) and 6 API tests. The API tests cover the decline → auto-advance → covered flow, a caregiver's self-accept, idempotent detection, an absence being withdrawn, manual-cover measurement, expiry, re-validation and access. `npm test` adds label and formatting helper tests. The smoke script opens and closes a cover request.

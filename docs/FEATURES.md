@@ -49,3 +49,37 @@ Cumulative record of features built one at a time on top of the phased roadmap i
 - Menu items that only led to placeholders are hidden, and each role lands on a working screen. When a later feature ships a screen, add it to `roleNav` in `frontend/src/shell.tsx`.
 - Command Center deadline reasons are shown in the app timezone.
 - The app is served on port 8000 only. Local previews use the same port.
+
+## Feature 3 — Capability-Aware Backup Matcher
+
+- **Goal:** replace repeated calls and manual delegation when someone declines or is absent.
+- **Shipped:**
+  - Automatic cover requests on decline or absence, plus manual **Find cover**.
+  - Ranking by capability, qualification, availability window, commitments with travel buffers, and workload, then by suitability and continuity.
+  - One-sentence reasons for every person.
+  - One-tap offer with auto-advance on "no".
+  - Acceptance plus confirmation required before a task counts as covered.
+  - Metrics: time to secure, and % resolved without manual search.
+  - Care Plan **I can't make it**.
+  - Command Center buttons wired to real flows.
+- **Code:**
+  - `backend/app/engine/backup_matcher.py`
+  - `backend/app/services/backup_matcher.py`
+  - `backend/app/api/backup_matcher.py`
+  - `models.CoverRequest` / `CoverRequestEvent`
+  - `alembic/versions/0007_backup_matcher.py`
+  - `frontend/src/CoverRequests.tsx`
+  - `frontend/src/lib/cover.ts`
+- **Tests:**
+  - `backend/tests/test_backup_matcher_engine.py`
+  - `backend/tests/test_backup_matcher_api.py`
+  - `frontend/src/lib/cover.test.ts`
+- **Docs:** [BACKUP_MATCHER.md](BACKUP_MATCHER.md) and the README section "Feature — Capability-Aware Backup Matcher".
+- **Schema:** migration `0007_backup_matcher`.
+- **Reuse later:**
+  - `rank_candidates` for absence simulation and N-1 resilience (tasks with zero eligible backups).
+  - The cover-request event trail for historical analytics.
+- **Not yet:**
+  - Real travel time (needs locations).
+  - SMS/WhatsApp offers for people without the app.
+  - Offer timeouts before the task starts.

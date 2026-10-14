@@ -184,6 +184,10 @@ class _Context:
         return self.loads[cid].week_hours.get(week, 0.0) > float(_get(self.caregivers[cid], "max_hours_per_week", 0)) + 1e-9
 
 
+# Public name for the shared load model; the Backup Matcher ranks candidates on the same state.
+LoadContext = _Context
+
+
 def _caregiver_report(ctx: _Context, cid: str) -> dict:
     cg, load = ctx.caregivers[cid], ctx.loads[cid]
     day_limit = int(_get(cg, "max_activities_per_day", 0))

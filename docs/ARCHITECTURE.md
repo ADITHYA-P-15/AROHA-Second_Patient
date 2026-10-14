@@ -90,4 +90,8 @@ Capabilities: `TRANSPORT`, `MEDICATION_ASSIST`, `PRESCRIPTION_PICKUP`, `DAILY_AS
 
 `engine/workload_balancer.py` is a pure, deterministic evaluator for caregiver load (daily tasks and weekly hours against each caregiver's limits, cross-patient), demand by day, dependency concentration, delegation class (general / trained / professional-only), and greedy explainable redistribution with additive scores. `services/workload_balancer.py` builds a read-only snapshot. `api/workload.py` scopes access (coordinator/admin apply, family contact read-only) and applies a move only after `check_receiver` re-validates it, superseding the old primary assignment and requesting or recording confirmation. Details: [WORKLOAD_BALANCER.md](WORKLOAD_BALANCER.md). Feature progress is tracked in [FEATURES.md](FEATURES.md).
 
+## Backup Matcher module map
+
+`engine/backup_matcher.py` ranks replacement caregivers for one task on the Workload Balancer's `LoadContext`, with categorized statuses, one-sentence reasons, continuity points and a 30-minute travel-gap rule. `services/backup_matcher.py` owns cover requests: detection of declines and absences (`trigger_key` idempotency inside `reassess` and the scheduler), offer/accept/decline with auto-advance, expiry, and metrics. `api/backup_matcher.py` scopes coordinators, family contacts and the offered caregiver. Coverage still requires a confirmed primary. Details: [BACKUP_MATCHER.md](BACKUP_MATCHER.md).
+
 Evaluators need independent setup instructions, test accounts, safe self-registration, at least five real API operations, AI disclosure, `.env.example`, and no committed secrets.

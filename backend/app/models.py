@@ -399,3 +399,48 @@ class CommandCenterSetting(Base):
     suppress_hours: Mapped[int] = mapped_column(Integer, default=12)
     updated_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class CoverRequest(Base):
+    """A task that lost (or never had) dependable cover; the Backup Matcher ranks and offers replacements."""
+    __tablename__ = "cover_requests"
+    __table_args__ = (
+        CheckConstraint("reason IN ('DECLINED','ABSENCE','MANUAL')", name="ck_cover_request_reason"),
+        CheckConstraint("status IN ('OPEN','OFFERED','COVERED','CANCELLED','EXPIRED')", name="ck_cover_request_status"),
+        CheckConstraint("resolution IS NULL OR resolution IN ('MATCHER','MANUAL')", name="ck_cover_request_resolution"),
+        Index("uq_open_cover_request_activity", "activity_id", unique=True,
+              postgresql_where=text("status IN ('OPEN','OFFERED')"), sqlite_where=text("status IN ('OPEN','OFFERED')")),
+        Index("ix_cover_request_patient_status", "patient_id", "status"),
+    )
+    id: Mapped[uuid.UUID] = uuid_pk()
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
+    activity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("care_activities.id", ondelete="CASCADE"), index=True)
+    reason: Mapped[str] = mapped_column(String(16))
+    reason_note: Mapped[str] = mapped_column(String(300), default="")
+    # Deterministic source ("decline:<assignment>", "absence:<override>:<assignment>") so a trigger opens at most one request.
+    trigger_key: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    replaced_caregiver_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("caregivers.id", ondelete="SET NULL"), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="OPEN", index=True)
+    resolution: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    offered_caregiver_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("caregivers.id", ondelete="SET NULL"), nullable=True)
+    offered_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    auto_advance: Mapped[bool] = mapped_column(Boolean, default=True)
+    declined_caregiver_ids: Mapped[list] = mapped_column(JSON, default=list)
+    covered_by_caregiver_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("caregivers.id", ondelete="SET NULL"), nullable=True)
+    covered_assignment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("care_assignments.id", ondelete="SET NULL"), nullable=True)
+    opened_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
+    closed_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    opened_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class CoverRequestEvent(Base):
+    __tablename__ = "cover_request_events"
+    __table_args__ = (CheckConstraint("kind IN ('OPENED','OFFERED','OFFER_DECLINED','AUTO_ADVANCED','ACCEPTED','COVERED','CANCELLED','EXPIRED','NO_CANDIDATES')", name="ck_cover_event_kind"),)
+    id: Mapped[uuid.UUID] = uuid_pk()
+    request_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("cover_requests.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    caregiver_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("caregivers.id", ondelete="SET NULL"), nullable=True)
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    note: Mapped[str] = mapped_column(String(300), default="")
+    at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)

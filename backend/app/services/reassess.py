@@ -21,7 +21,10 @@ def reassess(session, patient_ids, trigger: TriggerEvent, context=None):
     if not patient_ids:
         return
     session.flush()
+    from app.services.backup_matcher import sync_patient
     from app.services.command_center import reconcile_patient
     for patient_id in patient_ids:
         if patient_id is not None:
+            # Declines and absences open cover requests in the same transaction as the change that caused them.
+            sync_patient(session, patient_id)
             reconcile_patient(session, patient_id)

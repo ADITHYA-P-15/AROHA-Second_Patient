@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import { api } from './api/client.ts';
@@ -33,7 +34,8 @@ const hours = (n: number) => (Math.round(n * 10) / 10).toString();
 export function WorkloadBalancer() {
   const client = useQueryClient();
   const patients = useQuery({ queryKey: ['patients'], queryFn: () => api<{ items: Person[] }>('/api/v1/patients') });
-  const [selected, setSelected] = useState('');
+  const [params] = useSearchParams();
+  const [selected, setSelected] = useState(params.get('patient') ?? '');
   const [days, setDays] = useState(7);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
