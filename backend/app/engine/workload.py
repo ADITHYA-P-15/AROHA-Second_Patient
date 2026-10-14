@@ -37,7 +37,8 @@ def workload(assignments, caregiver_id, timezone="Asia/Kolkata"):
         day = local.date().isoformat()
         week = f"{local.isocalendar().year}-W{local.isocalendar().week:02d}"
         is_confirmed = status == "CONFIRMED"
-        by_day[day]["confirmed" if is_confirmed else "pending"] += 1
+        if _get(activity, "source", "MANUAL") != "PRESCRIPTION":  # routine doses use time, not a daily task slot
+            by_day[day]["confirmed" if is_confirmed else "pending"] += 1
         by_day[day]["hours_confirmed" if is_confirmed else "hours_pending"] += hours
         by_week[week]["confirmed_hours" if is_confirmed else "pending_hours"] += hours
     return {"by_day": dict(by_day), "by_week": dict(by_week)}

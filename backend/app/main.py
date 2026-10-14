@@ -32,6 +32,9 @@ from app.services.escalation import policy_for, run_escalation_tick, set_deadlin
 from app.services.command_center import reconcile_patient, run_command_center_tick
 from app.services.backup_matcher import run_cover_tick
 from app.services.coverage_planner import run_planner_tick
+from app.services.care_feeds import roll_forward
+from app.services.care_status import mark_missed
+from app.services.auto_cover import run_auto_coordination
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.seed import run_seed
 
@@ -162,7 +165,7 @@ def health(db: Session = Depends(get_db)):
 @app.get("/api/v1/meta")
 def meta(db: Session = Depends(get_db)):
     scale = current_escalation_scale(db)
-    return {"app_name": "CareCircle", "version": "0.4.0", "git_sha": settings.git_sha, "phase": 4, "demo_mode": settings.demo_mode, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "server_time": now().isoformat(), "timezone": settings.app_timezone, "ai_enabled": False}
+    return {"app_name": "CareCircle", "version": "0.5.0", "git_sha": settings.git_sha, "phase": 5, "demo_mode": settings.demo_mode, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "server_time": now().isoformat(), "timezone": settings.app_timezone, "ai_enabled": False}
 
 
 def incident_recipients(db, patient_id, level):
@@ -485,6 +488,8 @@ from app.api.backup_matcher import router as backup_matcher_router
 app.include_router(backup_matcher_router)
 from app.api.coverage_planner import router as coverage_planner_router
 app.include_router(coverage_planner_router)
+from app.api.care_feeds import router as care_feeds_router
+app.include_router(care_feeds_router)
 
 
 lookup_attempts: dict[str, deque[float]] = defaultdict(deque)
@@ -683,7 +688,10 @@ def _run_escalation_tick():
         changed = run_escalation_tick(db, now(), scale=current_escalation_scale(db))
         if time.monotonic() - _last_command_center_tick >= 60:
             run_command_center_tick(db, now())
+            mark_missed(db, now())
+            roll_forward(db)
             run_cover_tick(db, now())
+            run_auto_coordination(db, now())
             db.commit()  # commit cover/command-center work before the planner so it can never be rolled back by it
             run_planner_tick(db, now())
             db.commit()
@@ -727,4 +735,4 @@ def spa(path: str, request: Request):
     if path == "api" or path.startswith("api/"): return JSONResponse({"error": {"code": "not_found", "message": "Not found", "details": {}, "request_id": request.state.request_id}}, status_code=404)
     index = DIST / "index.html"
     if index.is_file(): return FileResponse(index, headers={"Cache-Control": "no-cache"})
-    return {"message": "CareCircle API is running", "phase": 4}
+    return {"message": "CareCircle API is running", "phase": 5}

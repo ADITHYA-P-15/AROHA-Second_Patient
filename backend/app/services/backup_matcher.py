@@ -154,10 +154,14 @@ def open_request(db: Session, activity, reason: str, *, replaced_caregiver_id=No
     ranked = ranking(db, req, at)
     if not ranked["eligible_count"]: _event(db, req, "NO_CANDIDATES", note=ranked["summary"], at=at)
     best = ranked["best"]["name"] if ranked["best"] else None
+    _history(db, req, actor, "cover.opened", f"Cover needed for {activity.title}", {"reason": reason, "eligible": ranked["eligible_count"]})
+    if settings.auto_coordination and ranked["best"] and actor is None:
+        # Automatic: ask the best match now; the primary contact hears only if nobody can or will take it.
+        offer(db, req, ranked["best"]["caregiver_id"], actor=None, auto_advance=True, at=at)
+        return req
     body = f"{activity.title} · {_when(activity)}. {ranked['summary']}" + (f" Best match: {best}." if best else "")
     _notify(db, _coordinator_ids(db, activity.patient_id), activity.patient_id, kind="DECISION", title="Cover needed", body=body,
             severity="HIGH" if activity.importance in ("HIGH", "CRITICAL") else "MEDIUM", requires_ack=True, skip=actor.id if actor else None)
-    _history(db, req, actor, "cover.opened", f"Cover needed for {activity.title}", {"reason": reason, "eligible": ranked["eligible_count"]})
     return req
 
 
@@ -287,6 +291,13 @@ def need_for(db: Session, activity):
                 override = result.blocking_overrides[0]  # overrides are loaded in (start_at, id) order, so this key is stable
                 return ("ABSENCE", holder.id, f"absence:{override['id']}:{active.id}", f"{holder.name} reported an absence ({override['reason'].lower()})"), active
     return None, active
+
+
+def candidate_row(db: Session, activity, caregiver_id, at=None) -> dict | None:
+    """One person's matcher assessment for a task (None when the task is outside the scheduled-caregiver view)."""
+    snap, start, end = snapshot_for(db, activity, at or now())
+    if not any(str(a["id"]) == str(activity.id) for a in snap["activities"]): return None
+    return check_candidate(snap, at or now(), start, end, activity.id, caregiver_id, timezone=settings.app_timezone)
 
 
 def holder_can_do(db: Session, activity, active, at=None) -> bool:

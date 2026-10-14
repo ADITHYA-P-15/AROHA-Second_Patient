@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from app.engine.availability import Window, is_available_for
-from app.engine.workload_balancer import PROFESSIONAL_KINDS, LoadContext, delegation_class
+from app.engine.workload_balancer import PROFESSIONAL_KINDS, LoadContext, counts_toward_limit, delegation_class
 
 TRAVEL_GAP = timedelta(minutes=30)
 STATUS_ORDER = ("ELIGIBLE", "AT_LIMIT", "COMMITTED", "UNAVAILABLE", "MISSING_CAPABILITY", "NOT_QUALIFIED", "DECLINED_REQUEST", "INACTIVE", "REPLACED")
@@ -94,7 +94,7 @@ def _assess(ctx: LoadContext, activity, cid: str, *, replaced: str, declined: se
     day_limit = int(_get(cg, "max_activities_per_day", 0))
     week_limit = float(_get(cg, "max_hours_per_week", 0))
     holds_it = any(other == aid for _, other, _ in load.windows)
-    day_after = load.day_tasks.get(day, 0) + (0 if holds_it else 1)
+    day_after = load.day_tasks.get(day, 0) + (0 if holds_it or not counts_toward_limit(activity) else 1)
     week_after = load.week_hours.get(week, 0.0) + (0 if holds_it else ctx.hours(activity))
     if day_after > day_limit:
         failures["AT_LIMIT"] = f"{name} is available but would exceed their daily limit ({day_after}/{day_limit} tasks)."

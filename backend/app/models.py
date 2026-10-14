@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, Index, text, Float
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, Index, text, Float
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.clock import now
@@ -123,6 +123,8 @@ class CaregiverPatientLink(Base):
     patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
     relationship: Mapped[str] = mapped_column(String(120), default="")
     is_designated_backup: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The patient's regular caretaker: new doses and appointments are assigned to them when they can do them.
+    is_main_caretaker: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
 
 
@@ -152,7 +154,7 @@ class AvailabilityOverride(Base):
 
 class CareActivity(Base):
     __tablename__ = "care_activities"
-    __table_args__ = (CheckConstraint("scheduled_end > scheduled_start"), CheckConstraint("deadline IS NULL OR deadline >= scheduled_start"), CheckConstraint("buffer_before_min >= 0 AND buffer_after_min >= 0"), CheckConstraint("category IN ('APPOINTMENT','TRANSPORT','PRESCRIPTION','MEDICATION','FOLLOW_UP','DAILY_ROUTINE','MOBILITY','LAB','SUPPLIES','POST_APPOINTMENT','OTHER')", name="ck_activity_category"), CheckConstraint("importance IN ('LOW','MEDIUM','HIGH','CRITICAL')", name="ck_activity_importance"), CheckConstraint("lifecycle_status IN ('SCHEDULED','COMPLETED','CANCELLED')", name="ck_activity_lifecycle"), CheckConstraint("coverage_status IN ('UNASSESSED','SUPPORTED','UNSUPPORTED','PARTIAL')", name="ck_activity_coverage"))
+    __table_args__ = (CheckConstraint("scheduled_end > scheduled_start"), CheckConstraint("deadline IS NULL OR deadline >= scheduled_start"), CheckConstraint("buffer_before_min >= 0 AND buffer_after_min >= 0"), CheckConstraint("category IN ('APPOINTMENT','TRANSPORT','PRESCRIPTION','MEDICATION','FOLLOW_UP','DAILY_ROUTINE','MOBILITY','LAB','SUPPLIES','POST_APPOINTMENT','OTHER')", name="ck_activity_category"), CheckConstraint("importance IN ('LOW','MEDIUM','HIGH','CRITICAL')", name="ck_activity_importance"), CheckConstraint("lifecycle_status IN ('SCHEDULED','COMPLETED','MISSED','CANCELLED')", name="ck_activity_lifecycle"), CheckConstraint("source IN ('MANUAL','PRESCRIPTION','APPOINTMENT')", name="ck_activity_source"), CheckConstraint("coverage_status IN ('UNASSESSED','SUPPORTED','UNSUPPORTED','PARTIAL')", name="ck_activity_coverage"))
     id: Mapped[uuid.UUID] = uuid_pk()
     patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
     series_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
@@ -168,7 +170,14 @@ class CareActivity(Base):
     buffer_before_min: Mapped[int] = mapped_column(Integer, default=0)
     buffer_after_min: Mapped[int] = mapped_column(Integer, default=0)
     location_note: Mapped[str] = mapped_column(Text, default="")
-    lifecycle_status: Mapped[str] = mapped_column(String(16), default="SCHEDULED", index=True)
+    lifecycle_status: Mapped[str] = mapped_column(String(16), default="SCHEDULED", index=True)  # SCHEDULED = pending
+    # Where the activity came from: a professional's prescription (one row per dose) or appointment, or added by hand.
+    source: Mapped[str] = mapped_column(String(16), default="MANUAL", index=True)
+    source_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
+    completed_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    completed_late: Mapped[bool] = mapped_column(Boolean, default=False)
+    missed_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
     coverage_status: Mapped[str] = mapped_column(String(16), default="UNASSESSED")
     gap_reason: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -357,7 +366,7 @@ class CoverRequest(Base):
     """A task that lost (or never had) dependable cover; the Backup Matcher ranks and offers replacements."""
     __tablename__ = "cover_requests"
     __table_args__ = (
-        CheckConstraint("reason IN ('DECLINED','ABSENCE','MANUAL')", name="ck_cover_request_reason"),
+        CheckConstraint("reason IN ('DECLINED','ABSENCE','MANUAL','UNASSIGNED')", name="ck_cover_request_reason"),
         CheckConstraint("status IN ('OPEN','OFFERED','COVERED','CANCELLED','EXPIRED')", name="ck_cover_request_status"),
         CheckConstraint("resolution IS NULL OR resolution IN ('MATCHER','MANUAL')", name="ck_cover_request_resolution"),
         Index("uq_open_cover_request_activity", "activity_id", unique=True,
@@ -424,3 +433,23 @@ class CoverageFinding(Base):
     first_detected_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
     last_seen_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
     resolved_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Prescription(Base):
+    """Medication data feed: a professional's prescription, expanded into one care activity per dose."""
+    __tablename__ = "prescriptions"
+    __table_args__ = (CheckConstraint("status IN ('ACTIVE','STOPPED')", name="ck_prescription_status"),)
+    id: Mapped[uuid.UUID] = uuid_pk()
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
+    medicine: Mapped[str] = mapped_column(String(160))
+    dose: Mapped[str] = mapped_column(String(80))
+    instructions: Mapped[str] = mapped_column(String(500), default="")
+    times: Mapped[list] = mapped_column(JSON, default=list)  # local "HH:MM" due times each day
+    start_date: Mapped[object] = mapped_column(Date)
+    end_date: Mapped[object | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(12), default="ACTIVE", index=True)
+    prescribed_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+    stopped_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stop_reason: Mapped[str] = mapped_column(String(300), default="")

@@ -51,6 +51,11 @@ BASIS_NOTE = ("Based on assignments, recorded availability and each caregiver's 
               "Recommendations change nothing until a primary contact applies one and the caregiver confirms.")
 
 
+def counts_toward_limit(row) -> bool:
+    """Routine medication doses (from a prescription) take the caretaker's time but not one of their daily task slots."""
+    return not _get(row, "routine", False)
+
+
 def delegation_class(required_support) -> str:
     required = set(required_support or ())
     if required & PROFESSIONAL_SUPPORT: return "PROFESSIONAL"
@@ -92,19 +97,19 @@ class _Load:
     patient_tasks: int = 0
     pending: int = 0
 
-    def add(self, window: Window, activity_id: str, day: str, week: str, in_horizon: bool, own: bool, pending: bool):
+    def add(self, window: Window, activity_id: str, day: str, week: str, in_horizon: bool, own: bool, pending: bool, counts: bool = True):
         hours = (window.end - window.start).total_seconds() / 3600
         self.week_hours[week] += hours
         self.windows.append((window, activity_id, in_horizon))
         if in_horizon:
-            self.day_tasks[day] += 1
+            self.day_tasks[day] += int(counts)  # routine doses use time but not a task slot
             self.day_hours[day] += hours
             self.patient_tasks += int(own)
             self.pending += int(pending)
 
-    def remove(self, activity_id: str, day: str, week: str, hours: float):
+    def remove(self, activity_id: str, day: str, week: str, hours: float, counts: bool = True):
         self.week_hours[week] -= hours
-        self.day_tasks[day] -= 1
+        self.day_tasks[day] -= int(counts)
         self.day_hours[day] -= hours
         self.patient_tasks -= 1
         self.windows = [x for x in self.windows if x[1] != activity_id]
@@ -132,7 +137,7 @@ class _Context:
             aid = _sid(_get(row, "activity_id"))
             in_horizon = self.start <= start < self.end
             status = _get(row, "status", "CONFIRMED")
-            self.loads[cid].add(window, aid, self.day_of(start), self.week_of(start), in_horizon, own, status != "CONFIRMED")
+            self.loads[cid].add(window, aid, self.day_of(start), self.week_of(start), in_horizon, own, status != "CONFIRMED", counts_toward_limit(row))
             if own: self.holder[aid] = (cid, _sid(_get(row, "assignment_id")), status)
 
     def _horizon_days(self) -> list[str]:
@@ -336,7 +341,7 @@ def _check(ctx: _Context, activity, receiver_id: str, donor_id: str) -> tuple[bo
     day, week = ctx.day_of(start), ctx.week_of(start)
     day_limit = int(_get(cg, "max_activities_per_day", 0))
     week_limit = float(_get(cg, "max_hours_per_week", 0))
-    day_after = load.day_tasks.get(day, 0) + 1
+    day_after = load.day_tasks.get(day, 0) + int(counts_toward_limit(activity))
     week_after = load.week_hours.get(week, 0.0) + ctx.hours(activity)
     if day_after > day_limit: reasons.append(f"Would exceed the daily limit ({day_after}/{day_limit} tasks).")
     if week_after > week_limit + 1e-9: reasons.append(f"Would exceed the weekly limit ({week_after:.1f}/{week_limit:g} h).")
@@ -375,8 +380,8 @@ def _activity_view(ctx: _Context, activity) -> dict:
 def _move(ctx: _Context, activity, donor_id: str, receiver_id: str):
     aid, start = _sid(_get(activity, "id")), _get(activity, "scheduled_start")
     day, week, hours = ctx.day_of(start), ctx.week_of(start), ctx.hours(activity)
-    ctx.loads[donor_id].remove(aid, day, week, hours)
-    ctx.loads[receiver_id].add(ctx.window(activity), aid, day, week, True, True, True)
+    ctx.loads[donor_id].remove(aid, day, week, hours, counts_toward_limit(activity))
+    ctx.loads[receiver_id].add(ctx.window(activity), aid, day, week, True, True, True, counts_toward_limit(activity))
     holder = ctx.holder[aid]
     ctx.holder[aid] = (receiver_id, holder[1], "PROPOSED")
 

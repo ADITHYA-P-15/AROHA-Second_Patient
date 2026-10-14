@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.core.clock import now, to_utc
 from app.models import (ActivityDependency, ActivityHistory, AvailabilityOverride, CareActivity, CareAssignment, Caregiver, CaregiverPatientLink,
-                        CaregiverWeeklySchedule, CareTeamMember, Patient, PatientSupportNeed, TeamRole, User)
+                        CaregiverWeeklySchedule, CareTeamMember, Patient, PatientSupportNeed, Prescription, TeamRole, User)
+from app.services.care_feeds import generate_doses
 from app.services.care_team import ensure_care_profile
 
 # name, email, capabilities, daily task limit, weekly hours, weekly windows (weekday, start_min, end_min), patients, relationship
@@ -106,3 +107,22 @@ def seed_phase2(db: Session) -> None:
     ensure_activity(sharada, "Meal preparation", "DAILY_ROUTINE", at(tomorrow, 9), at(tomorrow, 10), ["DAILY_ASSIST"], caregiver=savitha)
     ensure_activity(sharada, "Doctor visit", "APPOINTMENT", at(day3, 11), at(day3, 12), ["APPOINTMENT_ESCORT"], caregiver=caregivers.get("Meera Pai"))
     _ = suresh  # Suresh is the spare driver the Backup Matcher and planner can draw on.
+
+    # Older demo data had hand-made medication tasks and a clinical visit; doses now come from prescriptions.
+    for legacy in db.scalars(select(CareActivity).where(CareActivity.is_synthetic.is_(True), CareActivity.lifecycle_status == "SCHEDULED", CareActivity.source == "MANUAL",
+                                                        (CareActivity.title.like("Morning medication assistance%")) | (CareActivity.title == "Weekly nurse visit"))):
+        legacy.lifecycle_status, legacy.gap_reason = "CANCELLED", "Replaced by prescription doses"
+
+    # Data feeds: Savitha is Ramesh's main caretaker; Dr. Arjun's prescriptions expand into doses assigned to her when she can do them.
+    for link in db.scalars(select(CaregiverPatientLink).where(CaregiverPatientLink.patient_id == ramesh.id)):
+        link.is_main_caretaker = link.caregiver_id == savitha.id
+    for activity in db.scalars(select(CareActivity).where(CareActivity.category == "APPOINTMENT", CareActivity.source == "MANUAL", CareActivity.is_synthetic.is_(True))):
+        activity.source = "APPOINTMENT"
+    doctor = users.get("dr.arjun.nair@secondpatient.demo")
+    if doctor and not db.scalar(select(Prescription.id).where(Prescription.patient_id == ramesh.id)):
+        today = now().astimezone(zone).date()
+        for medicine, dose, instructions, times in (("Metformin", "500 mg", "After food", ["08:00", "20:00"]), ("Amlodipine", "5 mg", "Morning, with water", ["09:00"])):
+            prescription = Prescription(patient_id=ramesh.id, medicine=medicine, dose=dose, instructions=instructions, times=times, start_date=today,
+                                        end_date=today + timedelta(days=30), status="ACTIVE", prescribed_by=doctor.id)
+            db.add(prescription); db.flush()
+            generate_doses(db, prescription, through=today + timedelta(days=7), actor_id=doctor.id)

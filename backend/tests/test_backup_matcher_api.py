@@ -1,4 +1,6 @@
 import uuid
+
+import pytest
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
@@ -6,6 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.core.clock import now
+from app.core.config import settings
 from app.core.db import SessionLocal
 from app.main import app
 from app.models import CareAssignment, CoverRequest
@@ -15,6 +18,12 @@ from app.services.workload_balancer import _aware
 
 H = {"X-Requested-With": "second-patient"}
 ANYTIME = [{"weekday": d, "start_min": 0, "end_min": 1440} for d in range(7)]
+
+
+@pytest.fixture(autouse=True)
+def manual_coordination(monkeypatch):
+    """These tests exercise the primary contact's manual flow; test_auto_cover.py covers the automatic one."""
+    monkeypatch.setattr(settings, "auto_coordination", False)
 
 
 def caregiver(coord, pid, name, caps=("TRANSPORT",), day=3):

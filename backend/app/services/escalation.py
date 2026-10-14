@@ -61,7 +61,11 @@ def _create_task_incidents(db: Session, current, scale: float) -> int:
                           "primary_confirmed":True,"importance":activity.importance,"acknowledged_at":activity.acknowledged_at,
                           "scheduled_start":activity.scheduled_start,"scheduled_end":activity.scheduled_end})
     created=0
+    feed_source={str(a.id):a.source for a in activities}
     for found in detect_task_incidents(snapshots,current):
+        # Doses and appointment misses are owned by the status engine (care_status.mark_missed); avoid double alerts.
+        if feed_source.get(found["activity_id"])=="PRESCRIPTION": continue
+        if feed_source.get(found["activity_id"])=="APPOINTMENT" and found["kind"]=="TASK_OVERDUE": continue
         if db.scalar(select(Incident.id).where(Incident.patient_id==found["patient_id"],Incident.dedupe_key==found["dedupe_key"])):
             continue
         patient=db.get(Patient,found["patient_id"])

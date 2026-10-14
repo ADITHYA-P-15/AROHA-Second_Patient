@@ -70,6 +70,12 @@ def evaluate_attention(snapshot: dict, now: datetime, settings: dict | None = No
     for activity in activities:
         if _get(activity, "lifecycle_status", "SCHEDULED") in {"COMPLETED", "CANCELLED"}:
             continue
+        if _get(activity, "lifecycle_status") == "MISSED":
+            missed_at = _get(activity, "missed_at") or _get(activity, "scheduled_start")
+            if missed_at and now - missed_at < timedelta(hours=24):
+                add("TASK_MISSED", activity, f"{_get(activity, 'title', 'A care activity')} was missed and has not been recorded as done.", severity="HIGH",
+                    due_at=_get(activity, "scheduled_start"), suggested=({"option": "MARK_COMPLETE", "activity_id": _iso_id(_get(activity, "id"))},))
+            continue
         aid = _iso_id(_get(activity, "id"))
         rows = by_activity.get(aid, [])
         active = [x for x in rows if _get(x, "status") in {"PROPOSED", "AWAITING_CONFIRMATION", "CONFIRMED"} and _get(x, "role", "PRIMARY") == "PRIMARY"]

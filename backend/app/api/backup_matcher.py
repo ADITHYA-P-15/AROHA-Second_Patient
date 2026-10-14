@@ -18,7 +18,7 @@ from app.services.reassess import TriggerEvent, reassess
 from app.services.workload_balancer import ACTIVE, _aware
 
 router = APIRouter(prefix="/api/v1", tags=["backup matcher"])
-REASON_LABELS = {"DECLINED": "Declined", "ABSENCE": "Absence", "MANUAL": "Cover requested"}
+REASON_LABELS = {"DECLINED": "Declined", "ABSENCE": "Absence", "MANUAL": "Cover requested", "UNASSIGNED": "No caretaker yet"}
 
 
 class Input(BaseModel):
