@@ -1,10 +1,11 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, Bell, CalendarDays, HandHelping, HeartHandshake, History, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Menu, Scale, Settings, Siren, Timer, UserRound, Users, X, type LucideIcon } from 'lucide-react';
+import { Activity, Bell, CalendarClock, CalendarDays, HandHelping, HeartHandshake, History, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Menu, Scale, Settings, Siren, Timer, UserRound, Users, X, type LucideIcon } from 'lucide-react';
 import { CommandCenter } from './CommandCenter.tsx';
 import { WorkloadBalancer } from './WorkloadBalancer.tsx';
 import { CoverRequests } from './CoverRequests.tsx';
+import { CoverageForecast } from './CoverageForecast.tsx';
 import { api } from './api/client.ts';
 import { formatAppTime, localInputToIso, nowLocalInput } from './lib/time.ts';
 import { newId } from './lib/id.ts';
@@ -18,6 +19,7 @@ type NavItem = { title: string; path: string; icon: LucideIcon };
 const coordinatorNav: NavItem[] = [
   { title: 'Command Center', path: '/command-center', icon: ListChecks },
   { title: 'Cover Requests', path: '/cover', icon: LifeBuoy },
+  { title: 'Coverage Forecast', path: '/forecast', icon: CalendarClock },
   { title: 'Dashboard', path: '/', icon: LayoutDashboard },
   { title: 'Incident Center', path: '/incidents', icon: Siren },
   { title: 'Care Plan', path: '/care-plan', icon: CalendarDays },
@@ -77,6 +79,7 @@ function Workspace({ user, meta }: { user: User; meta?: { phase: number; version
       case '/command-center': return <CommandCenter/>;
       case '/': return <Dashboard/>;
       case '/cover': return <CoverRequests/>;
+      case '/forecast': return <CoverageForecast/>;
       case '/workload': return <WorkloadBalancer/>;
       case '/incidents': return <IncidentCenter/>;
       case '/request-help': return <HelpPage/>;

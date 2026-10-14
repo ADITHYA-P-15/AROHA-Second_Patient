@@ -655,6 +655,7 @@ def add_assignment(aid: uuid.UUID, body: AssignmentIn, request: Request, user: U
         for target in targets:
             if target.lifecycle_status != "SCHEDULED": raise HTTPException(409, "Cannot assign a cancelled or completed activity")
             if db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == target.id, CareAssignment.caregiver_id == cg.id, CareAssignment.role != body.role, CareAssignment.status.in_(ACTIVE))): raise HTTPException(409, "Caregiver cannot be both primary and backup on one activity")
+            if body.role == "BACKUP" and db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == target.id, CareAssignment.caregiver_id == cg.id, CareAssignment.role == "BACKUP", CareAssignment.status.in_(ACTIVE))): raise HTTPException(409, "This caregiver has already been asked to be backup for this activity")
             existing = db.scalar(select(CareAssignment).where(CareAssignment.activity_id == target.id, CareAssignment.role == "PRIMARY", CareAssignment.status.in_(ACTIVE))) if body.role == "PRIMARY" else None
             if existing:
                 if body.confirm_now and existing.status == "CONFIRMED": existing.status = "SUPERSEDED"; existing.updated_at = now(); db.flush()

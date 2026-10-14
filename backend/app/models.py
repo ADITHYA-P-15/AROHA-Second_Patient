@@ -444,3 +444,31 @@ class CoverRequestEvent(Base):
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     note: Mapped[str] = mapped_column(String(300), default="")
     at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class CoverageFinding(Base):
+    """One task's forecast risk, tracked from first detection to outcome (kind can change while it stays open)."""
+    __tablename__ = "coverage_findings"
+    __table_args__ = (
+        CheckConstraint("kind IN ('GAP','UNCONFIRMED','SINGLE_POINT')", name="ck_coverage_finding_kind"),
+        CheckConstraint("status IN ('OPEN','RESOLVED','MISSED','CLOSED')", name="ck_coverage_finding_status"),
+        CheckConstraint("outcome IS NULL OR outcome IN ('BEFORE_DEADLINE','AFTER_DEADLINE','STARTED_UNCOVERED','NO_BACKUP_SECURED','TASK_CLOSED','OUT_OF_SCOPE')", name="ck_coverage_finding_outcome"),
+        CheckConstraint("worst_kind IN ('GAP','UNCONFIRMED','SINGLE_POINT')", name="ck_coverage_finding_worst_kind"),
+        Index("uq_open_coverage_finding", "activity_id", unique=True,
+              postgresql_where=text("status = 'OPEN'"), sqlite_where=text("status = 'OPEN'")),
+        Index("ix_coverage_finding_patient_detected", "patient_id", "first_detected_at"),
+    )
+    id: Mapped[uuid.UUID] = uuid_pk()
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
+    activity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("care_activities.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))  # latest kind seen
+    worst_kind: Mapped[str] = mapped_column(String(16))  # GAP > UNCONFIRMED > SINGLE_POINT while open
+    status: Mapped[str] = mapped_column(String(12), default="OPEN", index=True)
+    outcome: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    headline: Mapped[str] = mapped_column(String(500), default="")
+    activity_start: Mapped[object] = mapped_column(DateTime(timezone=True))
+    secure_by: Mapped[object] = mapped_column(DateTime(timezone=True))
+    first_secure_by: Mapped[object] = mapped_column(DateTime(timezone=True))  # deadline when first flagged; measures use this
+    first_detected_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
+    last_seen_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
+    resolved_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)

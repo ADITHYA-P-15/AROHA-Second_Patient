@@ -438,3 +438,45 @@ Sign in as Karthik. In Care Plan, tap **I can't make it** on *Lab visit*. Then s
 ### Checks
 
 `python -m pytest backend/tests -q` adds 12 Backup Matcher tests: 6 engine tests (including the example scenario) and 6 API tests. The API tests cover the decline → auto-advance → covered flow, a caregiver's self-accept, idempotent detection, an absence being withdrawn, manual-cover measurement, expiry, re-validation and access. `npm test` adds label and formatting helper tests. The smoke script opens and closes a cover request.
+
+## Feature — Predictive Coverage Planner
+
+### What changed
+
+A **Coverage Forecast** screen looks at the next **24 hours, 3 days and 7 days**. It uses known schedules, availability, capabilities, commitments and limits (the same rules as the Backup Matcher) and flags three kinds of task:
+
+- **gaps:** no caregiver, or the assigned caregiver cannot actually do it;
+- **unconfirmed tasks;**
+- **single points of failure:** covered, but the holder is the only eligible person.
+
+Each finding carries a **secure-by** deadline (critical 72 h, high 48 h, medium 24 h, low 12 h ahead, kept within waking hours) and a one-tap step: **Find cover**, **Request confirmation**, or **Ask … to stand by**. Days are rated for capacity. An “if someone is away” list shows what would have no alternative. Example: “Monday's Appointment is covered, but Savitha is the only eligible person. Arrange a backup before Sat 17 Oct, 10:00.” Details are in [docs/COVERAGE_PLANNER.md](docs/COVERAGE_PLANNER.md).
+
+### Measures
+
+A findings log records when each risk was first seen and how it ended. From it the screen reports **future gaps identified before their deadlines** (count, %, median warning time) and **preventable uncovered activities** (flagged in advance but still uncovered at start), plus the share of gaps closed before the task started.
+
+### New endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/patients/{id}/coverage-forecast` | Forecast for 24 h / 3 d / 7 d with findings, days and the N-1 list |
+| `GET /api/v1/patients/{id}/coverage-forecast/metrics?days=30` | Early-warning and prevention measures |
+
+### Decisions and limits
+
+- Migration `0008_coverage_planner` adds `coverage_findings`, with one open row per task and kind.
+- The scheduler logs findings every 60 seconds, and so does opening the screen. Actions reuse the Backup Matcher and assignment endpoints; nothing is changed automatically.
+- A confirmed backup counts as ready even when over their limit or outside usual hours. Recorded absences, missing skills and clashes still disqualify them.
+- Real travel time and recurring-pattern prediction beyond 7 days are not modelled yet.
+
+### Checks
+
+`python -m pytest backend/tests -q` adds 6 planner tests (4 engine, 2 API/log), covering your example sentence, the deadline and waking-hours rules, the outcome log and access. The smoke script checks the forecast endpoint.
+
+### Maintenance in this release
+
+- Patient help messages now work on plain-HTTP LAN phones; `crypto.randomUUID` is unavailable there.
+- Level-3 escalations without a nurse now reach the primary contact.
+- Help summaries use India time.
+- Nurses and doctors can resolve only the incidents they can see.
+- A negative history offset is now rejected instead of causing a 500.

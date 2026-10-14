@@ -83,3 +83,41 @@ Cumulative record of features built one at a time on top of the phased roadmap i
   - Real travel time (needs locations).
   - SMS/WhatsApp offers for people without the app.
   - Offer timeouts before the task starts.
+
+## Maintenance — earlier review gaps (before Feature 4)
+
+- Patient help messages now work on plain-HTTP LAN phones: there is a `getRandomValues` fallback for `crypto.randomUUID`, and one idempotency key is kept per draft.
+- Level-3 escalations without a nurse route to the primary contact.
+- Help summaries use the app timezone.
+- Nurses and doctors can resolve only incidents they can see.
+- History rejects negative offsets.
+
+## Feature 4 — Predictive Coverage Planner
+
+- **Goal:** find coverage problems before they happen instead of reacting.
+- **Shipped:**
+  - A 24 h / 3 d / 7 d forecast of gaps, unconfirmed tasks and single points of failure, each with a secure-by deadline and a one-tap next step.
+  - Capacity rating per day.
+  - An N-1 "if someone is away" list.
+  - A findings log for the measures: identified before deadline, median warning time, preventable uncovered, and gaps prevented.
+- **Code:**
+  - `backend/app/engine/coverage_planner.py`
+  - `backend/app/services/coverage_planner.py`
+  - `backend/app/api/coverage_planner.py`
+  - `models.CoverageFinding`
+  - `alembic/versions/0008_coverage_planner.py`
+  - `frontend/src/CoverageForecast.tsx`
+  - `frontend/src/lib/forecast.ts`
+  - `engine/backup_matcher.rank_in_context`: the ranking refactored to share one load context.
+- **Tests:**
+  - `backend/tests/test_coverage_planner_engine.py`
+  - `backend/tests/test_coverage_planner_api.py`
+  - `frontend/src/lib/forecast.test.ts`
+- **Docs:** [COVERAGE_PLANNER.md](COVERAGE_PLANNER.md) and the README section "Feature — Predictive Coverage Planner".
+- **Reuse later:**
+  - The forecast and findings log for absence simulation (re-run `forecast` without one caregiver's commitments).
+  - The 14-day forecast and capacity analytics in the dashboards phase.
+- **Not yet:**
+  - Travel time.
+  - Predicting recurring patterns beyond 7 days.
+  - A daily digest notification (deliberately left out to avoid adding alerts).

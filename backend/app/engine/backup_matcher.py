@@ -38,6 +38,19 @@ def _ratio(value: float, limit: float) -> float:
     return (2.0 if value > 0 else 0.0) if limit <= 0 else value / limit
 
 
+CANNOT_DO_STATUSES = {"MISSING_CAPABILITY", "NOT_QUALIFIED", "COMMITTED", "INACTIVE"}
+
+
+def holder_cannot_do(row: dict | None) -> bool:
+    """Whether the person holding a task cannot do it as recorded.
+
+    Shared by the Coverage Planner and the "only if uncovered" check, so a flagged gap can always be acted on.
+    Working outside usual hours is not disqualifying for someone who already said yes; a recorded absence is.
+    """
+    if row is None: return True
+    return row["status"] in CANNOT_DO_STATUSES or (row["status"] == "UNAVAILABLE" and bool(row.get("recorded_absence")))
+
+
 def support_phrase(required) -> str:
     phrases = [SUPPORT_PHRASES.get(code, code.replace("_", " ").lower()) for code in (required or [])]
     return " and ".join(phrases) if phrases else "take this task"
@@ -89,6 +102,7 @@ def _assess(ctx: LoadContext, activity, cid: str, *, replaced: str, declined: se
         failures["AT_LIMIT"] = f"{name} is available but would exceed their weekly limit ({week_after:.1f}/{week_limit:g} h)."
     status = next((s for s in reversed(STATUS_ORDER) if s in failures), "ELIGIBLE")
     row = {"caregiver_id": cid, "name": name, "kind": _get(cg, "kind", "OTHER"), "status": status, "eligible": status == "ELIGIBLE",
+           "recorded_absence": bool(availability.blocking_overrides),
            "reasons": [failures[s] for s in reversed(STATUS_ORDER) if s in failures], "score": 0, "score_breakdown": [], "tight_connection": None}
     if status != "ELIGIBLE":
         row["headline"] = failures[status]
@@ -122,13 +136,11 @@ def _assess(ctx: LoadContext, activity, cid: str, *, replaced: str, declined: se
     return row
 
 
-def rank_candidates(snapshot: dict, now: datetime, horizon_start: datetime, horizon_end: datetime, activity_id, *,
-                    replaced_caregiver_id=None, declined_caregiver_ids=(), timezone: str = "Asia/Kolkata") -> dict:
-    """Rank every linked caregiver for one task. Eligible first by score; others grouped by why they cannot."""
-    ctx = LoadContext(snapshot, now, horizon_start, horizon_end, timezone)
+def rank_in_context(ctx: LoadContext, activity_id, *, replaced_caregiver_id=None, declined_caregiver_ids=(), history=None) -> dict:
+    """Rank on an existing load context (lets the Coverage Planner assess many tasks on one snapshot)."""
     activity = ctx.activities.get(_sid(activity_id))
     if activity is None: raise ValueError("activity is not a scheduled caregiver task in this snapshot")
-    history = {_sid(k): v for k, v in (snapshot.get("history") or {}).items()}
+    history = {_sid(k): v for k, v in (history or {}).items()}
     declined = {_sid(x) for x in declined_caregiver_ids}
     rows = [_assess(ctx, activity, cid, replaced=_sid(replaced_caregiver_id), declined=declined, history=history) for cid in ctx.caregivers]
     eligible = sorted((r for r in rows if r["eligible"]), key=lambda r: (-r["score"], r["name"], r["caregiver_id"]))
@@ -139,6 +151,14 @@ def rank_candidates(snapshot: dict, now: datetime, horizon_start: datetime, hori
                else "No one in the network can take this right now.")
     return {"activity_id": _sid(activity_id), "delegation_class": delegation_class(_get(activity, "required_support")),
             "eligible_count": len(eligible), "summary": summary, "best": eligible[0] if eligible else None, "candidates": eligible + others}
+
+
+def rank_candidates(snapshot: dict, now: datetime, horizon_start: datetime, horizon_end: datetime, activity_id, *,
+                    replaced_caregiver_id=None, declined_caregiver_ids=(), timezone: str = "Asia/Kolkata") -> dict:
+    """Rank every linked caregiver for one task. Eligible first by score; others grouped by why they cannot."""
+    ctx = LoadContext(snapshot, now, horizon_start, horizon_end, timezone)
+    return rank_in_context(ctx, activity_id, replaced_caregiver_id=replaced_caregiver_id,
+                           declined_caregiver_ids=declined_caregiver_ids, history=snapshot.get("history"))
 
 
 def check_candidate(snapshot: dict, now: datetime, horizon_start: datetime, horizon_end: datetime, activity_id, caregiver_id, *,

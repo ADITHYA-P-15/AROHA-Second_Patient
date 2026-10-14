@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.core.clock import now
 from app.core.config import settings
 from app.engine.availability import is_available_for
-from app.engine.backup_matcher import check_candidate, rank_candidates
+from app.engine.backup_matcher import check_candidate, holder_cannot_do, rank_candidates
 from app.engine.workload import buffered_window
 from app.models import (ActivityHistory, AvailabilityOverride, CareActivity, CareAssignment, Caregiver, CareTeamMember, CaregiverWeeklySchedule,
                         CoverRequest, CoverRequestEvent, Notification, Patient, TeamRole)
@@ -287,6 +287,15 @@ def need_for(db: Session, activity):
                 override = result.blocking_overrides[0]  # overrides are loaded in (start_at, id) order, so this key is stable
                 return ("ABSENCE", holder.id, f"absence:{override['id']}:{active.id}", f"{holder.name} reported an absence ({override['reason'].lower()})"), active
     return None, active
+
+
+def holder_can_do(db: Session, activity, active, at=None) -> bool:
+    """Whether the active primary can do the task as recorded — the same rule the Coverage Planner uses for gaps."""
+    if active is None: return False
+    snap, start, end = snapshot_for(db, activity, at or now())
+    if not any(str(a["id"]) == str(activity.id) for a in snap["activities"]): return False
+    row = check_candidate(snap, at or now(), start, end, activity.id, active.caregiver_id, timezone=settings.app_timezone)
+    return not holder_cannot_do(row)
 
 
 def _holder_available(db, active, activity) -> bool:

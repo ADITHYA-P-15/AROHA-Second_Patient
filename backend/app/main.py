@@ -30,6 +30,7 @@ from app.engine.escalation_machine import DEFAULT_POLICY, deadline_minutes
 from app.services.escalation import policy_for, run_escalation_tick, set_deadline
 from app.services.command_center import reconcile_patient, run_command_center_tick
 from app.services.backup_matcher import run_cover_tick
+from app.services.coverage_planner import run_planner_tick
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.seed import run_seed
 
@@ -617,6 +618,8 @@ from app.api.workload import router as workload_router
 app.include_router(workload_router)
 from app.api.backup_matcher import router as backup_matcher_router
 app.include_router(backup_matcher_router)
+from app.api.coverage_planner import router as coverage_planner_router
+app.include_router(coverage_planner_router)
 
 
 @app.get("/api/v1/patients")
@@ -767,6 +770,8 @@ def _run_escalation_tick():
         if time.monotonic() - _last_command_center_tick >= 60:
             run_command_center_tick(db, now())
             run_cover_tick(db, now())
+            db.commit()  # commit cover/command-center work before the planner so it can never be rolled back by it
+            run_planner_tick(db, now())
             db.commit()
             _last_command_center_tick = time.monotonic()
         return changed

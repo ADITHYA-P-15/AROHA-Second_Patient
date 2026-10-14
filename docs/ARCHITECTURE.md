@@ -94,4 +94,8 @@ Capabilities: `TRANSPORT`, `MEDICATION_ASSIST`, `PRESCRIPTION_PICKUP`, `DAILY_AS
 
 `engine/backup_matcher.py` ranks replacement caregivers for one task on the Workload Balancer's `LoadContext`, with categorized statuses, one-sentence reasons, continuity points and a 30-minute travel-gap rule. `services/backup_matcher.py` owns cover requests: detection of declines and absences (`trigger_key` idempotency inside `reassess` and the scheduler), offer/accept/decline with auto-advance, expiry, and metrics. `api/backup_matcher.py` scopes coordinators, family contacts and the offered caregiver. Coverage still requires a confirmed primary. Details: [BACKUP_MATCHER.md](BACKUP_MATCHER.md).
 
+## Coverage Planner module map
+
+`engine/coverage_planner.py` forecasts the next 24 h / 3 d / 7 d. For each task it uses the Backup Matcher's `rank_in_context` on one shared `LoadContext` to classify `GAP`, `UNCONFIRMED`, `SINGLE_POINT` or OK. It also sets secure-by deadlines (lead time by importance, within waking hours), rates days for capacity using Workload Balancer demand, and lists N-1 dependencies. `services/coverage_planner.py` logs findings (`coverage_findings`) from first detection to outcome for the early-warning and preventable-uncovered measures. Details: [COVERAGE_PLANNER.md](COVERAGE_PLANNER.md).
+
 Evaluators need independent setup instructions, test accounts, safe self-registration, at least five real API operations, AI disclosure, `.env.example`, and no committed secrets.

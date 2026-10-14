@@ -80,17 +80,20 @@ def build_snapshot(db: Session, patient_id, start: datetime, end: datetime) -> d
     week_start, week_end = _week_bounds(start, end)
     commitments = []
     backups: dict = {}
+    pending_backups: dict = {}  # asked to stand by, not yet confirmed
     if ids:
         rows = db.execute(select(CareAssignment, CareActivity).join(CareActivity, CareActivity.id == CareAssignment.activity_id)
                           .where(CareAssignment.caregiver_id.in_(ids), CareAssignment.status.in_(ACTIVE), CareActivity.lifecycle_status == "SCHEDULED",
                                  CareActivity.scheduled_start >= week_start, CareActivity.scheduled_start < week_end)).all()
         for assignment, activity in rows:
             if assignment.role == "BACKUP":
-                if assignment.status == "CONFIRMED" and activity.patient_id == patient_id:
-                    backups.setdefault(str(activity.id), []).append(str(assignment.caregiver_id))
+                if activity.patient_id == patient_id:
+                    target = backups if assignment.status == "CONFIRMED" else pending_backups
+                    target.setdefault(str(activity.id), []).append(str(assignment.caregiver_id))
                 continue
             window_start, window_end = _windowed(activity)
             commitments.append({"assignment_id": assignment.id, "caregiver_id": assignment.caregiver_id, "activity_id": activity.id,
                                 "own_patient": activity.patient_id == patient_id, "status": assignment.status,
                                 "scheduled_start": _aware(activity.scheduled_start), "window_start": window_start, "window_end": window_end})
-    return {"caregivers": caregivers, "activities": activity_rows, "commitments": commitments, "confirmed_backups": backups}
+    return {"caregivers": caregivers, "activities": activity_rows, "commitments": commitments, "confirmed_backups": backups,
+            "pending_backups": pending_backups}

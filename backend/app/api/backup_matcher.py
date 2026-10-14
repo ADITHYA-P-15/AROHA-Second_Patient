@@ -129,7 +129,7 @@ def open_cover_request(activity_id: uuid.UUID, body: OpenIn, user=Depends(_curre
     if body.only_if_uncovered:
         need, active = svc.need_for(db, activity)
         open_now = db.scalar(select(CoverRequest.id).where(CoverRequest.activity_id == activity.id, CoverRequest.status.in_(svc.OPEN_STATUSES)))
-        if need is None and open_now is None and active is not None and active.status == "CONFIRMED" and svc._holder_available(db, active, activity):
+        if need is None and open_now is None and active is not None and active.status == "CONFIRMED" and svc.holder_can_do(db, activity, active):
             raise HTTPException(409, "This task already has a confirmed caregiver who is available")
     req = svc.open_request(db, activity, "MANUAL", replaced_caregiver_id=holder.caregiver_id if holder else None,
                            note=body.note.strip() or "Primary contact asked for cover", actor=user)
