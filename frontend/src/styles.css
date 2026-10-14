@@ -43,3 +43,6 @@
 .md-task.md-bad{border-left:3px solid #c0392b}.md-task.md-ok{border-left:3px solid #1c9a6a}.md-big{font-size:26px;font-weight:600;margin:6px 0}.md-pct{margin-left:auto;font-weight:600;color:var(--brand-dark)}
 .md-row button,.md-edit button,.md-form button{min-height:44px}
 @media(max-width:650px){.md-row{display:grid}.md-row button{width:100%}.md-pct{margin-left:0}}
+.chip{display:inline-flex;align-items:center;padding:3px 9px;margin:2px 6px 2px 0;border-radius:999px;background:#eef3f3;color:#40585d;font-size:12px;font-weight:600;white-space:nowrap}
+.md-row button:not(.primary),.md-edit button:not(.primary){padding:7px 16px}.md-x{border:1px solid var(--line);background:#fff;color:var(--muted)}.md-x:hover{border-color:#bd4c4c;color:#bd4c4c}
+.card,.md-item,.cc-item,.patient-info,.team-list li>span,.history-list li{min-width:0;overflow-wrap:anywhere}.card-head{gap:10px;align-items:flex-start}.card-head h3{overflow-wrap:anywhere}.status-pill{white-space:nowrap;flex:none}
