@@ -23,9 +23,19 @@ def candidates():
         except OSError: pass
     return sorted(ip for ip in result if not ip.startswith(("127.","169.254.")))
 if __name__=="__main__":
-    addresses=candidates(); print("Local: http://localhost:8000")
+    addresses=candidates(); hotspot_prefixes=("192.168.137.","172.20.10.","192.168.43.")
+    print("Candidate URLs (port 8000):")
+    print("  Local: http://localhost:8000")
     for ip in addresses:
-        note=" (likely hotspot network)" if ip.startswith(("192.168.137.","172.20.10.","192.168.43.")) else ""
-        print(f"Share: http://{ip}:8000{note}")
-    print("Docs: http://localhost:8000/docs")
+        url=f"http://{ip}:8000"
+        note=" (known mobile hotspot range)" if ip.startswith(hotspot_prefixes) else ""
+        print(f"  {url}{note}")
+        try:
+            import qrcode
+            qr=qrcode.QRCode(border=1); qr.add_data(url); qr.make(fit=True); qr.print_ascii(invert=True)
+        except Exception: pass
+    if addresses and not any(ip.startswith(hotspot_prefixes) for ip in addresses):
+        print("Warning: the selected network may isolate Wi-Fi clients (common on campus/office networks).")
+        print("If other devices can't connect: use your phone's hotspot or Windows Mobile Hotspot (192.168.137.1), then run scripts/open-firewall.ps1 as Administrator.")
+    print("  Docs: http://localhost:8000/docs")
     if not addresses: print("No candidate LAN IPv4 address found; check network adapter and firewall.")

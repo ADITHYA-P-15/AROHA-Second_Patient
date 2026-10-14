@@ -10,6 +10,8 @@ dist/
 frontend/dist/
 .pytest_cache/
 .ruff_cache/
+*.tsbuildinfo
+.vite/
 .coverage
 *.log
 .DS_Store

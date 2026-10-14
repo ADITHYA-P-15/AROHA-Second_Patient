@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from app.main import app, seed
 from app.core.db import SessionLocal
 from sqlalchemy import select, func
-from app.models import ActivityHistory, CareTeamMember, Patient, User
+from app.models import ActivityHistory, CareTeamMember, Patient, User, CareAssignment, ActivityDependency, CareActivity, AvailabilityOverride, CaregiverWeeklySchedule, CaregiverPatientLink, Caregiver, PatientSupportNeed
 
 client = TestClient(app)
 H = {"X-Requested-With": "second-patient"}
@@ -17,7 +17,7 @@ def test_permission_matrix():
 
 def test_public_health_meta_and_csrf():
     assert client.get("/api/health").json()["database"] == "ok"
-    assert client.get("/api/v1/meta").json()["phase"] == 1
+    assert client.get("/api/v1/meta").json()["phase"] == 2
     response = client.post("/api/v1/auth/register", json={"name":"No CSRF","email":"csrf@example.test","password":"LongSafe!42"})
     assert response.status_code == 403
     assert "request_id" in response.json()["error"]
@@ -49,6 +49,7 @@ def test_unknown_api_route_is_json_404():
 def test_seed_is_idempotent_and_labels_all_demo_people():
     with SessionLocal() as db:
         db.query(ActivityHistory).delete()
+        db.query(CareAssignment).delete(); db.query(ActivityDependency).delete(); db.query(CareActivity).delete(); db.query(AvailabilityOverride).delete(); db.query(CaregiverWeeklySchedule).delete(); db.query(CaregiverPatientLink).delete(); db.query(Caregiver).delete(); db.query(PatientSupportNeed).delete()
         db.query(CareTeamMember).delete()
         db.query(Patient).delete()
         db.query(User).delete()
