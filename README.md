@@ -291,7 +291,7 @@ All mutation routes require authentication and the existing CSRF header. The req
 
 ### Phase 3 test instructions and verification
 
-Run the backend and frontend commands in [Test Instructions](#test-instructions), then run the smoke script against localhost and the host LAN address. The Phase 3 smoke extension is in `scripts/smoke.py`; Docker was unavailable for an end-to-end run in this environment. A real second-device check remains manual. Manual emergency demo: submit a chest-pain message or SOS and confirm the L5 record and notification; use phone emergency services directly for any real emergency.
+Run the backend and frontend commands in [Test Instructions](#test-instructions), then run the smoke script against localhost and the host LAN address. The Phase 3 smoke extension is in `scripts/smoke.py`. The earlier verification record below was current at Phase 3; the Phase 4 run is recorded in the Phase 4 section. A real second-device check remains manual. Manual emergency demo: submit a chest-pain message or SOS and confirm the L5 record and notification; use phone emergency services directly for any real emergency.
 
 ### Manual escalation demo
 
@@ -300,7 +300,7 @@ Run the backend and frontend commands in [Test Instructions](#test-instructions)
 3. Run `daily_help`, or sign in as Ramesh in another session and send “I need water”. Confirm the request appears as L1 for Savitha (or L2 if no caretaker login is available). Leave it unacknowledged and watch the Incident Center advance to L2 and then L3.
 4. Run the `sos` scenario and confirm the L5 banner and 108/112 links. This is an in-app demonstration only; it does not contact emergency services.
 
-Preflight on 2026-10-14 found the local shell does not have `python`, pytest, or frontend `node_modules`; Docker Compose initially could not start because the ignored `.env` file was absent. Baseline suite results could not be obtained in this environment. Create `.env` from `.env.example` and install project dependencies before running the commands.
+Preflight on 2026-10-14 found the local shell did not have a `python` alias or host pytest, and the frontend dependency tree was initially absent. Docker Compose was initially unavailable because the ignored `.env` file was absent. A later Docker run passed 146 backend tests and 32 smoke checks; the frontend suite passed 5 tests. These were the Phase 3 baseline results, not Phase 4 verification. Create `.env` from `.env.example` before starting Compose.
 
 ## Phase 3 decisions
 
@@ -309,3 +309,52 @@ Preflight on 2026-10-14 found the local shell does not have `python`, pytest, or
 - Initial routing uses care-team roles; a 15-second single-worker service applies persisted deadlines and records each transition. There is no SMS or phone integration.
 - Safe summaries are deterministic from patient name, message category, and time. Raw message text stays in the message table and is omitted from audit and notification payloads.
 - Role labels are display-only; stored enum values, package names, database names, environment names, and demo emails remain stable.
+
+## Phase 4 — Caregiver Command Center
+
+### Starting point inventory
+
+- `/api/v1/meta` reported Phase 3, version 0.3.0. Git history included the Phase 1 foundation, Phase 2 care domain, Phase 3 message/escalation work, and later authentication and LAN fixes. The working tree was clean at preflight.
+- README contained cumulative Phase 1–3 sections. Existing models and migrations covered users, patients, care-team memberships, activities, caregivers, schedules, overrides, assignments, incidents, messages, notifications, and escalation timers; migrations ended at `0005_escalation_timers.py`.
+- Pure `engine/availability.py` and `engine/workload.py`, classifier/escalation engines, and the Phase 2 `services/reassess.py` hook existed. The 15-second single-worker scheduler existed. There was no SSE stream, frontend i18n dictionary, or existing Command Center.
+- Phase 4 adds `0006_command_center.py`, deterministic attention and daily-plan modules, action-item reconciliation, template briefs, role-scoped APIs, and a polling UI. The existing incident and notification models are reused; no parallel incident system was added.
+- Baseline frontend checks passed. The Phase 4 initial Docker/smoke baseline could not be started from this environment because the Docker socket was denied in the sandbox and the requested elevated invocation was rejected. Phase 4 final test and Docker results are recorded after implementation below.
+
+### What changed
+
+The Command Center is the landing page for primary contacts and administrators; househelp and nurses receive the same route as a reduced My Day. It leads with needs-now and decisions, shows at-risk items and a grouped daily plan, keeps reminders on the server, and provides morning and handover briefs. The screen displays the as-of time and the honest basis note on every view. Nothing in this phase represents a diagnosis or a wellbeing check.
+
+The backend computes action items deterministically from the care schedule, assignments, availability, capability, workload, incidents, and handover state. Derived items are idempotent, auto-resolve when their condition clears, reopen after a suppression interval when still present, and wake after snooze. The existing reassess hook and escalation mutations reconcile within their transaction; the scheduler catches up briefs and time-driven transitions. Briefs use deterministic templates and escaped HTML. Details and limits are documented in [docs/COMMAND_CENTER.md](docs/COMMAND_CENTER.md).
+
+### New endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/command-center?patient_id=&date=` | Role-scoped dashboard snapshot, action buckets, daily plan, load, and briefs |
+| `GET /api/v1/command-center/overview` | Authorized coordinator/admin multi-patient counts |
+| `GET/POST /api/v1/action-items?patient_id=&status=` | List action items or add a manual reminder |
+| `POST /api/v1/action-items/{id}/act` | Execute a supported one-tap action through existing domain routes |
+| `POST /api/v1/action-items/{id}/snooze`, `/done`, `/dismiss` | Snooze, resolve a reminder, or suppress a dismissible item |
+| `GET/POST /api/v1/patients/{id}/briefs` | List briefs; generate a morning brief or draft a handover |
+| `GET/PUT /api/v1/briefs/{id}` | Read JSON/text/HTML or edit a draft handover |
+| `POST /api/v1/briefs/{id}/publish`, `/acknowledge` | Publish or acknowledge a handover |
+| `GET/PUT /api/v1/patients/{id}/command-center/settings` | Read or update per-patient brief and attention defaults |
+| `POST /api/v1/admin/demo/scenarios/command_center_messy_day` | Add synthetic same-day missing-coverage and pending-confirmation work |
+| `POST /api/v1/admin/demo/scenarios/command_center_clear_day` | Cancel the synthetic Command Center scenario activities |
+
+### Three-minute demo
+
+1. Sign in as Anita (`anita.iyer@secondpatient.demo`) with the configured demo password. The Command Center opens with live synthetic data and the as-of/basis text.
+2. Sign in as Admin and use **Admin → Command Center · messy day**. Return to Command Center and review the unassigned pickup and pending caregiver confirmation. The scenario is idempotent; use **Clear Command Center demo day** to cancel its activities.
+3. Expand a routine block, add a “Call pharmacy” reminder, refresh the page, then snooze or complete the reminder.
+4. Generate and copy a morning summary. Create an end-of-day handover, review its text, publish it, and acknowledge it as the listed recipient.
+
+### Phase 4 decisions and limits
+
+- Existing incidents and notifications are integrated. No `EventPublisher` port was needed because the repository had no SSE stream; the frontend polls every 15 seconds.
+- The phase implements a basic deterministic exception provider. Full cross-patient eligible-backup ranking, N-1/N-2 resilience scoring, true caregiver-specific free-window calculation, complete batching assignment, all My Day task actions, and the full severity-based 1-tap candidate controls remain Phase 5/6 work.
+- The exception taxonomy, role privacy, suppression rules, brief lifecycle, and extension points are recorded in [docs/COMMAND_CENTER.md](docs/COMMAND_CENTER.md). Phase 5 replaces the basic provider through the same `AttentionItem` boundary; Phase 6 can reuse the handover records.
+
+### Phase 4 checks and verification
+
+Run `python -m pytest backend/tests -q`, `npm run lint`, `npm run typecheck`, `npm test`, and `npm run build` from `frontend/`. Run `docker compose up --build -d`, then `python scripts/smoke.py --base-url http://localhost:8000` and repeat with the host LAN IP. The smoke test now exercises command-center retrieval, reminder creation/snooze/done, morning text export, and handover draft/publish/acknowledgement. Phase 4 results and any blocked Docker/LAN check are listed in the final task report.

@@ -69,17 +69,21 @@ Capabilities: `TRANSPORT`, `MEDICATION_ASSIST`, `PRESCRIPTION_PICKUP`, `DAILY_AS
 
 - [x] 1 Foundation, auth/RBAC, LAN deploy
 - [x] 2 Core domain (patients, caregivers, availability, activities, assignments)
-- [▶] 3 Escalation engine & patient messaging (current)
-- [ ] 4 Coverage/care-gap engine, caregiver load, strain & single-point-of-failure detection
-- [ ] 5 Absence simulation, replacement plan, approval, confirmation & structured handover
-- [ ] 6 Caregiver-first dashboard, workload, coverage forecast, digest & dependency view
-- [ ] 7 Role portals (patient, personal caretaker, healthcare professional, doctor)
-- [ ] 8 Historical analytics & capacity/resource planning
-- [ ] 9 AI assistant (explanations, summaries, handovers, natural-language questions, raise-only urgency advisor, optional voice notes)
+- [x] 3 Escalation engine & patient messaging
+- [▶] 4 Caregiver Command Center (current)
+- [ ] 5 Resilience engine (full coverage/care-gap rules, N-1/N-2 stress test, resilience score, strain and drift, travel-time/response coverage); replaces the basic attention provider through the same interface
+- [ ] 6 Absence simulation, replacement plan, one-tap approval, confirmation and structured handover
+- [ ] 7 Caregiver dashboards, 14-day coverage forecast, historical analytics, capacity and resource planning
+- [ ] 8 Remaining role portals (patient, healthcare professional, doctor) and PWA home-screen manifest
+- [ ] 9 AI assistant (explanations, handover polish, natural-language questions, raise-only urgency advisor, optional voice)
 - [ ] 10 Hardening, bug-bounty readiness, demo script, final docs
 
 ## Phase 3 module map
 
-`engine/escalation_classifier.py` owns deterministic message classification. The message API persists messages, incidents, events, and in-app notifications. `engine/escalation_routing.py` and `engine/escalation_machine.py` are planned pure modules for roster selection and timer transitions. AI can only explain or raise urgency. `/api/v1/meta` reports phase 3.
+`engine/escalation_classifier.py` owns deterministic message classification. The message API persists messages, incidents, events, and in-app notifications; `engine/escalation_machine.py` and `services/escalation.py` run timer transitions. There is no SSE stream yet. AI can only explain or raise urgency.
+
+## Phase 4 module map
+
+`engine/attention.py` is the explainable basic attention provider; `engine/daily_plan.py` groups routine activities; `engine/brief_builder.py` renders deterministic templates. `services/command_center.py` snapshots the care plan, reconciles persistent action items, creates briefs, and catches up scheduled work in the existing worker. `api/command_center.py` applies patient and role authorization. The React screen polls every 15 seconds because the repository has no SSE publisher. `/api/v1/meta` reports phase 4 / version 0.4.0. Phase 5 can replace the basic attention provider without changing the response contract.
 
 Evaluators need independent setup instructions, test accounts, safe self-registration, at least five real API operations, AI disclosure, `.env.example`, and no committed secrets.
