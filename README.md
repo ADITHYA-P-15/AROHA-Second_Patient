@@ -360,3 +360,40 @@ The backend computes action items deterministically from the care schedule, assi
 Run `python -m pytest backend/tests -q`, `npm run lint`, `npm run typecheck`, `npm test`, and `npm run build` from `frontend/`. Run `docker compose up --build -d`, then `python scripts/smoke.py --base-url http://localhost:8000` and repeat with the host LAN IP. The smoke test now exercises command-center retrieval, reminder creation/snooze/done, morning text export, and handover draft/publish/acknowledgement.
 
 Phase 4 verification on 2026-10-14: backend `./.venv/bin/python -m pytest backend/tests -q` passed **152 tests**; frontend lint, typecheck, **5 Vitest tests**, and production build passed. `python3 -m compileall` and `git diff --check` passed. A fresh SQLite Alembic upgrade through `0006_command_center` passed. The Docker image built with its embedded backend and frontend checks. Host port 5432 was already occupied, so Compose was started with a temporary override mapping Postgres to `127.0.0.1:55432`; the app remained bound to `0.0.0.0:8000`. Smoke checks passed **41/41** at both `http://localhost:8000` and the host LAN URL `http://10.72.6.190:8000`. The LAN helper warned that this network may isolate clients. The second device itself was not available for a direct browser check, so cross-device access on the target hotspot remains unconfirmed.
+
+## Feature — Workload Balancer
+
+### What changed
+
+Primary contacts get a **Workload Balancer** screen (`/workload`). It reviews the next 7, 14 or 28 days and shows four things:
+
+- each caregiver's load against their own daily-task and weekly-hour limits, including commitments for other patients (counted only, never named);
+- days with high demand against the network's open task slots;
+- dependency on one person, or on the only qualified person, for a support need;
+- ranked, explained suggestions for moving tasks.
+
+Every task falls into one delegation class: **general** (any capable caregiver), **trained caregiver** (medication or mobility assistance), or **healthcare professional only** (clinical visits, nurse caregivers only).
+
+A suggestion changes nothing until the primary contact taps it. The server then re-checks capability, qualification, availability, overlaps and limits before moving the task. **Ask … to confirm** sends one inbox request, and the plan shows *Not confirmed* until the caregiver accepts. **Move & confirm now** is for a caregiver who has already agreed. Rules, scoring and limits are documented in [docs/WORKLOAD_BALANCER.md](docs/WORKLOAD_BALANCER.md).
+
+### New endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/patients/{id}/workload-balance?days=7` | Caregiver loads, demand by day, dependency findings, ranked recommendations, delegation rules |
+| `POST /api/v1/patients/{id}/workload-balance/apply` | Coordinator applies a move (`REQUEST_CONFIRMATION` or `CONFIRM_NOW`) after server re-validation |
+
+### Demo
+
+Sign in as Anita and open **Workload Balancer**. Tomorrow she has four tasks against a limit of three. The balancer suggests giving *Transport to hospital* to Karthik and explains why Divya and Savitha were ruled out. It also flags Divya's weekend nurse visit as outside her recorded availability. Tap **Ask Karthik Iyer to confirm** and the overload clears.
+
+### Decisions and limits
+
+- No schema change: the feature reads existing caregivers, schedules, overrides, activities and assignments.
+- Eligibility, scoring and every recommendation come from deterministic backend logic; the UI only displays them. Professional-only tasks are matched by recorded caregiver kind and capability, not by clinical judgement.
+- Tasks starting within two hours are never suggested and are refused on apply. **Ask to confirm** never drops confirmed cover: the previous caregiver stays as a confirmed standby backup until the new caregiver confirms, and is released automatically then.
+- Travel time between tasks is not modelled yet; it belongs to the Phase 5 resilience work.
+
+### Checks
+
+`python -m pytest backend/tests -q` adds 15 Workload Balancer tests: 9 engine tests and 6 API tests covering role access, privacy masking, stale-apply rejection, re-validation, standby handoff, the two-hour rule, and notifications. `npm test` adds label-helper tests. The smoke script also calls the balancer endpoint.

@@ -64,6 +64,7 @@ def main():
     status,confirmed,_=c.request('POST',f'/api/v1/assignments/{asid}/confirm',{}); check('confirm assignment',status==200 and confirmed.get('status')=='CONFIRMED')
     app_day=datetime.now(app_tz).date().isoformat()
     status,center,_=c.request('GET',f'/api/v1/command-center?patient_id={pid}&date={app_day}'); check('command center uses honest basis + summary',status==200 and center.get('basis_note','').startswith('Based on confirmed assignments') and isinstance(center.get('summary'),dict))
+    status,balance,_=c.request('GET',f'/api/v1/patients/{pid}/workload-balance?days=7'); check('workload balancer review',status==200 and balance.get('permissions',{}).get('can_apply') is True and isinstance(balance.get('recommendations'),list))
     status,manual,_=c.request('POST',f'/api/v1/action-items?patient_id={pid}',{'title':'Call the pharmacy'}); action_id=manual.get('id') if isinstance(manual,dict) else None; check('manual reminder persists',status==201 and bool(action_id))
     status,snoozed,_=c.request('POST',f'/api/v1/action-items/{action_id}/snooze',{'until':(datetime.now(timezone.utc)+timedelta(minutes=20)).isoformat()}); check('manual reminder snooze',status==200 and snoozed.get('status')=='SNOOZED')
     status,done,_=c.request('POST',f'/api/v1/action-items/{action_id}/done',{}); check('manual reminder done',status==200 and done.get('status')=='DONE')

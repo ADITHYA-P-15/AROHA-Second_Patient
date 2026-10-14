@@ -610,6 +610,8 @@ from app.api.domain import router as domain_router
 app.include_router(domain_router)
 from app.api.command_center import router as command_center_router
 app.include_router(command_center_router)
+from app.api.workload import router as workload_router
+app.include_router(workload_router)
 
 
 @app.get("/api/v1/patients")

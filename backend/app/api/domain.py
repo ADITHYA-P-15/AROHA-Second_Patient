@@ -690,6 +690,8 @@ def _transition(aid, action, body, request, user, db):
         assignment.confirmed_at = now(); assignment.confirmed_by = user.id; assignment.confirmed_via = "CAREGIVER" if self_user and not coordinator else "COORDINATOR"
         if assignment.role == "PRIMARY":
             db.query(CareAssignment).filter(CareAssignment.activity_id == act.id, CareAssignment.role == "PRIMARY", CareAssignment.status == "CONFIRMED", CareAssignment.id != assignment.id).update({"status": "SUPERSEDED", "updated_at": now()})
+            # A Workload Balancer handoff kept the previous caregiver on standby; release them now cover is confirmed.
+            db.query(CareAssignment).filter(CareAssignment.activity_id == act.id, CareAssignment.role == "BACKUP", CareAssignment.status == "CONFIRMED", CareAssignment.confirmed_via == "HANDOFF_STANDBY").update({"status": "SUPERSEDED", "updated_at": now()})
     if action == "decline": assignment.decline_reason = (body or {}).get("reason")
     assignment.status = matrix[action][assignment.status]; assignment.updated_at = now()
     _history(db, user, request, act.patient_id, f"assignment.{action.replace('-', '_')}", "care_assignment", aid, f"Assignment {action.replace('-', ' ')}", {"status": assignment.status})

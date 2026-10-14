@@ -86,4 +86,8 @@ Capabilities: `TRANSPORT`, `MEDICATION_ASSIST`, `PRESCRIPTION_PICKUP`, `DAILY_AS
 
 `engine/attention.py` is the explainable basic attention provider; `engine/daily_plan.py` groups routine activities; `engine/brief_builder.py` renders deterministic templates. `services/command_center.py` snapshots the care plan, reconciles persistent action items, creates briefs, and catches up scheduled work in the existing worker. `api/command_center.py` applies patient and role authorization. The React screen polls every 15 seconds because the repository has no SSE publisher. `/api/v1/meta` reports phase 4 / version 0.4.0. Phase 5 can replace the basic attention provider without changing the response contract.
 
+## Workload Balancer module map
+
+`engine/workload_balancer.py` is a pure, deterministic evaluator for caregiver load (daily tasks and weekly hours against each caregiver's limits, cross-patient), demand by day, dependency concentration, delegation class (general / trained / professional-only), and greedy explainable redistribution with additive scores. `services/workload_balancer.py` builds a read-only snapshot. `api/workload.py` scopes access (coordinator/admin apply, family contact read-only) and applies a move only after `check_receiver` re-validates it, superseding the old primary assignment and requesting or recording confirmation. Details: [WORKLOAD_BALANCER.md](WORKLOAD_BALANCER.md). Feature progress is tracked in [FEATURES.md](FEATURES.md).
+
 Evaluators need independent setup instructions, test accounts, safe self-registration, at least five real API operations, AI disclosure, `.env.example`, and no committed secrets.
