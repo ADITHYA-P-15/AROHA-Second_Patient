@@ -93,6 +93,7 @@ def test_appointment_feed_needs_an_escort_and_can_be_cancelled_by_the_hospital()
     start = (now() + timedelta(days=2)).astimezone(ZONE).replace(hour=11, minute=0, second=0, microsecond=0)
     made = doctor.post(f"/api/v1/patients/{pid}/appointments", headers=H, json={"title": "Cardiology review", "start": start.isoformat(), "duration_minutes": 45, "location": "City Hospital, OPD 3", "notes": "Bring the last ECG"})
     assert made.status_code == 201 and made.json()["status"] == "PENDING" and made.json()["needs_escort"] is True
+    assert _aware_iso(made.json()["start"]) == start  # serialized with an offset, never as naive local time
     activity = coord.get(f"/api/v1/activities/{made.json()['id']}").json()
     assert activity["category"] == "APPOINTMENT" and activity["buffer_before_min"] == 30 and activity["required_support"] == ["APPOINTMENT_ESCORT"]
     assert [x["caregiver_id"] for x in activity["assignments"] if x["status"] == "CONFIRMED"] == [main_id]

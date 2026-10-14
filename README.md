@@ -1,6 +1,13 @@
 # CareCircle
 
-A caregiver-aware care-continuity platform for families coordinating transport, medication help, appointments, and daily support. When a caregiver becomes unavailable or overloaded, care can break even when the medical plan has not changed. CareCircle is designed to deterministically surface operational care gaps, explain them clearly, suggest valid backups, and require human confirmation to resolve them.
+CareCircle puts every **medication dose** and **appointment** for a patient in one place, so the **caretaker** no longer has to remember them, and the family and the hospital can see what was done, what is due and what was missed.
+
+- **Four roles.** The **patient**; a **primary contact** (a blood relative) who registers the patient and oversees care; **caretakers**, who carry out the care activities; and **healthcare professionals** from the hospital.
+- **Hospital data feeds.** Professionals find a registered patient by their CareCircle ID and birth year, then **prescribe medicines** and **schedule appointments**.
+- **Status.** Each dose and appointment is *pending*, *completed* or *missed*, judged against the clock.
+- **Automatic cover.** When a caretaker takes leave or is overloaded, CareCircle asks the best eligible caretaker to cover, and the task counts as covered only once they accept.
+
+The product spec is in [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md).
 
 **Team:** TODO: team name/members
 
@@ -127,16 +134,19 @@ Backend: `python -m pytest backend/tests -q` (set `PYTHONPATH=backend` if your p
 
 All accounts below are synthetic; all use the configured `DEMO_PASSWORD`.
 
-| Role | Email |
-|---|---|
-| ADMIN | `admin@secondpatient.demo` |
-| FAMILY coordinator | `anita.iyer@secondpatient.demo` |
-| FAMILY member | `karthik.iyer@secondpatient.demo` |
-| FAMILY coordinator | `meera.pai@secondpatient.demo` |
-| PATIENT | `ramesh.iyer@secondpatient.demo` |
-| HOUSEHELP | `savitha@secondpatient.demo` |
-| NURSE | `divya.menon@secondpatient.demo` |
-| DOCTOR | `dr.arjun.nair@secondpatient.demo` |
+| Role | Email | Notes |
+|---|---|---|
+| Primary contact | `anita.iyer@secondpatient.demo` | Ramesh Iyer's daughter; also helps with care |
+| Primary contact | `karthik.iyer@secondpatient.demo` | Ramesh's son; also helps with care |
+| Primary contact | `meera.pai@secondpatient.demo` | Sharada Pai's daughter |
+| Patient | `ramesh.iyer@secondpatient.demo` | CareCircle ID `CC-RAM354`, born 1954 |
+| Caretaker | `savitha@secondpatient.demo` | Ramesh's main caretaker; also helps Sharada |
+| Caretaker | `lakshmi@secondpatient.demo` | Weekdays |
+| Caretaker | `suresh.kamath@secondpatient.demo` | Neighbour; transport and escort, mornings |
+| Healthcare professional | `dr.arjun.nair@secondpatient.demo` | Prescribes Ramesh's Metformin and Amlodipine |
+| Healthcare professional | `divya.menon@secondpatient.demo` | Nurse |
+
+Earlier releases had `admin`, `FAMILY`, `HOUSEHELP`, `NURSE` and `DOCTOR` roles. Migration `0009_four_roles` maps them to the four roles above and deactivates the admin account.
 
 ## AI Tools Disclosure
 
@@ -480,3 +490,68 @@ A findings log records when each risk was first seen and how it ended. From it t
 - Help summaries use India time.
 - Nurses and doctors can resolve only the incidents they can see.
 - A negative history offset is now rejected instead of causing a 500.
+
+
+## Pivot — Four roles, hospital data feeds, care status and automatic cover
+
+### What changed
+
+| Role | What they do |
+|---|---|
+| **Primary contact** | Signs up, **registers the patient** (who gets a CareCircle ID, and optionally a login), invites caretakers, and picks the **main caretaker**. Oversees through Command Center, Care Plan, Medicines & Appointments (with adherence), Cover Requests, Coverage Forecast, Workload Balancer, Care Team, incidents and history. Is notified when something is missed or cannot be covered. |
+| **Caretaker** | **My Day**: today's doses and appointments, with **Done**, **Record as done (late)**, **I can't make it**, **Take leave**, and accepting or declining cover offers. |
+| **Healthcare professional** | **Finds the patient** by CareCircle ID + birth year and joins the care team; **prescribes medicines** and **schedules appointments**; reads adherence, the care plan and history; receives health-related escalations. |
+| **Patient** | Today (read-only), Request Help / SOS, Care Plan, own incidents. |
+
+**Data feeds**
+- A prescription (medicine, dose, instructions, times of day, dates) expands into one **dose activity** per due time for a rolling 14 days. Editing it regenerates future doses; stopping it cancels them.
+- An appointment is an activity with 30-minute travel buffers that needs an escort.
+- New doses and appointments go to the main caretaker when they are fully eligible (capability, hours, no clash, limits).
+- Routine doses use the caretaker's time but not one of their daily task slots.
+
+**Status from the clock**
+- Each activity is `PENDING` until its deadline, then `MISSED` if nobody recorded it as done. A dose's deadline is 60 minutes after it is due; an appointment's is its start.
+- A missed activity can still be recorded as done within 24 hours. It is then kept as *completed late* and shown as such in adherence.
+- Every move to missed goes through one function (`services/care_status._on_missed`), which notifies the caretaker and the primary contacts. This is where the planned SMS will be added.
+
+**Automatic cover**
+- Leave, "I can't make it", a decline, or an upcoming activity with nobody assigned (next 72 hours) offers the task to the best eligible caretaker straight away. If they say no, the next best is asked.
+- An overloaded caretaker is relieved one task at a time, with the original kept as standby.
+- The replacement must accept before the task counts as covered. The primary contact is told only when nobody eligible is left.
+- Turn this off with `AUTO_COORDINATION=false`.
+
+**Cut**
+- The admin role and its demo panel/scenarios.
+- The duplicate dashboard, morning briefs and handovers (tables dropped), the escalation-policy editor and placeholder screens.
+- Caregivers without accounts, and the clinical-visit capability.
+
+### New endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/v1/auth/register` | `role`: `PRIMARY_CONTACT`, `CARETAKER` or `PROFESSIONAL` |
+| `POST /api/v1/patients` | Primary contact registers a patient (optional `patient_account`), returns `care_code` |
+| `POST /api/v1/patients/lookup`, `/join` | Professional finds/joins by CareCircle ID + birth year (rate-limited; family notified) |
+| `POST /api/v1/patients/{id}/care-team` | Invite a caretaker or another primary contact by account email |
+| `POST /api/v1/patients/{id}/care-team/me/care-profile` | Primary contact opts in to doing care activities |
+| `PUT /api/v1/patients/{id}/main-caretaker` | Choose the main caretaker |
+| `GET/POST /api/v1/patients/{id}/prescriptions`, `PATCH /prescriptions/{id}`, `POST /prescriptions/{id}/stop` | Medication feed |
+| `GET/POST /api/v1/patients/{id}/appointments`, `POST /appointments/{id}/cancel` | Schedule feed |
+| `POST /api/v1/activities/{id}/complete` | Record done (late after the deadline, within 24 h) |
+| `GET /api/v1/patients/{id}/adherence?days=7` | Doses on time / late / missed per medicine |
+
+### Demo
+
+1. As **Dr. Arjun**, open **Patients**. Ramesh is listed; a new professional would find him with `CC-RAM354` + 1954. Open **Medicines & Appointments** and prescribe a medicine: its doses appear in Savitha's My Day.
+2. As **Savitha**, open **My Day** and tap **Done** on a dose. Tap **Take leave** for tomorrow morning: her doses are offered to another caretaker automatically.
+3. As **Anita**, check **Medicines & Appointments → Adherence**, **Cover Requests** and **Coverage Forecast**. The 20:00 Metformin doses fall outside Savitha's hours, so CareCircle has already asked someone else to take them.
+
+### Decisions and limits
+
+- **Migrations:** `0009_four_roles` maps existing data and deactivates account-less care profiles. `0010_care_feeds` adds prescriptions, activity status fields and the main caretaker.
+- **No verification of professionals:** they self-register for the demo. The CareCircle ID + birth year shared by the family acts as consent, and the family is notified when a professional joins and can remove them.
+- **Notifications** are in-app only. SMS on a miss is designed for but not built yet.
+
+### Checks
+
+`python -m pytest backend/tests -q` covers the four-role model, patient registration, professional find/join, caretaker invites, data feeds, missed/late status, adherence, automatic cover and overload relief, and the migrations of earlier data. The smoke script exercises the whole journey: sign-up by role, registration, professional join, prescription, appointment, a caretaker recording a dose, and adherence.

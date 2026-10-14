@@ -101,16 +101,23 @@ def _history(db, user, patient_id, event, entity_type, entity_id, summary):
     db.add(ActivityHistory(actor_user_id=user.id, patient_id=patient_id, event_type=event, entity_type=entity_type, entity_id=str(entity_id), summary=summary[:500], payload={}, request_id=""))
 
 
+def _utc(value):
+    """Always send UTC with an offset; SQLite returns naive values that browsers would read as local time."""
+    if value is None: return None
+    from datetime import UTC
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
 def _prescription_dict(db, p: Prescription) -> dict:
     upcoming = db.scalars(select(CareActivity).where(CareActivity.source == "PRESCRIPTION", CareActivity.source_id == p.id, CareActivity.lifecycle_status == "SCHEDULED")
                           .order_by(CareActivity.scheduled_start).limit(1)).first()
     return {"id": p.id, "patient_id": p.patient_id, "medicine": p.medicine, "dose": p.dose, "instructions": p.instructions, "times": p.times,
-            "start_date": p.start_date, "end_date": p.end_date, "status": p.status, "prescribed_by": p.prescribed_by, "created_at": p.created_at,
-            "stopped_at": p.stopped_at, "stop_reason": p.stop_reason, "next_dose_at": upcoming.scheduled_start if upcoming else None}
+            "start_date": p.start_date, "end_date": p.end_date, "status": p.status, "prescribed_by": p.prescribed_by, "created_at": _utc(p.created_at),
+            "stopped_at": _utc(p.stopped_at), "stop_reason": p.stop_reason, "next_dose_at": _utc(upcoming.scheduled_start) if upcoming else None}
 
 
 def _appointment_dict(a: CareActivity) -> dict:
-    return {"id": a.id, "patient_id": a.patient_id, "title": a.title, "start": a.scheduled_start, "end": a.scheduled_end, "location": a.location_note,
+    return {"id": a.id, "patient_id": a.patient_id, "title": a.title, "start": _utc(a.scheduled_start), "end": _utc(a.scheduled_end), "location": a.location_note,
             "notes": a.description, "needs_escort": a.requires_caregiver, "importance": a.importance, "status": care_status(a), "created_by": a.created_by}
 
 

@@ -244,7 +244,7 @@ def _caregiver_dict(db, user, cg, pid=None):
     links = db.scalars(select(CaregiverPatientLink).where(CaregiverPatientLink.caregiver_id == cg.id)).all()
     link = next((x for x in links if x.patient_id == pid), None)
     show_phone = cg.user_id == user.id or (pid is not None and _is_coordinator(db, user, pid))
-    return {"id": cg.id, "user_id": cg.user_id, "name": cg.name, "kind": cg.kind, "phone": cg.phone if show_phone else None, "capabilities": cg.capabilities, "max_activities_per_day": cg.max_activities_per_day, "max_hours_per_week": cg.max_hours_per_week, "is_active": cg.is_active, "notes": cg.notes, "relationship": link.relationship if link else "", "is_designated_backup": link.is_designated_backup if link else False, "linked_patient_count": len(links), "is_synthetic": cg.is_synthetic}
+    return {"id": cg.id, "user_id": cg.user_id, "name": cg.name, "kind": cg.kind, "phone": cg.phone if show_phone else None, "capabilities": cg.capabilities, "max_activities_per_day": cg.max_activities_per_day, "max_hours_per_week": cg.max_hours_per_week, "is_active": cg.is_active, "notes": cg.notes, "relationship": link.relationship if link else "", "is_designated_backup": link.is_designated_backup if link else False, "is_main_caretaker": link.is_main_caretaker if link else False, "linked_patient_count": len(links), "is_synthetic": cg.is_synthetic}
 
 
 def _activity_dict(db, user, a):

@@ -22,7 +22,7 @@ type Recommendation = {
   effect?: { date: string; from: { tasks_before: number; tasks_after: number; limit: number }; to: { tasks_before: number; tasks_after: number; limit: number } } | null;
 };
 type Balance = {
-  patient: Person; as_of: string; role_view: 'COORDINATOR' | 'ADMIN' | 'FAMILY'; permissions: { can_apply: boolean }; basis_note: string;
+  patient: Person; as_of: string; role_view: 'PRIMARY_CONTACT'; permissions: { can_apply: boolean }; basis_note: string;
   summary: { overloaded: number; needs_review: number; near_limit: number; high_demand_days: number; recommendations: number };
   caregivers: CaregiverLoad[]; demand: Demand[]; dependency: { message: string }[]; recommendations: Recommendation[];
   delegation_rules: { class: string; label: string; supports: string[]; description: string }[];

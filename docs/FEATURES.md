@@ -121,3 +121,38 @@ Cumulative record of features built one at a time on top of the phased roadmap i
   - Travel time.
   - Predicting recurring patterns beyond 7 days.
   - A daily digest notification (deliberately left out to avoid adding alerts).
+
+## Pivot — four roles, hospital data feeds, care status, automatic cover
+
+- **Why:** the product is now centred on the caretaker's burden of remembering doses and appointments (see [PRODUCT_SPEC.md](PRODUCT_SPEC.md)).
+- **Roles:** exactly patient, primary contact, caretaker and healthcare professional. Admin was removed, and doctor and nurse merged.
+- **Registration:** the primary contact registers the patient, who gets a CareCircle ID. Professionals find and join by ID + birth year. Caretakers are invited by email and get a care profile automatically.
+- **Feeds:**
+  - Prescriptions expand into dose activities (rolling 14 days); appointments need an escort.
+  - New feed activities go to the main caretaker when eligible.
+  - Routine doses use time, not daily task slots.
+- **Status:** PENDING → COMPLETED (on time / late) or MISSED, set by the scheduler at each deadline. `_on_missed` notifies and is the SMS hook. Adherence is reported per medicine.
+- **Automatic cover:** leave, declines and unassigned activities (72 h) are offered to the best match without a tap. Overload is relieved one move per run, with a standby. The primary contact hears only when nobody can take it.
+- **Cut:**
+  - Admin panel and demo scenarios.
+  - Briefs and handovers (tables dropped).
+  - The escalation-policy editor and the dashboard.
+  - Account-less caregivers and the clinical-visit capability.
+- **Code:**
+  - `services/care_team.py`
+  - `services/care_feeds.py`
+  - `services/care_status.py`
+  - `services/auto_cover.py`
+  - `api/care_feeds.py`
+  - `services/workload_balancer.apply_move` (shared with the scheduler)
+  - Migrations `0009_four_roles` and `0010_care_feeds`
+  - Frontend: `CareTeam.tsx`, `ProfessionalPatients.tsx`, `MedicinesAppointments.tsx`, `MyDay.tsx`
+- **Tests:**
+  - `tests/helpers.py`: accounts in the four roles.
+  - Rewritten `test_phase1.py`.
+  - `test_care_feeds.py`
+  - `test_auto_cover.py`
+- **Next:**
+  - SMS on a miss through `_on_missed`.
+  - Verifying professionals.
+  - Per-patient switch for automatic coordination.
