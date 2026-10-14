@@ -2,11 +2,13 @@ import re
 import socket
 import subprocess
 import sys
+from urllib.request import urlopen
 
 def candidates():
-    result=set()
+    result=set(); route_ip=None
     try:
-        sock=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); sock.connect(("192.0.2.1",80)); result.add(sock.getsockname()[0]); sock.close()
+        with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as sock:
+            sock.connect(("192.0.2.1",80)); route_ip=sock.getsockname()[0]; result.add(route_ip)
     except OSError: pass
     if sys.platform=="win32":
         try:
@@ -21,14 +23,21 @@ def candidates():
         try:
             result.update(re.findall(r"inet ([\d.]+)/",subprocess.check_output(["ip","-4","addr"],text=True,errors="ignore")))
         except OSError: pass
-    return sorted(ip for ip in result if not ip.startswith(("127.","169.254.")))
+    addresses=sorted(ip for ip in result if not ip.startswith(("127.","169.254.")))
+    return ([route_ip] if route_ip in addresses else []) + [ip for ip in addresses if ip != route_ip]
 if __name__=="__main__":
     addresses=candidates(); hotspot_prefixes=("192.168.137.","172.20.10.","192.168.43.")
-    print("Candidate URLs (port 8000):")
+    print("Current LAN URLs (port 8000); use the address on the same Wi-Fi/hotspot as your phone:")
     print("  Local: http://localhost:8000")
-    for ip in addresses:
+    for index,ip in enumerate(addresses):
         url=f"http://{ip}:8000"
-        note=" (known mobile hotspot range)" if ip.startswith(hotspot_prefixes) else ""
+        note=" (current network route)" if index == 0 else ""
+        note += " (known mobile hotspot range)" if ip.startswith(hotspot_prefixes) else ""
+        try:
+            with urlopen(f"{url}/api/health", timeout=2) as response:
+                note += f" (laptop self-check: HTTP {response.status})"
+        except Exception:
+            note += " (not reachable from this laptop)"
         print(f"  {url}{note}")
         try:
             import qrcode
@@ -36,6 +45,12 @@ if __name__=="__main__":
         except Exception: pass
     if addresses and not any(ip.startswith(hotspot_prefixes) for ip in addresses):
         print("Warning: the selected network may isolate Wi-Fi clients (common on campus/office networks).")
-        print("If other devices can't connect: use your phone's hotspot or Windows Mobile Hotspot (192.168.137.1), then run scripts/open-firewall.ps1 as Administrator.")
+    if sys.platform=="win32":
+        try:
+            rule=subprocess.check_output(["powershell","-NoProfile","-Command","(Get-NetFirewallRule -DisplayName 'The Second Patient LAN (TCP 8000)' -ErrorAction SilentlyContinue).Enabled"],text=True,stderr=subprocess.DEVNULL).strip()
+            if rule.lower() != "true":
+                print("Windows firewall rule is missing. Run scripts\\open-firewall.ps1 from PowerShell as Administrator and approve the UAC prompt.")
+        except OSError: pass
+    print("If your phone still cannot connect, confirm both devices share this Wi-Fi/hotspot and that the network allows device-to-device traffic.")
     print("  Docs: http://localhost:8000/docs")
     if not addresses: print("No candidate LAN IPv4 address found; check network adapter and firewall.")

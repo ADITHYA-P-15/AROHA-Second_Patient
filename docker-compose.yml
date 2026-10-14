@@ -20,7 +20,8 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://secondpatient:secondpatient@db:5432/secondpatient
-    ports: ["8000:8000"]
+    # Be explicit: the API/UI must be reachable from other devices on the LAN.
+    ports: ["0.0.0.0:8000:8000"]
     depends_on:
       db: {condition: service_healthy}
     restart: unless-stopped

@@ -13,4 +13,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Docker Compose build/start failed.' }
 $healthy = $false
 for ($i=0; $i -lt 60; $i++) { try { Invoke-RestMethod 'http://localhost:8000/api/health' -TimeoutSec 2 | Out-Null; $healthy = $true; break } catch { Start-Sleep 2 } }
 if (-not $healthy) { docker compose logs app; throw 'App did not become healthy within 120 seconds.' }
+
+$firewallRule = Get-NetFirewallRule -DisplayName 'The Second Patient LAN (TCP 8000)' -ErrorAction SilentlyContinue
+if (-not $firewallRule -or $firewallRule.Enabled -ne 'True') {
+  Write-Warning 'Windows firewall is blocking LAN access. One time: open PowerShell as Administrator, go to this project, and run .\scripts\open-firewall.ps1. The rule allows port 8000 only from your local subnet.'
+}
 python scripts/lan-info.py

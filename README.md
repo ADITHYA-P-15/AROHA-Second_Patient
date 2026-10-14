@@ -22,7 +22,7 @@ Or run `docker compose up --build -d` after creating `.env` from `.env.example`.
 - This laptop: [http://localhost:8000](http://localhost:8000)
 - API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 - Health: [http://localhost:8000/api/health](http://localhost:8000/api/health)
-- Other LAN devices: run `python scripts/lan-info.py` and open the printed `http://<LAN-IP>:8000` URL. On Windows, run PowerShell as Administrator and use `.\scripts\open-firewall.ps1` if other devices cannot connect. The inbound rule covers Public as well as Private profiles because phone hotspots often appear as Public. All devices must share the laptop's Wi-Fi/hotspot; use the laptop's hotspot-facing address when it hosts the hotspot.
+- Other LAN devices: run `python scripts/lan-info.py` and open the printed current Wi-Fi `http://<LAN-IP>:8000` URL. The address can change when Wi-Fi or hotspot reconnects. If the Windows firewall rule is missing, open PowerShell as Administrator, go to this project, and run `.\scripts\open-firewall.ps1` once. It allows inbound TCP 8000 only from the local subnet, including when a phone hotspot is classified as Public. Both devices must share the same Wi-Fi/hotspot. Networks with client isolation can still block device-to-device connections.
 
 For emergency use without Docker, `.\scripts\run-local.ps1` builds the frontend and runs FastAPI with local SQLite. Docker + PostgreSQL is the supported deployment. Development: run backend Uvicorn on :8000, then `npm run dev` from `frontend/` (Vite :5173 proxies `/api`).
 
