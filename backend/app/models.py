@@ -173,6 +173,8 @@ class CareActivity(Base):
     is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
     coverage_status: Mapped[str] = mapped_column(String(16), default="UNASSESSED")
     gap_reason: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    acknowledged_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    acknowledged_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
@@ -222,11 +224,12 @@ class PatientMessage(Base):
 
 class Incident(Base):
     __tablename__ = "incidents"
-    __table_args__ = (CheckConstraint("current_level >= 0 AND current_level <= 5"), CheckConstraint("initial_level >= 0 AND initial_level <= 5"), CheckConstraint("status IN ('OPEN','ACKNOWLEDGED','RESOLVED','CANCELLED')"), CheckConstraint("category IN ('EMERGENCY','HEALTH_CONCERN','MEDICATION','DAILY_HELP','LOGISTICS','TASK','INFO','UNCLASSIFIED')"), CheckConstraint("source IN ('PATIENT_MESSAGE','SOS','TASK_UNACKNOWLEDGED','TASK_OVERDUE','CARETAKER_REPORT','MANUAL','CARE_GAP','STRAIN')"), CheckConstraint("severity IN ('LOW','MEDIUM','HIGH')"), Index("ix_incident_patient_status", "patient_id", "status"))
+    __table_args__ = (CheckConstraint("current_level >= 0 AND current_level <= 5"), CheckConstraint("initial_level >= 0 AND initial_level <= 5"), CheckConstraint("status IN ('OPEN','ACKNOWLEDGED','RESOLVED','CANCELLED')"), CheckConstraint("category IN ('EMERGENCY','HEALTH_CONCERN','MEDICATION','DAILY_HELP','LOGISTICS','TASK','INFO','UNCLASSIFIED')"), CheckConstraint("source IN ('PATIENT_MESSAGE','SOS','TASK_UNACKNOWLEDGED','TASK_OVERDUE','CARETAKER_REPORT','MANUAL','CARE_GAP','STRAIN')"), CheckConstraint("severity IN ('LOW','MEDIUM','HIGH')"), CheckConstraint("importance IN ('LOW','MEDIUM','HIGH','CRITICAL')", name="ck_incidents_importance"), CheckConstraint("deadline_kind IS NULL OR deadline_kind IN ('ACK','RESOLVE')", name="ck_incidents_deadline_kind"), CheckConstraint("repeat_count >= 1", name="ck_incidents_repeat_count"), UniqueConstraint("patient_id", "dedupe_key", name="uq_incident_patient_dedupe"), Index("ix_incident_patient_status", "patient_id", "status"))
     id: Mapped[uuid.UUID] = uuid_pk()
     patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
     source: Mapped[str] = mapped_column(String(32), default="PATIENT_MESSAGE")
     category: Mapped[str] = mapped_column(String(32))
+    importance: Mapped[str] = mapped_column(String(16), default="MEDIUM")
     initial_level: Mapped[int] = mapped_column(Integer)
     current_level: Mapped[int] = mapped_column(Integer)
     severity: Mapped[str] = mapped_column(String(16))
@@ -236,6 +239,11 @@ class Incident(Base):
     dedupe_key: Mapped[str] = mapped_column(String(120), index=True)
     classification: Mapped[dict] = mapped_column(JSON, default=dict)
     owner_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    related_activity_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("care_activities.id", ondelete="SET NULL"), nullable=True, index=True)
+    current_deadline_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    deadline_kind: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    repeat_count: Mapped[int] = mapped_column(Integer, default=1)
+    emergency_unacknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, index=True)
     acknowledged_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resolved_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -260,7 +268,7 @@ class IncidentEvent(Base):
 
 class Notification(Base):
     __tablename__ = "notifications"
-    __table_args__ = (CheckConstraint("kind IN ('INCIDENT','REMINDER','DECISION','INSTRUCTION','DIGEST','STATUS')"), CheckConstraint("severity IN ('LOW','MEDIUM','HIGH')"))
+    __table_args__ = (CheckConstraint("kind IN ('INCIDENT','REMINDER','DECISION','INSTRUCTION','DIGEST','STATUS')"), CheckConstraint("severity IN ('LOW','MEDIUM','HIGH')"), CheckConstraint("channel IN ('ALERT','INBOX','DIGEST')", name="ck_notifications_channel"))
     id: Mapped[uuid.UUID] = uuid_pk()
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
@@ -270,6 +278,23 @@ class Notification(Base):
     title: Mapped[str] = mapped_column(String(160))
     body: Mapped[str] = mapped_column(String(500))
     requires_ack: Mapped[bool] = mapped_column(Boolean, default=False)
+    channel: Mapped[str] = mapped_column(String(12), default="ALERT")
     acked_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
     read_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, index=True)
+
+
+class EscalationPolicy(Base):
+    __tablename__ = "escalation_policies"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    patient_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), nullable=True, unique=True)
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSON, default=dict)

@@ -59,6 +59,7 @@ class UserOut(BaseModel):
     email: str
     name: str
     role: str
+    role_label: str
     is_synthetic: bool
 
 

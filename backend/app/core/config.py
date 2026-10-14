@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     demo_mode: bool = True
     seed_demo: bool = True
     demo_password: str = "Demo@1234"
+    escalation_time_scale: float = 1.0
     cookie_secure: bool = False
     session_hours: int = 12
     log_level: str = "INFO"

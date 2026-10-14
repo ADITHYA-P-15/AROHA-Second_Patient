@@ -15,7 +15,7 @@ from app.core.db import get_db
 from app.core.permissions import require_patient_access
 from app.engine.availability import Window, effective_windows, is_available_for
 from app.engine.workload import buffered_window, overlaps_for, workload
-from app.models import (ActivityDependency, ActivityHistory, AvailabilityOverride, CareActivity, CareAssignment, Caregiver, CaregiverPatientLink, CaregiverWeeklySchedule, CareTeamMember, Patient, PatientSupportNeed, Role, TeamRole, User)
+from app.models import (ActivityDependency, ActivityHistory, AvailabilityOverride, CareActivity, CareAssignment, Caregiver, CaregiverPatientLink, CaregiverWeeklySchedule, CareTeamMember, Patient, PatientSupportNeed, Role, TeamRole, User, Incident, IncidentEvent)
 from app.services.reassess import TriggerEvent, reassess
 
 router = APIRouter(prefix="/api/v1", tags=["core domain"])
@@ -596,6 +596,9 @@ def complete_activity(aid: uuid.UUID, request: Request, user: User = Depends(__i
     if not coordinator and not (own and db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == aid, CareAssignment.caregiver_id == own.id, CareAssignment.status == "CONFIRMED"))): raise HTTPException(403, "Only coordinator or assigned caregiver can complete")
     if a.lifecycle_status != "SCHEDULED": raise HTTPException(409, "Activity is already terminal")
     a.lifecycle_status = "COMPLETED"; _history(db, user, request, a.patient_id, "activity.completed", "care_activity", aid, "Care activity completed")
+    for incident in db.scalars(select(Incident).where(Incident.related_activity_id == aid, Incident.status.in_(("OPEN", "ACKNOWLEDGED")))):
+        incident.status="RESOLVED";incident.resolved_at=now();incident.resolution_code="HANDLED";incident.resolution_note="Activity completed";incident.current_deadline_at=None;incident.deadline_kind=None;incident.version+=1
+        db.add(IncidentEvent(incident_id=incident.id,kind="RESOLVED",level=incident.current_level,actor_user_id=user.id,note="Related activity completed"))
     reassess(db, [a.patient_id], TriggerEvent.GAP_RESOLVED_OR_REAPPEARED, {"activity_id": str(aid)}); db.commit(); return {"status": "completed"}
 
 

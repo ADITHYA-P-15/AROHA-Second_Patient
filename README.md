@@ -106,6 +106,7 @@ Copy `.env.example` to `.env`; `scripts/start.*` makes a local copy and generate
 | `DEMO_MODE` | `true` | Enables synthetic demo and guarded reset |
 | `SEED_DEMO` | `true` | Seed demo accounts and patients at startup |
 | `DEMO_PASSWORD` | `Demo@1234` | Password for every seeded account |
+| `ESCALATION_TIME_SCALE` | `1.0` | Timer scale in demo mode only; `0.1` shortens minute timers to seconds |
 | `COOKIE_SECURE` | `false` | Set true when served over HTTPS |
 | `SESSION_HOURS` | `12` | Session duration |
 | `LOG_LEVEL` | `INFO` | Server logging level |
@@ -261,9 +262,9 @@ The reassessment hook records calls but is deliberately a no-op; care gaps, risk
 
 ## Phase 3 — Escalation Engine & Patient Messaging
 
-CareCircle branding, role display labels, revised product direction, and the Phase 3 metadata are now live. The deterministic classifier is a pure backend module with English, Hindi, Kannada, and Telugu phrase coverage, explicit L0–L5 routing levels, safety modifiers, SOS override, unknown-text fallback to L2, and a raise-only advisor interface. Alembic adds patient messages, incidents, incident events, and notifications. Authenticated patient/care-team APIs accept messages and SOS reports, save a safe summary, create role-routed in-app notifications, and expose incident summaries, acknowledgement, resolution, and a user's notification list. Message text is omitted from audit history and notification content.
+CareCircle branding, role display labels, revised product direction, and the Phase 3 metadata are now live. The deterministic classifier is a pure backend module with English, Hindi, Kannada, and Telugu phrase coverage, explicit L0–L5 routing levels, safety modifiers, SOS override, unknown-text fallback to L2, and a raise-only advisor interface. Its table-driven test covers 84 classifier examples across the supported languages and scripts. Alembic adds patient messages, incidents, incident events, and notifications. Authenticated patient/care-team APIs accept messages and SOS reports, save a safe summary, create role-routed in-app notifications, and expose incident summaries, acknowledgement, resolution, and a user's notification list. Message text is omitted from audit history and notification content.
 
-The escalation subsystem is not yet complete: time-boxed background progression, policy editing, detailed L2/L3/L4 workflows, incident-specific permissions, SSE, patient help and SOS screens, language selector, offline queue, notification bell actions, and alert experience are not implemented. The current frontend still presents placeholder routes for those later screens. See [docs/ESCALATION.md](docs/ESCALATION.md) for implemented behavior and limits. Lexicons are machine-drafted and require native-speaker review before real use.
+A single-worker, 15-second backend tick advances due incidents using persisted acknowledgement and resolution deadlines, severity multipliers, category caps, a configurable quiet-hours policy, and a demo-only time scale. Role-filtered incident summaries, acknowledgement, manual raise/lower with reasons, policy read/update/reset APIs, scheduled-activity acknowledgement/overdue detection, and a task-ack endpoint are included. The patient Help page has quick replies, text entry, a cancellable SOS countdown, status polling, and 108/112 links; the Incident Center has role-filtered lists, one-tap acknowledgement, escalation deadline display, and an unacknowledged emergency banner. The notification bell, policy editor, and admin speed/scenario panel are also implemented. Remaining work includes backup offers and decision cards, nurse visit and doctor instruction flows, doctor summary, SSE, digest generation, offline queue, multilingual UI, full-screen alert/audio experience, detailed incident action cards, and the complete clinical role portal workflows. See [docs/ESCALATION.md](docs/ESCALATION.md) for implemented behavior and limits. Lexicons are machine-drafted and require native-speaker review before real use.
 
 ### Available endpoints
 
@@ -279,20 +280,32 @@ The escalation subsystem is not yet complete: time-boxed background progression,
 | `POST /api/v1/incidents/{id}/resolve` | Resolve with a code; L5 requires acknowledgement and a note |
 | `GET /api/v1/notifications?unread=true` | List the signed-in user's in-app notifications |
 | `POST /api/v1/notifications/{id}/read` | Mark an owned notification read |
+| `GET/PUT /api/v1/patients/{id}/escalation-policy` | Read or update role-authorized per-patient timer and quiet-hour settings |
+| `POST /api/v1/patients/{id}/escalation-policy/reset` | Restore the system policy |
+| `POST /api/v1/activities/{id}/acknowledge` | Acknowledge an assigned primary caregiver activity |
+| `POST /api/v1/admin/demo/escalation-speed` | Set the demo-only timer scale |
+| `POST /api/v1/admin/demo/scenarios/{name}` | Run or reset a synthetic escalation scenario |
 | `GET /api/v1/meta` | Reports CareCircle and phase 3 |
 
 All mutation routes require authentication and the existing CSRF header. The required success path to try is sign in as the synthetic patient, POST “I need water”, then inspect the incident as a care-team account, acknowledge, and resolve. Repeat with `/sos` to confirm L5 creation. Demo accounts are listed above; use the configured `DEMO_PASSWORD`.
 
 ### Phase 3 test instructions and verification
 
-Run the backend and frontend commands in [Test Instructions](#test-instructions), then run the smoke script against localhost and the host LAN address. The Phase 3 smoke extension and a real second-device check are not yet available. Manual emergency demo: submit a chest-pain message or SOS and confirm the L5 record and notification; use phone emergency services directly for any real emergency.
+Run the backend and frontend commands in [Test Instructions](#test-instructions), then run the smoke script against localhost and the host LAN address. The Phase 3 smoke extension is in `scripts/smoke.py`; Docker was unavailable for an end-to-end run in this environment. A real second-device check remains manual. Manual emergency demo: submit a chest-pain message or SOS and confirm the L5 record and notification; use phone emergency services directly for any real emergency.
+
+### Manual escalation demo
+
+1. Sign in as Anita and open **Escalation Policy** for Ramesh. Set L1 and L2 acknowledgement timers to 1 minute, then save.
+2. Sign in as Admin and set the demo timer scale to `0.1` in **Admin demo panel**. Keep Anita and Savitha open in separate browser sessions.
+3. Run `daily_help`, or sign in as Ramesh in another session and send “I need water”. Confirm the request appears as L1 for Savitha (or L2 if no caretaker login is available). Leave it unacknowledged and watch the Incident Center advance to L2 and then L3.
+4. Run the `sos` scenario and confirm the L5 banner and 108/112 links. This is an in-app demonstration only; it does not contact emergency services.
 
 Preflight on 2026-10-14 found the local shell does not have `python`, pytest, or frontend `node_modules`; Docker Compose initially could not start because the ignored `.env` file was absent. Baseline suite results could not be obtained in this environment. Create `.env` from `.env.example` and install project dependencies before running the commands.
 
 ## Phase 3 decisions
 
 - Unknown or ambiguous text routes to L2 `UNCLASSIFIED`; only explicit positive patterns may route to L0.
-- The SOS shortcut overrides message classification to L5.
-- Initial routing uses team roles and in-app notifications. The staged timer and recipient-specific workflows remain unimplemented and are explicitly called out in the escalation limitations.
+- The SOS shortcut overrides message classification to L5. The patient Help page includes a three-second cancellable countdown and direct `tel:108` / `tel:112` links.
+- Initial routing uses care-team roles; a 15-second single-worker service applies persisted deadlines and records each transition. There is no SMS or phone integration.
 - Safe summaries are deterministic from patient name, message category, and time. Raw message text stays in the message table and is omitted from audit and notification payloads.
 - Role labels are display-only; stored enum values, package names, database names, environment names, and demo emails remain stable.
