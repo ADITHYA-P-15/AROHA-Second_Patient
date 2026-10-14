@@ -76,7 +76,7 @@ export function WorkloadBalancer() {
   return <div className="wb">
     <section className="card wb-head">
       <div className="wb-head-top">
-        <div><p className="eyebrow">RESOURCE PLANNING</p><h1>Workload Balancer</h1>{patient.is_synthetic && <p className="cc-demo">DEMO · SYNTHETIC DATA</p>}</div>
+        <div><p className="eyebrow">RESOURCE PLANNING</p><h1>{data.patient.name}’s caregiver load</h1>{patient.is_synthetic && <p className="cc-demo">DEMO · SYNTHETIC DATA</p>}</div>
         {tools}
       </div>
       <p className="cc-basis">{data.basis_note}</p>

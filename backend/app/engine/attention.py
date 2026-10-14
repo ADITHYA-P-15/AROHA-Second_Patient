@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,8 @@ def _bucket(severity: str, start: datetime | None, deadline: datetime | None, no
 def evaluate_attention(snapshot: dict, now: datetime, settings: dict | None = None) -> list[AttentionItem]:
     """Evaluate a JSON-like snapshot. Thresholds are deliberately explicit and frozen-clock friendly."""
     settings = settings or {}
+    # Reason text is read by people in the app timezone; stored datetimes are UTC.
+    zone = ZoneInfo(settings.get("timezone") or "Asia/Kolkata")
     activities = snapshot.get("activities", ())
     assignments = snapshot.get("assignments", ())
     by_activity: dict[str, list] = {}
@@ -94,7 +97,7 @@ def evaluate_attention(snapshot: dict, now: datetime, settings: dict | None = No
         if _get(activity, "over_limit") is True and confirmed:
             add("OVER_LIMIT", activity, f"The confirmed primary exceeds a configured workload limit.")
         if deadline and now < deadline < now + timedelta(hours=24):
-            add("DEADLINE_APPROACHING", activity, f"{name} has an unresolved deadline at {deadline:%H:%M}.", due_at=deadline)
+            add("DEADLINE_APPROACHING", activity, f"{name} has an unresolved deadline at {deadline.astimezone(zone):%H:%M}.", due_at=deadline)
         if start and start < now and _get(activity, "lifecycle_status", "SCHEDULED") == "SCHEDULED":
             add("TASK_OVERDUE", activity, f"{name} is past its scheduled start and is not marked complete.", severity="HIGH", due_at=start)
         if confirmed and start and now <= start < now + timedelta(minutes=30) and not _get(activity, "acknowledged_at"):

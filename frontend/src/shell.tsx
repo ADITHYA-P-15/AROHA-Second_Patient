@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, Bell, HeartHandshake, LogOut, Users } from 'lucide-react';
+import { Activity, Bell, CalendarDays, HandHelping, HeartHandshake, History, LayoutDashboard, ListChecks, LogOut, Menu, Scale, Settings, Siren, Timer, UserRound, Users, X, type LucideIcon } from 'lucide-react';
 import { CommandCenter } from './CommandCenter.tsx';
 import { WorkloadBalancer } from './WorkloadBalancer.tsx';
 import { api } from './api/client.ts';
@@ -11,14 +11,28 @@ type User = { id: string; email: string; name: string; role: string; role_label?
 type Patient = { id: string; name: string; birth_year?: number; care_notes: string; clinical_notes?: string | null; is_synthetic: boolean };
 const demo: Record<string, string> = { FAMILY: 'anita.iyer@secondpatient.demo', PATIENT: 'ramesh.iyer@secondpatient.demo', HOUSEHELP: 'savitha@secondpatient.demo', NURSE: 'divya.menon@secondpatient.demo', DOCTOR: 'dr.arjun.nair@secondpatient.demo', ADMIN: 'admin@secondpatient.demo' };
 const roleLabels: Record<string, string> = { FAMILY: 'Primary contact', PATIENT: 'Patient', HOUSEHELP: 'Personal caretaker', NURSE: 'Healthcare professional', DOCTOR: 'Doctor', ADMIN: 'Administrator' };
-const roleNav: Record<string, [string,string][]> = {
-  FAMILY: [['Command Center','/command-center'],['Dashboard','/'],['Incident Center','/incidents'],['Escalation Policy','/escalation-policy'],['Patient Profile','/patient-profile'],['Care Network','/care-network'],['Care Plan','/care-plan'],['Workload Balancer','/workload'],['Risk & Resolution','/risk-resolution'],['Dependency Graph','/dependency-graph'],['AI Assistant','/ai-assistant'],['History','/history']],
-  PATIENT: [['My Day','/'],['Care Plan','/care-plan'],['Request Help','/request-help'],['Incident Center','/incidents'],['Voice Note to Doctor','/voice-note'],['Medicines','/medicines']],
-  HOUSEHELP: [['My Day','/command-center'],['My Tasks','/'],['Incident Center','/incidents'],['Care Plan','/care-plan'],['Availability','/availability'],['Cover Requests','/cover-requests']],
-  NURSE: [['My Day','/command-center'],['My Patients','/'],['Incident Center','/incidents'],['Care Plan','/care-plan'],['Visits','/visits'],['Escalations','/escalations'],['Availability','/availability']],
-  DOCTOR: [['Patients','/'],['Incident Center','/incidents'],['Care Plan','/care-plan'],['Appointments & Follow-ups','/appointments'],['Instructions','/instructions'],['Voice Notes','/voice-notes']],
-  ADMIN: [['Command Center','/command-center'],['Dashboard','/'],['Incident Center','/incidents'],['Escalation Policy','/escalation-policy'],['Patient Profile','/patient-profile'],['Care Network','/care-network'],['Care Plan','/care-plan'],['Workload Balancer','/workload'],['Risk & Resolution','/risk-resolution'],['Dependency Graph','/dependency-graph'],['AI Assistant','/ai-assistant'],['History','/history'],['Admin','/admin']]
+type NavItem = { title: string; path: string; icon: LucideIcon };
+// Only screens that work today are listed; later-phase screens join the menu when they ship.
+const coordinatorNav: NavItem[] = [
+  { title: 'Command Center', path: '/command-center', icon: ListChecks },
+  { title: 'Dashboard', path: '/', icon: LayoutDashboard },
+  { title: 'Incident Center', path: '/incidents', icon: Siren },
+  { title: 'Care Plan', path: '/care-plan', icon: CalendarDays },
+  { title: 'Workload Balancer', path: '/workload', icon: Scale },
+  { title: 'Care Network', path: '/care-network', icon: Users },
+  { title: 'Patient Profile', path: '/patient-profile', icon: UserRound },
+  { title: 'Escalation Policy', path: '/escalation-policy', icon: Timer },
+  { title: 'History', path: '/history', icon: History },
+];
+const roleNav: Record<string, NavItem[]> = {
+  FAMILY: coordinatorNav,
+  PATIENT: [{ title: 'Request Help', path: '/request-help', icon: HandHelping }, { title: 'Care Plan', path: '/care-plan', icon: CalendarDays }, { title: 'Incident Center', path: '/incidents', icon: Siren }],
+  HOUSEHELP: [{ title: 'My Day', path: '/command-center', icon: ListChecks }, { title: 'Care Plan', path: '/care-plan', icon: CalendarDays }, { title: 'Incident Center', path: '/incidents', icon: Siren }],
+  NURSE: [{ title: 'My Day', path: '/command-center', icon: ListChecks }, { title: 'Care Plan', path: '/care-plan', icon: CalendarDays }, { title: 'Incident Center', path: '/incidents', icon: Siren }],
+  DOCTOR: [{ title: 'Incident Center', path: '/incidents', icon: Siren }, { title: 'Care Plan', path: '/care-plan', icon: CalendarDays }],
+  ADMIN: [...coordinatorNav, { title: 'Admin', path: '/admin', icon: Settings }],
 };
+const homeFor = (role: string) => (roleNav[role] ?? roleNav.FAMILY)[0].path;
 function Login({ onLogin, demoMode }: { onLogin: (u: User) => void; demoMode: boolean }) {
   const [registering, setRegistering] = useState(false); const [name, setName] = useState('');
   const [email, setEmail] = useState(demo.FAMILY); const [password, setPassword] = useState('Demo@1234'); const [error, setError] = useState('');
@@ -38,11 +52,60 @@ function App() {
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<User>('/api/v1/auth/me'), retry: false });
 const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<{phase:number;version:string;demo_mode:boolean;escalation_scaled:boolean;escalation_time_scale:number}>('/api/v1/meta') });
   if (me.isLoading) return <div className="loading">Loading your workspace…</div>;
-  if (me.isError) return <Login demoMode={meta.data?.demo_mode ?? false} onLogin={u=>{ queryClient.setQueryData(['me'],u); navigate(u.role==='FAMILY'||u.role==='ADMIN'||u.role==='HOUSEHELP'||u.role==='NURSE'?'/command-center':'/'); }} />;
-  const user = me.data!;
-  const logout = async()=>{ await api('/api/v1/auth/logout',{method:'POST'}); queryClient.clear(); navigate('/'); };
-  const menu=roleNav[user.role] ?? roleNav.FAMILY;
-  return <div className="app"><aside><div className="brand"><span className="brand-icon"><HeartHandshake/></span><span>CareCircle</span></div>{meta.data?.demo_mode&&<div className="demo-tag">DEMO · SYNTHETIC DATA</div>}<nav>{menu.map(([title,path],i)=><Link key={path} to={path}>{i===0?<Activity size={18}/>:i===1?<Users size={18}/>:<span className="nav-dot"/>}{title}</Link>)}</nav><div className="side-bottom"><span className="avatar">{user.name[0]}</span><div className="identity"><strong>{user.name}</strong><small>{user.role_label ?? roleLabels[user.role] ?? user.role}</small></div><button className="icon-button" aria-label="Log out" onClick={logout}><LogOut size={18}/></button></div></aside><main className="workspace"><header><div><p className="eyebrow">YOUR CARE CIRCLE</p><h2>{user.role === 'FAMILY' || user.role === 'ADMIN' ? 'Care circle dashboard' : `${user.role_label ?? roleLabels[user.role] ?? user.role} portal`}</h2></div><NotificationBell/></header>{meta.data?.escalation_scaled&&<div className="demo-tag" role="status">DEMO TIMER SCALE · {meta.data.escalation_time_scale}×</div>}<Routes><Route path="/" element={user.role==='FAMILY'||user.role==='ADMIN'?<Dashboard/>:<Placeholder role={user.role_label ?? roleLabels[user.role] ?? user.role} title={menu[user.role==='FAMILY'||user.role==='ADMIN'?1:0][0]}/>}/><Route path="/command-center" element={<CommandCenter/>}/><Route path="/workload" element={<WorkloadBalancer/>}/>{menu.slice(1).filter(([,path])=>path!=='/'&&path!=='/workload').map(([title,path])=><Route key={path} path={path} element={path==='/incidents'?<IncidentCenter/>:path==='/request-help'?<HelpPage/>:path==='/escalation-policy'?<EscalationPolicyPage/>:path==='/admin'?<AdminDemoPanel/>:<Phase2Page role={user.role} title={title} path={path}/>}/>)}<Route path="*" element={<Navigate to={user.role==='FAMILY'||user.role==='ADMIN'?'/command-center':'/'} replace/>}/></Routes><footer>Operational care-coordination tool — not a diagnostic or emergency service. Demo data is fictional.<span>Phase {meta.data?.phase ?? 4} · v{meta.data?.version ?? '0.4.0'}</span></footer></main></div>;
+  if (me.isError) return <Login demoMode={meta.data?.demo_mode ?? false} onLogin={u=>{ queryClient.setQueryData(['me'],u); navigate(homeFor(u.role)); }} />;
+  return <Workspace user={me.data!} meta={meta.data}/>;
+}
+
+function Workspace({ user, meta }: { user: User; meta?: { phase: number; version: string; demo_mode: boolean; escalation_scaled: boolean; escalation_time_scale: number } }) {
+  const queryClient = useQueryClient(); const navigate = useNavigate(); const location = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => { setMenuOpen(false); }, [location.pathname]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
+    window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
+  }, [menuOpen]);
+  const logout = async () => { try { await api('/api/v1/auth/logout', { method: 'POST' }); } finally { queryClient.clear(); navigate('/', { replace: true }); } };
+  const menu = roleNav[user.role] ?? roleNav.FAMILY;
+  const roleLabel = user.role_label ?? roleLabels[user.role] ?? user.role;
+  const current = menu.find(item => item.path === location.pathname);
+  const page = (path: string) => {
+    switch (path) {
+      case '/command-center': return <CommandCenter/>;
+      case '/': return <Dashboard/>;
+      case '/workload': return <WorkloadBalancer/>;
+      case '/incidents': return <IncidentCenter/>;
+      case '/request-help': return <HelpPage/>;
+      case '/escalation-policy': return <EscalationPolicyPage/>;
+      case '/admin': return <AdminDemoPanel/>;
+      case '/patient-profile': return <PatientProfile role={user.role}/>;
+      case '/care-network': return <CareNetwork role={user.role}/>;
+      case '/care-plan': return <CarePlan role={user.role}/>;
+      case '/history': return <HistoryPage/>;
+      default: return <Placeholder role={roleLabel} title="Coming in a later phase"/>;
+    }
+  };
+  return <div className="app">
+    <aside className="sidebar" data-open={menuOpen} aria-label="Main menu">
+      <div className="sidebar-top"><div className="brand"><span className="brand-icon"><HeartHandshake/></span><span>CareCircle</span></div><button className="icon-button menu-close" aria-label="Close menu" onClick={() => setMenuOpen(false)}><X size={20}/></button></div>
+      {meta?.demo_mode && <div className="demo-tag">DEMO · SYNTHETIC DATA</div>}
+      <nav className="side-nav">{menu.map(({ title, path, icon: Icon }) => <NavLink key={path} to={path} end className={({ isActive }) => isActive ? 'active' : undefined}><Icon size={18} aria-hidden="true"/>{title}</NavLink>)}</nav>
+      <div className="side-bottom"><span className="avatar">{user.name[0]}</span><div className="identity"><strong>{user.name}</strong><small>{roleLabel}</small></div><button className="icon-button" aria-label="Log out" title="Log out" onClick={() => void logout()}><LogOut size={18}/></button></div>
+    </aside>
+    {menuOpen && <div className="scrim" aria-hidden="true" onClick={() => setMenuOpen(false)}/>}
+    <main className="workspace">
+      <header className="topbar">
+        <button className="icon-button menu-toggle" aria-label="Open menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}><Menu size={22}/></button>
+        <div className="topbar-title"><p className="eyebrow">{roleLabel.toUpperCase()} · {user.name.toUpperCase()}</p><h2>{current?.title ?? 'CareCircle'}</h2></div>
+        <div className="topbar-actions"><NotificationBell/><button className="logout-button" onClick={() => void logout()}><LogOut size={16} aria-hidden="true"/><span>Log out</span></button></div>
+      </header>
+      {meta?.escalation_scaled && <div className="demo-tag" role="status">DEMO TIMER SCALE · {meta.escalation_time_scale}×</div>}
+      <div className="page" key={location.pathname}>
+        <Routes>{menu.map(item => <Route key={item.path} path={item.path} element={page(item.path)}/>)}<Route path="*" element={<Navigate to={homeFor(user.role)} replace/>}/></Routes>
+      </div>
+      <footer>Operational care-coordination tool — not a diagnostic or emergency service. Demo data is fictional.<span>Phase {meta?.phase ?? 4} · v{meta?.version ?? '0.4.0'}</span></footer>
+    </main>
+  </div>;
 }
 
 function NotificationBell(){
@@ -126,13 +189,6 @@ function usePatient() {
   const id = selected || patients.data?.items?.[0]?.id || '';
   const picker = <label>Patient<select value={id} onChange={e=>setSelected(e.target.value)}>{patients.data?.items.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>;
   return { patients, id, picker };
-}
-function Phase2Page({role,title,path}:{role:string;title:string;path:string}) {
-  if (path === '/patient-profile') return <PatientProfile role={role}/>;
-  if (path === '/care-network') return <CareNetwork role={role}/>;
-  if (path === '/care-plan') return <CarePlan role={role}/>;
-  if (path === '/history') return <HistoryPage/>;
-  return <Placeholder role={role} title={`${title} · Coming in a later phase`}/>;
 }
 function PatientProfile({role}:{role:string}) {
   const {id,picker}=usePatient(); const client=useQueryClient();

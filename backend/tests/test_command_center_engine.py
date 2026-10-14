@@ -64,3 +64,14 @@ def test_briefs_are_template_only_deterministic_and_escape_html():
     handover = build_handover_brief({}, now=at, notes="handover <img src=x>")
     assert "&lt;img" in handover["rendered_html"]
     assert handover["ai_enhanced"] is False
+
+
+def test_deadline_reason_uses_app_timezone():
+    from datetime import UTC, datetime, timedelta
+    from app.engine.attention import evaluate_attention
+    now = datetime(2026, 10, 14, 0, 0, tzinfo=UTC)
+    activity = {"id": "a1", "title": "Pickup", "importance": "MEDIUM", "requires_caregiver": False, "lifecycle_status": "SCHEDULED",
+                "scheduled_start": now + timedelta(hours=8), "scheduled_end": now + timedelta(hours=9), "deadline": now + timedelta(hours=6)}
+    items = evaluate_attention({"activities": [activity]}, now)
+    deadline = next(x for x in items if x.kind == "DEADLINE_APPROACHING")
+    assert "11:30" in deadline.reason  # 06:00 UTC shown in Asia/Kolkata
