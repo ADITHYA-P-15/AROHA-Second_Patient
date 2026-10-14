@@ -37,7 +37,7 @@ Roles: PATIENT, FAMILY (coordinator/caregiver), HOUSEHELP, NURSE, DOCTOR, ADMIN 
 
 ## Target domain
 
-Phase 1: users, patients, care_team_members, activity_history. Later: caregivers/capabilities and schedules/overrides; care activities with separate lifecycle and derived coverage; acyclic dependencies; primary/backup assignments with confirmation workflow; idempotent care gaps (types A–J), recommendations, notifications, help requests, visits, instructions, medications, voice notes, AI interactions.
+Phase 1: users, patients, care_team_members, activity_history. Phase 2 adds patient support needs, distinct caregivers, recurring schedules and overrides, activities, dependencies, and primary/backup assignments. Later: idempotent care gaps (types A–J), recommendations, notifications, help requests, visits, instructions, medications, voice notes, AI interactions.
 
 Capabilities: `TRANSPORT`, `MEDICATION_ASSIST`, `PRESCRIPTION_PICKUP`, `DAILY_ASSIST`, `MOBILITY_ASSIST`, `LAB_ESCORT`, `SUPPLIES`, `CLINICAL_VISIT`, `APPOINTMENT_ESCORT`.
 
@@ -49,10 +49,22 @@ Capabilities: `TRANSPORT`, `MEDICATION_ASSIST`, `PRESCRIPTION_PICKUP`, `DAILY_AS
 - Workload/conflict checks cross patient boundaries; details of other patients are masked.
 - Per-patient advisory locking prevents duplicate concurrent reassessments. Priority uses additive documented points and breakdowns.
 
+## Phase 2 decisions
+
+- A **caregiver is not a login user**. A caregiver may optionally link to a unique `user_id`, and one caregiver may be linked to several patients. Relationship and backup designation belong to each patient link.
+- No weekly schedule rows means unavailable. Weekly rows are recurring available windows in `Asia/Kolkata`; times are integer minutes after local midnight. Adjacent windows merge in calculations. Active unavailable overrides subtract time after available overrides are added; cancelled overrides stay in history.
+- Required availability includes the activity's before and after buffers. The pure `engine/availability.py` module returns uncovered segments and blocking overrides. `engine/workload.py` counts primary assignments; confirmed and pending work are separate, and backups do not count until promoted. Workload and overlap queries span patients while API responses mask other patient identities and titles.
+- `lifecycle_status` (`SCHEDULED`, `COMPLETED`, `CANCELLED`) is separate from stored `coverage_status` (`UNASSESSED` until Phase 3). Phase 2 UI says **Support confirmed / Not confirmed** based only on a confirmed primary assignment and marks it preliminary. It never calls care supported or safe.
+- Invalid scheduling data, inactive/unlinked caregivers, cross-patient or cyclic dependencies, and assignments to terminal activities are rejected. Capability, availability, conflicts, workload limits, patient overlap, and near deadlines are warnings that leave an operation possible.
+- Coordinator permissions manage one patient's plan and network. Family members share read access and may manage only their own caregiver availability or assignments. Househelp/nurses see their own assignments and associated activities, and may respond to their own assignments. Patients read the plan; doctors read the plan and clinical notes; administrators can manage all data. Patient/activity responses carry `my_permissions` for UI gating.
+- Phone numbers are visible only to administrators, coordinators of a linked patient, and the caregiver's own linked user. Shared caregiver conflict details for other patients are reduced to a busy count or generic “busy — other commitment” label.
+- Assignment transitions use the explicit state machine in the README. Terminal statuses cannot transition again. Postgres and SQLite both enforce at most one active primary assignment per activity; the service returns a clean conflict if a concurrent insert loses the constraint race.
+- The Phase 2 reassessment hook records trigger, affected patient IDs, and context in the transaction session. It deliberately computes no gaps; Phase 3 supplies the real engine.
+
 ## Roadmap
 
 - [x] 1 Foundation, auth/RBAC, LAN deploy
-- [ ] 2 Core domain (patients, caregivers, availability, activities, assignments)
+- [x] 2 Core domain (patients, caregivers, availability, activities, assignments)
 - [ ] 3 Care-gap engine, reassessment, tests
 - [ ] 4 Priority scoring, backup candidates, resolution workflow
 - [ ] 5 Dashboard, risk/resolution, notifications, live updates, metrics
