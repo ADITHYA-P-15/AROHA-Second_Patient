@@ -40,3 +40,12 @@ Cumulative record of features built one at a time on top of the phased roadmap i
   - Travel time between tasks.
   - Multi-task batch apply.
   - A balancer view for caregivers' own load.
+
+## Maintenance — app shell and navigation (after Feature 2)
+
+- The sidebar is scoped to `.sidebar`. Previously the Command Center's `<aside>` rail was pinned over it and hid the menu and logout.
+- A visible **Log out** button sits in the top bar. The sidebar menu scrolls with the user block pinned, the current page is highlighted, and the page title shows in the header.
+- On phones, a slide-in drawer replaces the icon-only bottom bar.
+- Menu items that only led to placeholders are hidden, and each role lands on a working screen. When a later feature ships a screen, add it to `roleNav` in `frontend/src/shell.tsx`.
+- Command Center deadline reasons are shown in the app timezone.
+- The app is served on port 8000 only. Local previews use the same port.
