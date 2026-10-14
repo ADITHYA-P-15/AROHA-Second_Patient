@@ -197,7 +197,8 @@ def incident_recipients(db, patient_id, level):
     members = db.execute(select(CareTeamMember, User).join(User).where(CareTeamMember.patient_id == patient_id)).all()
     roles = ({TeamRole.HOUSEHELP} if level == 1 else {TeamRole.COORDINATOR} if level == 2 else {TeamRole.NURSE} if level == 3 else {TeamRole.DOCTOR} if level == 4 else {TeamRole.COORDINATOR, TeamRole.FAMILY, TeamRole.HOUSEHELP, TeamRole.NURSE, TeamRole.DOCTOR})
     recipients = [u for m, u in members if m.team_role in roles and u.is_active]
-    if level == 4 and not recipients:
+    # No nurse (L3) or doctor (L4) on the team: route to the primary contact instead of notifying nobody.
+    if level in (3, 4) and not recipients:
         recipients = [u for m, u in members if m.team_role == TeamRole.COORDINATOR and u.is_active]
     return recipients
 
@@ -259,7 +260,7 @@ def patient_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Requ
         recipients = incident_recipients(db, patient.id, level)
     if level > 0 and not recipients:
         no_recipients_levels.append(level)
-    safe_summary = f"{patient.name} asked for help with {classification.category.lower().replace('_', ' ')} at {now().astimezone().strftime('%H:%M')}"
+    safe_summary = f"{patient.name} asked for help with {classification.category.lower().replace('_', ' ')} at {now().astimezone(ZoneInfo(settings.app_timezone)).strftime('%H:%M')}"
     source = "SOS" if body.channel == "SOS_BUTTON" else "CARETAKER_REPORT" if body.on_behalf else "PATIENT_MESSAGE"
     inc = Incident(patient_id=patient.id, source=source, category=classification.category, initial_level=level, current_level=level, severity=classification.severity, title="Emergency report" if level == 5 else "Care request", safe_summary=safe_summary, dedupe_key=f"message:{uuid.uuid4()}", classification=classification.as_dict())
     db.add(inc); db.flush()
@@ -535,7 +536,8 @@ def resolve_incident(incident_id: uuid.UUID, body: IncidentResolveIn, request: R
     if inc.status in ("RESOLVED", "CANCELLED"):
         if may_read_incident(db, inc, user, member): return incident_payload(inc)
         raise HTTPException(403, "Incident access denied")
-    if not may_act_on_incident(db, inc, user, member) and user.role not in (Role.NURSE, Role.DOCTOR): raise HTTPException(403, "Only an incident recipient or care professional can resolve")
+    # Care professionals may resolve incidents they can see, not every incident on the care team.
+    if not may_act_on_incident(db, inc, user, member) and not (user.role in (Role.NURSE, Role.DOCTOR) and may_read_incident(db, inc, user, member)): raise HTTPException(403, "Only an incident recipient or care professional can resolve")
     if inc.current_level == 5 and (inc.status == "OPEN" or not body.note): raise HTTPException(422, "Emergency resolution requires acknowledgement and a note")
     inc.status = "RESOLVED"; inc.resolved_at = now(); inc.resolution_code = body.code; inc.resolution_note = body.note; inc.version += 1
     inc.current_deadline_at = None; inc.deadline_kind = None
@@ -685,7 +687,7 @@ def remove_team(patient_id: uuid.UUID, member_id: uuid.UUID, request: Request, u
 
 
 @app.get("/api/v1/patients/{patient_id}/history")
-def history(patient_id: uuid.UUID, limit: int = 50, offset: int = 0, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def history(patient_id: uuid.UUID, limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0), user: User = Depends(current_user), db: Session = Depends(get_db)):
     p, member = patient_access(db, user, patient_id)
     if user.role not in (Role.ADMIN, Role.DOCTOR) and not (member and member.team_role in (TeamRole.COORDINATOR, TeamRole.FAMILY)): raise HTTPException(403, "Permission denied")
     limit = max(1, min(limit, 100)); rows = db.scalars(select(ActivityHistory).where(ActivityHistory.patient_id == p.id).order_by(ActivityHistory.occurred_at.desc()).offset(offset).limit(limit)).all()

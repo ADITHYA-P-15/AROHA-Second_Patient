@@ -28,7 +28,8 @@ def _recipients(db: Session, patient_id, level: int):
     rows = db.execute(select(CareTeamMember, User).join(User).where(CareTeamMember.patient_id == patient_id)).all()
     roles = ({TeamRole.HOUSEHELP} if level == 1 else {TeamRole.COORDINATOR} if level == 2 else {TeamRole.NURSE} if level == 3 else {TeamRole.DOCTOR} if level == 4 else {TeamRole.COORDINATOR, TeamRole.FAMILY, TeamRole.HOUSEHELP, TeamRole.NURSE, TeamRole.DOCTOR})
     recipients = [user for member, user in rows if member.team_role in roles and user.is_active]
-    if level == 4 and not recipients:
+    # No nurse (L3) or doctor (L4) on the team: route to the primary contact instead of notifying nobody.
+    if level in (3, 4) and not recipients:
         recipients = [user for member, user in rows if member.team_role == TeamRole.COORDINATOR and user.is_active]
     return recipients
 
