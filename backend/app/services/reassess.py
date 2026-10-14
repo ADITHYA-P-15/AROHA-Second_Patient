@@ -15,5 +15,13 @@ class TriggerEvent(StrEnum):
 
 
 def reassess(session, patient_ids, trigger: TriggerEvent, context=None):
-    """Phase 2 no-op seam; writes a structured call record in the caller transaction."""
-    session.info.setdefault("reassess_calls", []).append({"patient_ids": tuple(patient_ids), "trigger": TriggerEvent(trigger), "context": context or {}})
+    """Record a trigger and refresh deterministic command-center attention in the caller transaction."""
+    patient_ids = tuple(dict.fromkeys(patient_ids))
+    session.info.setdefault("reassess_calls", []).append({"patient_ids": patient_ids, "trigger": TriggerEvent(trigger), "context": context or {}})
+    if not patient_ids:
+        return
+    session.flush()
+    from app.services.command_center import reconcile_patient
+    for patient_id in patient_ids:
+        if patient_id is not None:
+            reconcile_patient(session, patient_id)

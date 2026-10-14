@@ -6,8 +6,9 @@ import uuid
 import unicodedata
 import asyncio
 from collections import defaultdict, deque
-from datetime import UTC
+from datetime import UTC, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import jwt
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
@@ -22,11 +23,12 @@ from app.core.config import settings
 from app.core.db import Base, engine, get_db, SessionLocal
 from app.core.security import create_token, hash_password, verify_password
 from app.core.permissions import require_patient_access
-from app.models import ActivityHistory, CareTeamMember, Patient, Role, TeamRole, User, Caregiver, CaregiverPatientLink, CaregiverWeeklySchedule, AvailabilityOverride, CareActivity, ActivityDependency, CareAssignment, PatientSupportNeed, PatientMessage, Incident, IncidentEvent, Notification, EscalationPolicy, AppSetting
+from app.models import ActivityHistory, CareTeamMember, Patient, Role, TeamRole, User, Caregiver, CaregiverPatientLink, CaregiverWeeklySchedule, AvailabilityOverride, CareActivity, ActivityDependency, CareAssignment, PatientSupportNeed, PatientMessage, Incident, IncidentEvent, Notification, EscalationPolicy, AppSetting, ActionItem, BriefAcknowledgement, DailyBrief, HandoverItem
 from app.schemas import LoginIn, PasswordIn, PatientIn, PatientPatch, RegisterIn, TeamIn
 from app.engine.escalation_classifier import classify_message
 from app.engine.escalation_machine import DEFAULT_POLICY, deadline_minutes
 from app.services.escalation import policy_for, run_escalation_tick, set_deadline
+from app.services.command_center import reconcile_patient, run_command_center_tick
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.seed import run_seed
 
@@ -186,7 +188,7 @@ def health(db: Session = Depends(get_db)):
 @app.get("/api/v1/meta")
 def meta(db: Session = Depends(get_db)):
     scale = current_escalation_scale(db)
-    return {"app_name": "CareCircle", "version": "0.3.0", "git_sha": settings.git_sha, "phase": 3, "demo_mode": settings.demo_mode, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "server_time": now().isoformat(), "timezone": settings.app_timezone, "ai_enabled": False}
+    return {"app_name": "CareCircle", "version": "0.4.0", "git_sha": settings.git_sha, "phase": 4, "demo_mode": settings.demo_mode, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "server_time": now().isoformat(), "timezone": settings.app_timezone, "ai_enabled": False}
 
 
 def incident_recipients(db, patient_id, level):
@@ -276,6 +278,7 @@ def patient_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Requ
     db.add(IncidentEvent(incident_id=inc.id, kind="CLASSIFIED", level=level, actor_user_id=None, meta={"reasons": list(classification.reasons), "classifier_version": classification.classifier_version}))
     for no_recipient_level in no_recipients_levels: db.add(IncidentEvent(incident_id=inc.id, kind="NO_RECIPIENTS", level=no_recipient_level, meta={"advanced_to": level}))
     audit(db, user, patient.id, "INCIDENT_CREATED", "incident", inc.id, "Care request routed", request.state.request_id)
+    db.flush(); reconcile_patient(db, patient.id)
     db.commit(); db.refresh(inc)
     return incident_payload(inc)
 
@@ -331,6 +334,7 @@ def escalate_incident(incident_id: uuid.UUID, body: IncidentLevelIn, request: Re
         db.add(Notification(user_id=recipient.id, patient_id=patient.id, incident_id=inc.id, kind="INCIDENT", severity=inc.severity, title="Care request escalated", body=inc.safe_summary, requires_ack=True))
     db.add(IncidentEvent(incident_id=inc.id, kind="MANUAL_ESCALATED", level=inc.current_level, actor_user_id=user.id, recipient_user_ids=[str(x.id) for x in recipients], note=body.reason))
     audit(db, user, patient.id, "INCIDENT_ESCALATED", "incident", inc.id, "Care request escalated", request.state.request_id)
+    db.flush(); reconcile_patient(db, patient.id)
     db.commit(); db.refresh(inc)
     return incident_payload(inc)
 
@@ -349,6 +353,7 @@ def lower_incident(incident_id: uuid.UUID, body: IncidentLevelIn, request: Reque
     set_deadline(inc, policy_for(db, patient.id), "ACK", now(), current_escalation_scale(db))
     db.add(IncidentEvent(incident_id=inc.id, kind="LEVEL_LOWERED", level=inc.current_level, actor_user_id=user.id, note=body.reason))
     audit(db, user, patient.id, "LEVEL_LOWERED", "incident", inc.id, "Care request routing level lowered", request.state.request_id)
+    db.flush(); reconcile_patient(db, patient.id)
     db.commit(); db.refresh(inc)
     return incident_payload(inc)
 
@@ -372,6 +377,7 @@ def acknowledge_incident(incident_id: uuid.UUID, request: Request, user: User = 
             for recipient in db.scalars(select(User).where(User.id.in_(recipient_ids), User.id != user.id)):
                 db.add(Notification(user_id=recipient.id, patient_id=patient.id, incident_id=inc.id, kind="STATUS", severity=inc.severity, title="Care request is being handled", body=f"{user.name} is handling this request.", requires_ack=False,channel="INBOX"))
         audit(db, user, patient.id, "INCIDENT_ACKNOWLEDGED", "incident", inc.id, "Care request acknowledged", request.state.request_id)
+        db.flush(); reconcile_patient(db, patient.id)
         db.commit(); db.refresh(inc)
     return incident_payload(inc)
 
@@ -391,6 +397,7 @@ def acknowledge_activity(activity_id: uuid.UUID, request: Request, user: User = 
             set_deadline(inc,policy_for(db,patient.id),"RESOLVE",inc.acknowledged_at,current_escalation_scale(db))
             db.add(IncidentEvent(incident_id=inc.id,kind="ACKNOWLEDGED",level=inc.current_level,actor_user_id=user.id,note="Assigned caregiver acknowledged the activity"))
         audit(db,user,patient.id,"TASK_ACKNOWLEDGED","care_activity",activity.id,"Assigned caregiver acknowledged activity",request.state.request_id)
+        db.flush(); reconcile_patient(db, patient.id)
         db.commit()
     return {"activity_id":activity.id,"acknowledged_at":activity.acknowledged_at,"acknowledged_by":activity.acknowledged_by}
 
@@ -460,6 +467,29 @@ def set_demo_escalation_speed(body: DemoEscalationSpeedIn, user: User = Depends(
 @app.post("/api/v1/admin/demo/scenarios/{scenario_name}")
 def run_demo_escalation_scenario(scenario_name: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     if user.role != Role.ADMIN or not settings.demo_mode: raise HTTPException(404, "Not found")
+    if scenario_name in {"command_center_messy_day", "command_center_clear_day"}:
+        patient = db.scalar(select(Patient).where(Patient.is_synthetic.is_(True)).order_by(Patient.created_at.asc()))
+        if not patient: raise HTTPException(404, "Synthetic demo patient not found")
+        titles = ("Demo · unassigned same-day pickup", "Demo · awaiting caregiver confirmation")
+        activities = db.scalars(select(CareActivity).where(CareActivity.patient_id == patient.id, CareActivity.title.in_(titles))).all()
+        if scenario_name == "command_center_clear_day":
+            for activity in activities: activity.lifecycle_status = "CANCELLED"
+            db.commit()
+            return {"scenario": scenario_name, "status": "cleared", "activities": len(activities)}
+        if activities: return {"scenario": scenario_name, "status": "already_seeded", "patient_id": str(patient.id)}
+        coordinator = db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == patient.id, CareTeamMember.team_role == TeamRole.COORDINATOR))
+        caregiver = db.scalar(select(Caregiver).where(Caregiver.user_id.is_not(None), Caregiver.is_synthetic.is_(True)).order_by(Caregiver.name))
+        if not coordinator or not caregiver: raise HTTPException(409, "Synthetic coordinator or caregiver is not seeded")
+        zone = ZoneInfo(settings.app_timezone)
+        local_start = now().astimezone(zone).replace(second=0, microsecond=0) + timedelta(hours=2)
+        start = local_start.astimezone(UTC)
+        first = CareActivity(patient_id=patient.id, title=titles[0], category="PRESCRIPTION", scheduled_start=start, scheduled_end=start + timedelta(minutes=45), deadline=start + timedelta(hours=3), importance="HIGH", requires_caregiver=True, required_support=["PRESCRIPTION_PICKUP"], lifecycle_status="SCHEDULED", is_synthetic=True, created_by=user.id)
+        second = CareActivity(patient_id=patient.id, title=titles[1], category="DAILY_ROUTINE", scheduled_start=start + timedelta(hours=1), scheduled_end=start + timedelta(hours=1, minutes=30), deadline=start + timedelta(hours=2), importance="MEDIUM", requires_caregiver=True, required_support=["DAILY_ASSIST"], lifecycle_status="SCHEDULED", is_synthetic=True, created_by=user.id)
+        db.add_all([first, second]); db.flush()
+        db.add(CareAssignment(activity_id=second.id, caregiver_id=caregiver.id, role="PRIMARY", status="AWAITING_CONFIRMATION", assigned_by=user.id, assigned_at=now()))
+        db.add(ActivityHistory(actor_user_id=user.id, patient_id=patient.id, event_type="command_center.demo_seeded", entity_type="care_activity", entity_id=str(first.id), summary="Synthetic command-center demo scenario added", payload={"is_synthetic": True}))
+        db.flush(); reconcile_patient(db, patient.id); db.commit()
+        return {"scenario": scenario_name, "status": "seeded", "patient_id": str(patient.id)}
     if scenario_name == "reset_incidents":
         patient_ids=list(db.scalars(select(Patient.id).where(Patient.is_synthetic.is_(True))))
         if patient_ids:
@@ -469,6 +499,7 @@ def run_demo_escalation_scenario(scenario_name: str, user: User = Depends(curren
                 db.query(IncidentEvent).filter(IncidentEvent.incident_id.in_(incident_ids)).delete(synchronize_session=False)
                 db.query(PatientMessage).filter(PatientMessage.incident_id.in_(incident_ids)).delete(synchronize_session=False)
                 db.query(Incident).filter(Incident.id.in_(incident_ids)).delete(synchronize_session=False)
+            for patient_id in patient_ids: reconcile_patient(db, patient_id)
         db.commit()
         return {"scenario": scenario_name, "status": "reset"}
     scenarios={"daily_help":("DAILY_HELP",1,"Care request","A patient needs daily assistance."),
@@ -512,6 +543,7 @@ def resolve_incident(incident_id: uuid.UUID, body: IncidentResolveIn, request: R
     for patient_member in patient_members:
         db.add(Notification(user_id=patient_member.user_id,patient_id=patient.id,incident_id=inc.id,kind="STATUS",severity=inc.severity,title="Your request was handled",body="Your care team marked your request as handled.",requires_ack=False,channel="INBOX"))
     audit(db, user, patient.id, "INCIDENT_RESOLVED", "incident", inc.id, "Care request resolved", request.state.request_id)
+    db.flush(); reconcile_patient(db, patient.id)
     db.commit(); db.refresh(inc)
     return incident_payload(inc)
 
@@ -576,6 +608,8 @@ def password_is_strong(password: str, name: str, email: str) -> bool:
 # ahead of the original foundation routes sharing patient URL paths.
 from app.api.domain import router as domain_router
 app.include_router(domain_router)
+from app.api.command_center import router as command_center_router
+app.include_router(command_center_router)
 
 
 @app.get("/api/v1/patients")
@@ -658,6 +692,7 @@ def demo_reset(user: User = Depends(current_user), db: Session = Depends(get_db)
     if user.role != Role.ADMIN: raise HTTPException(403, "Admin access required")
     if not settings.demo_mode: raise HTTPException(404, "Not found")
     db.query(ActivityHistory).delete()
+    db.query(BriefAcknowledgement).delete(); db.query(HandoverItem).delete(); db.query(DailyBrief).delete(); db.query(ActionItem).delete()
     db.query(CareAssignment).delete(); db.query(ActivityDependency).delete(); db.query(CareActivity).delete(); db.query(AvailabilityOverride).delete(); db.query(CaregiverWeeklySchedule).delete(); db.query(CaregiverPatientLink).delete(); db.query(Caregiver).delete(); db.query(PatientSupportNeed).delete()
     db.query(CareTeamMember).delete(); db.query(Patient).delete(); db.commit()
     run_seed(db)
@@ -714,10 +749,19 @@ def ensure_system_escalation_policy():
         db.close()
 
 
+_last_command_center_tick = 0.0
+
+
 def _run_escalation_tick():
+    global _last_command_center_tick
     db = SessionLocal()
     try:
-        return run_escalation_tick(db, now(), scale=current_escalation_scale(db))
+        changed = run_escalation_tick(db, now(), scale=current_escalation_scale(db))
+        if time.monotonic() - _last_command_center_tick >= 60:
+            run_command_center_tick(db, now())
+            db.commit()
+            _last_command_center_tick = time.monotonic()
+        return changed
     finally:
         db.close()
 
@@ -756,4 +800,4 @@ def spa(path: str, request: Request):
     if path == "api" or path.startswith("api/"): return JSONResponse({"error": {"code": "not_found", "message": "Not found", "details": {}, "request_id": request.state.request_id}}, status_code=404)
     index = DIST / "index.html"
     if index.is_file(): return FileResponse(index, headers={"Cache-Control": "no-cache"})
-    return {"message": "CareCircle API is running", "phase": 3}
+    return {"message": "CareCircle API is running", "phase": 4}

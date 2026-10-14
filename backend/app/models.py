@@ -298,3 +298,104 @@ class AppSetting(Base):
     __tablename__ = "app_settings"
     key: Mapped[str] = mapped_column(String(80), primary_key=True)
     value: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class ActionItem(Base):
+    __tablename__ = "action_items"
+    __table_args__ = (
+        CheckConstraint("source IN ('DERIVED','MANUAL','INCIDENT','HANDOVER')", name="ck_action_item_source"),
+        CheckConstraint("severity IN ('LOW','MEDIUM','HIGH','CRITICAL')", name="ck_action_item_severity"),
+        CheckConstraint("status IN ('OPEN','SNOOZED','DONE','AUTO_RESOLVED','DISMISSED')", name="ck_action_item_status"),
+        CheckConstraint("reopened_count >= 0 AND version >= 1", name="ck_action_item_counters"),
+        Index("uq_action_item_active_dedupe", "patient_id", "dedupe_key", unique=True, postgresql_where=text("status IN ('OPEN','SNOOZED')"), sqlite_where=text("status IN ('OPEN','SNOOZED')")),
+        Index("ix_action_item_patient_status", "patient_id", "status"),
+        Index("ix_action_item_assignee_status", "assigned_to_user_id", "status"),
+    )
+    id: Mapped[uuid.UUID] = uuid_pk()
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
+    dedupe_key: Mapped[str] = mapped_column(String(180))
+    kind: Mapped[str] = mapped_column(String(48))
+    source: Mapped[str] = mapped_column(String(16))
+    title: Mapped[str] = mapped_column(String(200))
+    reason: Mapped[str] = mapped_column(String(500), default="")
+    reasons: Mapped[list] = mapped_column(JSON, default=list)
+    severity: Mapped[str] = mapped_column(String(12), default="MEDIUM")
+    related_activity_ids: Mapped[list] = mapped_column(JSON, default=list)
+    related_incident_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("incidents.id", ondelete="SET NULL"), nullable=True)
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    assigned_to_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    due_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="OPEN", index=True)
+    snoozed_until: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    suppressed_until: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    resolution_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    suggested_actions: Mapped[list] = mapped_column(JSON, default=list)
+    first_seen_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
+    last_seen_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
+    resolved_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reopened_count: Mapped[int] = mapped_column(Integer, default=0)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class DailyBrief(Base):
+    __tablename__ = "daily_briefs"
+    __table_args__ = (
+        CheckConstraint("kind IN ('MORNING','HANDOVER')", name="ck_daily_brief_kind"),
+        CheckConstraint("status IN ('DRAFT','PUBLISHED')", name="ck_daily_brief_status"),
+        Index("uq_daily_brief_published", "patient_id", "kind", "for_date", unique=True, postgresql_where=text("status = 'PUBLISHED'"), sqlite_where=text("status = 'PUBLISHED'")),
+        Index("ix_daily_brief_patient_date", "patient_id", "for_date"),
+    )
+    id: Mapped[uuid.UUID] = uuid_pk()
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(12))
+    for_date: Mapped[object] = mapped_column(DateTime(timezone=False))
+    status: Mapped[str] = mapped_column(String(12), default="DRAFT")
+    generated_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
+    generated_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    auto_generated: Mapped[bool] = mapped_column(Boolean, default=False)
+    content: Mapped[dict] = mapped_column(JSON, default=dict)
+    rendered_text: Mapped[str] = mapped_column(Text, default="")
+    rendered_html: Mapped[str] = mapped_column(Text, default="")
+    author_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    from_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    to_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    ai_enhanced: Mapped[bool] = mapped_column(Boolean, default=False)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class BriefAcknowledgement(Base):
+    __tablename__ = "brief_acknowledgements"
+    __table_args__ = (UniqueConstraint("brief_id", "user_id", name="uq_brief_ack_user"),)
+    id: Mapped[uuid.UUID] = uuid_pk()
+    brief_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("daily_briefs.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    acknowledged_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class HandoverItem(Base):
+    __tablename__ = "handover_items"
+    __table_args__ = (CheckConstraint("disposition IN ('DONE','CARRY_OVER','DROPPED','FYI')", name="ck_handover_item_disposition"),)
+    id: Mapped[uuid.UUID] = uuid_pk()
+    brief_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("daily_briefs.id", ondelete="CASCADE"), index=True)
+    activity_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("care_activities.id", ondelete="SET NULL"), nullable=True)
+    action_item_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("action_items.id", ondelete="SET NULL"), nullable=True)
+    disposition: Mapped[str] = mapped_column(String(16), default="CARRY_OVER")
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class CommandCenterSetting(Base):
+    __tablename__ = "command_center_settings"
+    __table_args__ = (CheckConstraint("handover_autopublish_after_min BETWEEN 5 AND 1440", name="ck_cc_autopublish_minutes"), CheckConstraint("suppress_hours BETWEEN 1 AND 168", name="ck_cc_suppress_hours"))
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), primary_key=True)
+    morning_brief_time: Mapped[str] = mapped_column(String(5), default="07:00")
+    handover_time: Mapped[str] = mapped_column(String(5), default="19:30")
+    handover_autopublish_after_min: Mapped[int] = mapped_column(Integer, default=60)
+    daypart_boundaries: Mapped[dict] = mapped_column(JSON, default=dict)
+    routine_rules: Mapped[dict] = mapped_column(JSON, default=dict)
+    snooze_max_minutes_by_severity: Mapped[dict] = mapped_column(JSON, default=dict)
+    suppress_hours: Mapped[int] = mapped_column(Integer, default=12)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
