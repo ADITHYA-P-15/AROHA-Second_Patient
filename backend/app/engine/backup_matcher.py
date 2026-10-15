@@ -7,7 +7,11 @@ additive, documented points. Nothing here assigns anyone: a person must accept a
 before the task counts as covered.
 
 Snapshot: the Workload Balancer snapshot (caregivers, activities, commitments, confirmed_backups)
-plus optional ``history``: {caregiver_id: {"patient_tasks": n, "same_series": n, "same_category": n}}.
+plus optional ``history``: {caregiver_id: {"patient_tasks": n, "same_series": n, "same_category": n}}
+and optional ``extras`` (team builder): {"profiles": {caregiver_id: {composite, metric, city, sector, languages, gender}},
+"preferences": {gender, gender_mode, languages, city, sector_code} | None, "policy": core/matcher_policy values}.
+Extras only add points to people who already pass every hard rule, except a HARD gender preference, which is a
+visible filter reason (status PREFERENCE). Unrated people get a neutral, labelled 0.
 """
 from __future__ import annotations
 
@@ -17,7 +21,7 @@ from app.engine.availability import Window, is_available_for
 from app.engine.workload_balancer import PROFESSIONAL_KINDS, LoadContext, counts_toward_limit, delegation_class
 
 TRAVEL_GAP = timedelta(minutes=30)
-STATUS_ORDER = ("ELIGIBLE", "AT_LIMIT", "COMMITTED", "UNAVAILABLE", "MISSING_CAPABILITY", "NOT_QUALIFIED", "DECLINED_REQUEST", "INACTIVE", "REPLACED")
+STATUS_ORDER = ("ELIGIBLE", "PREFERENCE", "AT_LIMIT", "COMMITTED", "UNAVAILABLE", "MISSING_CAPABILITY", "NOT_QUALIFIED", "DECLINED_REQUEST", "INACTIVE", "REPLACED")
 POINTS = {"eligible": 40, "daily_headroom": 15, "weekly_headroom": 10, "confirmed_backup": 25, "designated_backup": 10,
           "same_series": 15, "patient_history_per_task": 2, "patient_history_cap": 10, "same_category": 5,
           "professional_on_general": -15, "tight_connection": -10}
@@ -60,7 +64,39 @@ def _hm(ctx: LoadContext, value: datetime) -> str:
     return value.astimezone(ctx.zone).strftime("%H:%M")
 
 
-def _assess(ctx: LoadContext, activity, cid: str, *, replaced: str, declined: set[str], history: dict) -> dict:
+def _scaled(value: float | None, max_points: int) -> int:
+    """0-100 around a neutral 50: 100 -> +max, 50 -> 0, 0 -> -max."""
+    return 0 if value is None else int(round(max_points * (float(value) - 50.0) / 50.0))
+
+
+def _preference_failure(name: str, profile: dict, prefs: dict | None) -> str | None:
+    if not prefs or not prefs.get("gender") or prefs.get("gender_mode") != "HARD": return None
+    if (profile or {}).get("gender") == prefs["gender"]: return None
+    wanted = prefs["gender"].replace("_", "-").lower()
+    return f"{name} does not meet the family's requirement of a {wanted} caretaker." if (profile or {}).get("gender") else f"{name} has no gender recorded; the family requires a {wanted} caretaker."
+
+
+def extra_points(name: str, profile: dict | None, prefs: dict | None, pol: dict) -> list[dict]:
+    """Reputation and preference points, each with a plain label. Pure: used by the matcher and documented in BACKUP_MATCHER.md."""
+    profile, prefs = profile or {}, prefs or {}
+    out = []
+    comp, metric = profile.get("composite"), profile.get("metric")
+    out.append({"label": f"Reputation {round(comp)}/100" if comp is not None else "Reputation: no rating yet (neutral)", "points": _scaled(comp, pol["reputation_max"])})
+    out.append({"label": f"Reliability record {round(metric)}/100" if metric is not None else "Reliability record: not enough history (neutral)", "points": _scaled(metric, pol["reliability_max"])})
+    city, sector = (profile.get("city") or "").strip().lower(), profile.get("sector")
+    if prefs.get("city") and city and city == prefs["city"].strip().lower():
+        out.append({"label": f"Lives in {profile.get('city')}, the patient's city", "points": pol["same_city"]})
+    elif prefs.get("sector_code") and sector and sector == prefs["sector_code"]:
+        out.append({"label": "Lives in the patient's region", "points": pol["same_sector"]})
+    wanted = {x.lower() for x in prefs.get("languages") or []}
+    spoken = [x for x in profile.get("languages") or [] if x.lower() in wanted]
+    if spoken: out.append({"label": f"Speaks {', '.join(spoken)}", "points": pol["language_match"]})
+    if prefs.get("gender") and prefs.get("gender_mode") == "SOFT" and profile.get("gender") == prefs["gender"]:
+        out.append({"label": "Matches the family's preferred gender", "points": pol["soft_gender"]})
+    return out
+
+
+def _assess(ctx: LoadContext, activity, cid: str, *, replaced: str, declined: set[str], history: dict, extras: dict | None = None) -> dict:
     cg = ctx.caregivers[cid]
     name = _get(cg, "name", "Caregiver")
     aid = _sid(_get(activity, "id"))
@@ -96,6 +132,9 @@ def _assess(ctx: LoadContext, activity, cid: str, *, replaced: str, declined: se
     holds_it = any(other == aid for _, other, _ in load.windows)
     day_after = load.day_tasks.get(day, 0) + (0 if holds_it or not counts_toward_limit(activity) else 1)
     week_after = load.week_hours.get(week, 0.0) + (0 if holds_it else ctx.hours(activity))
+    if extras is not None:
+        preference = _preference_failure(name, extras.get("profiles", {}).get(cid), extras.get("preferences"))
+        if preference: failures["PREFERENCE"] = preference
     if day_after > day_limit:
         failures["AT_LIMIT"] = f"{name} is available but would exceed their daily limit ({day_after}/{day_limit} tasks)."
     elif week_after > week_limit + 1e-9:
@@ -117,6 +156,8 @@ def _assess(ctx: LoadContext, activity, cid: str, *, replaced: str, declined: se
     if past.get("patient_tasks"):
         points.append({"label": f"Supported this patient recently ({past['patient_tasks']} tasks)", "points": min(POINTS["patient_history_cap"], POINTS["patient_history_per_task"] * past["patient_tasks"])})
     if past.get("same_category"): points.append({"label": "Has done this kind of task for this patient", "points": POINTS["same_category"]})
+    if extras is not None:
+        points += extra_points(name, extras.get("profiles", {}).get(cid), extras.get("preferences"), extras["policy"])
     if cls == "GENERAL" and _get(cg, "kind") in PROFESSIONAL_KINDS:
         points.append({"label": "Keeps the healthcare professional free for tasks only they can do", "points": POINTS["professional_on_general"]})
     near = None
@@ -136,13 +177,14 @@ def _assess(ctx: LoadContext, activity, cid: str, *, replaced: str, declined: se
     return row
 
 
-def rank_in_context(ctx: LoadContext, activity_id, *, replaced_caregiver_id=None, declined_caregiver_ids=(), history=None) -> dict:
+def rank_in_context(ctx: LoadContext, activity_id, *, replaced_caregiver_id=None, declined_caregiver_ids=(), history=None, extras=None) -> dict:
     """Rank on an existing load context (lets the Coverage Planner assess many tasks on one snapshot)."""
     activity = ctx.activities.get(_sid(activity_id))
     if activity is None: raise ValueError("activity is not a scheduled caregiver task in this snapshot")
     history = {_sid(k): v for k, v in (history or {}).items()}
     declined = {_sid(x) for x in declined_caregiver_ids}
-    rows = [_assess(ctx, activity, cid, replaced=_sid(replaced_caregiver_id), declined=declined, history=history) for cid in ctx.caregivers]
+    if extras is not None: extras = {**extras, "profiles": {_sid(k): v for k, v in (extras.get("profiles") or {}).items()}}
+    rows = [_assess(ctx, activity, cid, replaced=_sid(replaced_caregiver_id), declined=declined, history=history, extras=extras) for cid in ctx.caregivers]
     eligible = sorted((r for r in rows if r["eligible"]), key=lambda r: (-r["score"], r["name"], r["caregiver_id"]))
     others = sorted((r for r in rows if not r["eligible"]), key=lambda r: (STATUS_ORDER.index(r["status"]), r["name"], r["caregiver_id"]))
     for index, row in enumerate(eligible, 1): row["rank"] = index
@@ -158,7 +200,7 @@ def rank_candidates(snapshot: dict, now: datetime, horizon_start: datetime, hori
     """Rank every linked caregiver for one task. Eligible first by score; others grouped by why they cannot."""
     ctx = LoadContext(snapshot, now, horizon_start, horizon_end, timezone)
     return rank_in_context(ctx, activity_id, replaced_caregiver_id=replaced_caregiver_id,
-                           declined_caregiver_ids=declined_caregiver_ids, history=snapshot.get("history"))
+                           declined_caregiver_ids=declined_caregiver_ids, history=snapshot.get("history"), extras=snapshot.get("extras"))
 
 
 def check_candidate(snapshot: dict, now: datetime, horizon_start: datetime, horizon_end: datetime, activity_id, caregiver_id, *,

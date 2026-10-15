@@ -5,6 +5,7 @@ nothing here is a medical risk score.
 """
 from __future__ import annotations
 
+import uuid
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -135,6 +136,9 @@ def professional_insights(db: Session, user, days: int = 30) -> dict:
     upcoming = sum(1 for a in future if _aware(a.scheduled_start) <= at + timedelta(days=7))
     open_total = sum(open_by_patient.values())
     avg_ack = round(sum(ack_minutes) / len(ack_minutes), 1) if ack_minutes else None
+    from app.services.team_builder import team_reputation
+    teams = team_reputation(db, [uuid.UUID(str(p["id"])) for p in out_patients]) if settings.feature("team_builder") else {}
+    for p in out_patients: p["team_reputation"] = teams.get(str(p["id"]))
     payload = _payload(at, days, totals, out_patients, meds_out, daily, today, zone, upcoming, open_total, avg_ack)
     payload["totals"]["requests"] = len(incidents)
     return payload

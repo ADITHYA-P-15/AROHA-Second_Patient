@@ -5,7 +5,7 @@ import { Download, Search } from 'lucide-react';
 import { api } from './api/client.ts';
 import { ProgressReport } from './ProgressReport.tsx';
 import { formatAppTime } from './lib/time.ts';
-import { BAND_LABEL, bandOf, filterPatients, pctText, toCsv, trendText, type Band, type BandFilter, type Insights as InsightsData, type PatientInsight } from './lib/insights.ts';
+import { BAND_LABEL, bandOf, filterPatients, pctText, teamReputationText, toCsv, trendText, type Band, type BandFilter, type Insights as InsightsData, type PatientInsight } from './lib/insights.ts';
 
 const WINDOWS = [7, 14, 30];
 const BAND_ORDER: Band[] = ['follow_up', 'watch', 'on_track', 'no_data'];
@@ -32,7 +32,7 @@ function DailyChart({ data }: { data: InsightsData['daily'] }) {
 function Row({ p, onReport }: { p: PatientInsight; onReport?: () => void }) {
   const band = bandOf(p);
   return <li className={`in-row in-b-${band}`}>
-    <div className="in-who"><strong>{p.name}</strong><small>{p.birth_year ? `Born ${p.birth_year}` : ''}{p.care_code ? ` · ${p.care_code}` : ''}</small></div>
+    <div className="in-who"><strong>{p.name}</strong><small>{p.birth_year ? `Born ${p.birth_year}` : ''}{p.care_code ? ` · ${p.care_code}` : ''}</small>{p.team_reputation !== undefined && <small className="in-team">Team: {teamReputationText(p.team_reputation)}</small>}</div>
     <div className="in-pct" aria-label={`Doses given ${pctText(p.taken_pct)}`}><span className="in-meter"><i style={{ width: `${p.taken_pct ?? 0}%` }} className={`in-${band}`}/></span><b>{pctText(p.taken_pct)}</b><small>{p.missed} missed of {p.due}</small></div>
     <div className="in-trend"><Spark values={p.spark}/><span className={`in-t in-t-${p.trend}`}>{trendText(p.trend)}</span></div>
     <div className="in-next">{p.next_appointment ? <><span>{p.next_appointment.title}</span><small>{formatAppTime(p.next_appointment.start, { timeStyle: undefined })}{p.next_appointment.covered ? '' : ' · no escort yet'}</small></> : <small>No appointment booked</small>}</div>

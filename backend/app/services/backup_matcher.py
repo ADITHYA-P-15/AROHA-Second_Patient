@@ -94,6 +94,9 @@ def snapshot_for(db: Session, activity, at: datetime | None = None) -> tuple[dic
         item["same_series"] += int(series_id is not None and series_id == activity.series_id)
         item["same_category"] += int(category == activity.category)
     snap["history"] = history
+    from app.services.team_builder import matcher_extras
+    extras = matcher_extras(db, activity.patient_id, [c["id"] for c in snap["caregivers"]])
+    if extras is not None: snap["extras"] = extras  # reputation and preference points; None keeps the matcher exactly as before
     return snap, start, end
 
 
@@ -103,8 +106,13 @@ def ranking(db: Session, req: CoverRequest, at: datetime | None = None) -> dict:
     snap, start, end = snapshot_for(db, activity, at)
     if not any(str(a["id"]) == str(activity.id) for a in snap["activities"]):
         return {"activity_id": str(activity.id), "eligible_count": 0, "summary": "This task is no longer open for cover.", "best": None, "candidates": []}
-    return rank_candidates(snap, at, start, end, activity.id, replaced_caregiver_id=req.replaced_caregiver_id,
-                           declined_caregiver_ids=req.declined_caregiver_ids or [], timezone=settings.app_timezone)
+    ranked = rank_candidates(snap, at, start, end, activity.id, replaced_caregiver_id=req.replaced_caregiver_id,
+                             declined_caregiver_ids=req.declined_caregiver_ids or [], timezone=settings.app_timezone)
+    if not ranked["eligible_count"]:
+        # Pool expansion: directory caretakers to send a hire request to. Suggestions only: never added, never offered.
+        from app.services.team_builder import suggestions
+        ranked["suggestions"] = suggestions(db, activity.patient_id, list(activity.required_support or []))
+    return ranked
 
 
 def _candidate(db, req, caregiver_id, at):

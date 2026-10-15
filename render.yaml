@@ -54,7 +54,7 @@ services:
       - key: AUTO_COORDINATION
         value: "true"
       - key: FEATURES
-        value: voice_notes,insights,reminders,progress_report,checkins,directory,ratings
+        value: voice_notes,insights,reminders,progress_report,checkins,directory,ratings,team_builder
       - key: RUN_SCHEDULER
         value: "true"
       # Gentler cadence for a small shared CPU: background checks every 30 s (heavy pass every 2 min), browsers refresh every 20 s.

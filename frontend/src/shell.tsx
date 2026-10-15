@@ -1,7 +1,7 @@
 import { FormEvent, Fragment, useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BarChart3, CalendarClock, Check, CalendarDays, HandHelping, HeartHandshake, History, LifeBuoy, ListChecks, LogOut, Menu, Network, RotateCcw, Pill, Scale, Search, Siren, Stethoscope, IdCard, Sun, UserRound, Users, X, type LucideIcon } from 'lucide-react';
+import { BarChart3, CalendarClock, Check, CalendarDays, HandHelping, HeartHandshake, History, LifeBuoy, ListChecks, LogOut, Menu, Network, RotateCcw, Pill, Scale, Search, Siren, Stethoscope, IdCard, UserPlus, Inbox, Sun, UserRound, Users, X, type LucideIcon } from 'lucide-react';
 import { CommandCenter } from './CommandCenter.tsx';
 import { WorkloadBalancer } from './WorkloadBalancer.tsx';
 import { CoverRequests } from './CoverRequests.tsx';
@@ -17,6 +17,7 @@ import { LEVEL_NAMES, type VoiceNoteInfo } from './lib/voice.ts';
 import { CarePlan } from './CarePlan.tsx';
 import { FindCaretakers } from './FindCaretakers.tsx';
 import { MyDirectoryProfile } from './MyDirectoryProfile.tsx';
+import { BuildTeam, HireRequests } from './BuildTeam.tsx';
 import { CheckInCard } from './CheckIn.tsx';
 import { usePatientPick } from './PatientPick.tsx';
 import { scheduleSummary, supportLabel, type WeeklyWindow } from './lib/plan.ts';
@@ -52,6 +53,7 @@ const roleNav: Record<string, NavItem[]> = {
     { title: 'Care Team', path: '/care-team', icon: Network, group: 'People' },
     { title: 'Caretakers', path: '/care-network', icon: Users },
     { title: 'Find caretakers', path: '/find-caretakers', icon: Search },
+    { title: 'Build care team', path: '/build-team', icon: UserPlus },
     { title: 'Patient Profile', path: '/patient-profile', icon: UserRound },
     { title: 'Help Requests', path: '/incidents', icon: Siren, group: 'Records' },
     { title: 'History', path: '/history', icon: History },
@@ -62,6 +64,7 @@ const roleNav: Record<string, NavItem[]> = {
     { title: 'Care Plan', path: '/care-plan', icon: CalendarDays },
     { title: 'My Availability', path: '/care-network', icon: Users },
     { title: 'My profile', path: '/my-profile', icon: IdCard },
+    { title: 'Hire requests', path: '/hire-requests', icon: Inbox },
     { title: 'Help Requests', path: '/incidents', icon: Siren },
   ],
   PROFESSIONAL: [
@@ -79,6 +82,7 @@ const roleNav: Record<string, NavItem[]> = {
   ],
 };
 const DIRECTORY_PATHS = new Set(['/find-caretakers', '/my-profile']);
+const TEAM_BUILDER_PATHS = new Set(['/build-team', '/hire-requests']);
 const homeFor = (role: string) => (roleNav[role] ?? roleNav.PRIMARY_CONTACT)[0].path;
 function Login({ onLogin, demoMode }: { onLogin: (u: User) => void; demoMode: boolean }) {
   const [registering, setRegistering] = useState(false); const [name, setName] = useState('');
@@ -123,7 +127,7 @@ function Workspace({ user, meta }: { user: User; meta?: { phase: number; version
   const logout = async () => { try { await api('/api/v1/auth/logout', { method: 'POST' }); } finally { queryClient.clear(); navigate('/', { replace: true }); } };
   // A feature that is switched off for this deployment is hidden, not broken. Unknown (meta not loaded yet): show it.
   const hasFeature = (name: string) => !meta?.features || meta.features.includes(name);
-  const menu = (roleNav[user.role] ?? roleNav.PRIMARY_CONTACT).filter(item => (item.path !== '/insights' || hasFeature('insights')) && (!DIRECTORY_PATHS.has(item.path) || hasFeature('directory')));
+  const menu = (roleNav[user.role] ?? roleNav.PRIMARY_CONTACT).filter(item => (item.path !== '/insights' || hasFeature('insights')) && (!DIRECTORY_PATHS.has(item.path) || hasFeature('directory')) && (!TEAM_BUILDER_PATHS.has(item.path) || hasFeature('team_builder')));
   const roleLabel = user.role_label ?? roleLabels[user.role] ?? user.role;
   const current = menu.find(item => item.path === location.pathname);
   const page = (path: string) => {
@@ -145,6 +149,8 @@ function Workspace({ user, meta }: { user: User; meta?: { phase: number; version
       case '/history': return <HistoryPage/>;
       case '/find-caretakers': return <FindCaretakers/>;
       case '/my-profile': return <MyDirectoryProfile/>;
+      case '/build-team': return <BuildTeam/>;
+      case '/hire-requests': return <HireRequests/>;
       default: return <Placeholder role={roleLabel} title="Coming in a later phase"/>;
     }
   };

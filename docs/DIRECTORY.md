@@ -79,6 +79,24 @@ The core demo caretakers (Savitha, Lakshmi, Suresh) have no listing. **Reset dem
 - `frontend/src/FindCaretakers.tsx`, `frontend/src/MyDirectoryProfile.tsx`, `frontend/src/lib/directory.ts`
 - Tests: `backend/tests/test_directory.py`, the population listing test in `backend/tests/test_population.py`, and `frontend/src/lib/directory.test.ts`. Set `TEST_POSTGRES_URL` to an empty Postgres database to run the Postgres migration test.
 
+## Request to hire (Phase 3, flag `team_builder`)
+
+A primary contact sends a **hire request** to one listed caretaker for one patient, as main caretaker or backup, with an optional message of up to 300 characters. The request goes through these states:
+
+- **PENDING:** the caretaker gets one in-app notification and sees the request under **Hire requests**.
+- **ACCEPTED:** in the same transaction the caretaker joins the care team through the existing invite mechanics (`CareTeamMember` plus `ensure_care_profile`), and the main-caretaker or backup flag is set as requested. Only now do the existing Care Team payloads show their phone and email to that team's primary contacts.
+- **DECLINED, WITHDRAWN, EXPIRED** (after 7 days, in the scheduler heavy pass): nothing is revealed.
+
+Rules:
+
+- Every transition is a compare-and-set from PENDING, so when accept, withdraw and expiry race, exactly one wins and there is one care-team row.
+- There is one open request per patient and caretaker, enforced by a partial unique index.
+- Each primary contact can send 20 requests a day.
+- `Idempotency-Key` replays return the original request; the same key for a different caretaker returns 422.
+- If the caretaker is at their daily or weekly limits, or has no available hours in the next 7 days, the request says so.
+- Request responses never include phone, email or notes. Other primary contacts never see them.
+- Delivery is in-app only; there is no SMS, push or phone call.
+
 ## Next (later phases)
 
 - Add a caretaker from the directory to a care team (Phase 3); the profile's `id` is the caregiver id that flow will use.

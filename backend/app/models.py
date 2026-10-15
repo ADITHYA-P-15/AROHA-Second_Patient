@@ -646,3 +646,47 @@ class TaskCheckIn(Base):
     minutes_late: Mapped[int] = mapped_column(Integer, default=0)
     is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class PatientCarePreference(Base):
+    """What the family wants in a caretaker. A HARD gender preference filters people out; everything else is points or a warning."""
+    __tablename__ = "patient_care_preferences"
+    __table_args__ = (CheckConstraint("gender IS NULL OR gender IN ('FEMALE','MALE','NON_BINARY')", name="ck_care_pref_gender"),
+                      CheckConstraint("gender_mode IN ('HARD','SOFT')", name="ck_care_pref_gender_mode"),
+                      CheckConstraint("min_rating IS NULL OR (min_rating >= 0 AND min_rating <= 100)", name="ck_care_pref_min_rating"))
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), primary_key=True)
+    gender: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    gender_mode: Mapped[str] = mapped_column(String(4), default="SOFT")
+    languages: Mapped[list] = mapped_column(JSON, default=list)
+    city: Mapped[str] = mapped_column(String(80), default="")
+    sector_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    min_rating: Mapped[float | None] = mapped_column(Float, nullable=True)   # composite reputation, 0-100
+    capabilities: Mapped[list] = mapped_column(JSON, default=list)           # must-have support codes
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class HireRequest(Base):
+    """A primary contact asks one listed caretaker to join one patient's care team. Nothing is revealed until they accept."""
+    __tablename__ = "hire_requests"
+    __table_args__ = (
+        CheckConstraint("status IN ('PENDING','ACCEPTED','DECLINED','WITHDRAWN','EXPIRED')", name="ck_hire_request_status"),
+        CheckConstraint("intended_role IN ('MAIN','BACKUP')", name="ck_hire_request_role"),
+        CheckConstraint("length(message) <= 300", name="ck_hire_request_message"),
+        Index("uq_hire_request_open", "patient_id", "caregiver_id", unique=True, postgresql_where=text("status = 'PENDING'"), sqlite_where=text("status = 'PENDING'")),
+        UniqueConstraint("requested_by", "idempotency_key", name="uq_hire_request_idempotency"),
+        Index("ix_hire_request_caregiver_status", "caregiver_id", "status"),
+    )
+    id: Mapped[uuid.UUID] = uuid_pk()
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
+    caregiver_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("caregivers.id", ondelete="CASCADE"))
+    requested_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    intended_role: Mapped[str] = mapped_column(String(8), default="BACKUP")
+    message: Mapped[str] = mapped_column(String(300), default="")
+    status: Mapped[str] = mapped_column(String(12), default="PENDING", index=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    decline_reason: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
+    expires_at: Mapped[object] = mapped_column(DateTime(timezone=True))
+    responded_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)

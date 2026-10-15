@@ -113,6 +113,8 @@ def reconcile_patient(db: Session, patient_id, at: datetime | None = None):
     _advisory_lock(db, patient_id)
     snap = build_snapshot(db, patient_id, at)
     detected = evaluate_attention(snap, at, snap["settings"])
+    from app.services.team_builder import attention_items
+    detected = list(detected) + attention_items(db, patient_id, at)  # team builder: weak-backup warning, open hire requests
     active_rows = db.scalars(select(ActionItem).where(ActionItem.patient_id == patient_id, ActionItem.status.in_(("OPEN", "SNOOZED")))).all()
     active_by_key = {row.dedupe_key: row for row in active_rows}
     historical = db.scalars(select(ActionItem).where(ActionItem.patient_id == patient_id, ActionItem.status.in_(("DISMISSED", "AUTO_RESOLVED", "DONE")))).all()

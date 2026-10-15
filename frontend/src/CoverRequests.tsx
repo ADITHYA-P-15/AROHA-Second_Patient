@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import { api } from './api/client.ts';
 import { formatAppTime } from './lib/time.ts';
 import { delegationLabel } from './lib/workload.ts';
+import type { Suggestion } from './lib/teambuilder.ts';
 import { candidateLabel, formatMinutes, formatPercent, resolutionLabel, signedPoints, splitCandidates } from './lib/cover.ts';
 
 type Person = { id: string; name: string; is_synthetic?: boolean };
@@ -16,7 +17,7 @@ type CoverRequest = {
   id: string; patient: Person; status: string; reason: string; reason_label: string; reason_note: string;
   replaced: Ref | null; activity: CoverActivity; offered: (Ref & { since: string }) | null; auto_advance: boolean;
   opened_at: string; closed_at: string | null; resolution: string | null; covered_by: Ref | null; minutes_open: number | null;
-  ranking?: { summary: string; eligible_count: number; candidates: Candidate[] };
+  ranking?: { summary: string; eligible_count: number; candidates: Candidate[]; suggestions?: Suggestion[] };
 };
 type CoverList = { items: CoverRequest[]; role_view: string; permissions: { can_manage: boolean } };
 type Metrics = { days: number; open: number; covered: number; median_minutes_to_cover: number | null; resolved_without_manual_search_pct: number | null; definition: string };
@@ -119,6 +120,8 @@ export function CoverRequests() {
       {r.ranking && <p className="wb-small">{r.ranking.summary}</p>}
       {shown.length > 0 ? <ul className="cv-cands">{shown.map(c => renderCandidate(r, c))}</ul> : r.ranking && <div className="wb-none"><strong>No one is available to take this right now</strong></div>}
       {rest.length > 0 && <details><summary>Everyone else ({rest.length})</summary><ul className="cv-cands">{rest.map(c => renderCandidate(r, c))}</ul></details>}
+      {canManage && (r.ranking?.suggestions?.length ?? 0) > 0 && <div className="tb-suggest"><p className="wb-small"><strong>Outside the care team.</strong> Nobody on the team can take this. These directory caretakers could join if you send a request and they accept; they are never offered the task directly.</p>
+        <ul>{r.ranking!.suggestions!.map(s => <li key={s.caregiver_id}><Link to={`/build-team?patient=${r.patient.id}`}>{s.prompt}</Link> <small className="muted">{s.composite === null ? 'Not rated yet' : `Reputation ${Math.round(s.composite)}/100`}{s.why.length ? ` · ${s.why.join('; ')}` : ''}</small></li>)}</ul></div>}
       <p className="wb-small">A task counts as covered only after the replacement accepts and is confirmed.</p>
       {canManage && <button className="text-button" disabled={busy} onClick={() => cancel(r)}>Close request</button>}
     </article>;

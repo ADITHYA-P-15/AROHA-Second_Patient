@@ -56,6 +56,9 @@ except PolicyError as exc: raise RuntimeError(f"Invalid REPUTATION_POLICY: {exc}
 from app.core import checkin_policy as _checkin_policy
 try: _checkin_policy.policy()
 except _checkin_policy.PolicyError as exc: raise RuntimeError(f"Invalid CHECKIN_POLICY: {exc}") from None
+from app.core import matcher_policy as _matcher_policy
+try: _matcher_policy.policy()
+except _matcher_policy.PolicyError as exc: raise RuntimeError(f"Invalid MATCHER_POLICY: {exc}") from None
 CSRF = "second-patient"
 COOKIE = "sp_session"
 login_attempts: dict[str, deque[float]] = defaultdict(deque)
@@ -589,6 +592,8 @@ from app.api.reputation import router as reputation_router
 app.include_router(reputation_router)
 from app.api.checkins import router as checkins_router
 app.include_router(checkins_router)
+from app.api.team_builder import router as team_builder_router
+app.include_router(team_builder_router)
 
 
 lookup_attempts: dict[str, deque[float]] = defaultdict(deque)
@@ -860,6 +865,8 @@ def _tick_as_leader():
             if settings.feature("reminders"): run_reminders(db, now())
             from app.services.checkins import run_checkin_tick
             run_checkin_tick(db, now())  # one NO_CHECKIN cover search per task whose holder has not checked in
+            from app.services.team_builder import run_expiry_tick
+            run_expiry_tick(db, now())  # hire requests unanswered after 7 days
             from app.services.reputation import run_reputation_tick
             run_reputation_tick(db, now())  # one rating prompt per caretaker threshold; one reputation snapshot per caretaker per day
             db.commit()  # commit cover/command-center work before the planner so it can never be rolled back by it

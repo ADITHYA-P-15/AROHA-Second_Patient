@@ -816,3 +816,30 @@ The backend computes it with fixed, documented formulas. Small samples are pulle
 ## Task check-ins (rebuilt during the Phase 3 reconcile)
 
 A caretaker taps **I'm here · check in** in My Day for appointments, transport, lab visits and similar tasks. Check-ins are accepted from an hour before the start and count as on time up to 15 minutes after it. If nobody has checked in 20 minutes after the start, the task gets one cover search (reason **No check-in**) through the same Backup Matcher, and the backup must still accept. If the caretaker checks in after all, that search is cancelled. Check-ins feed the on-time check-in part of the reputation reliability record. The feature is behind the `checkins` flag; the rules are in `core/checkin_policy.py` (`CHECKIN_POLICY`, validated at start-up), and the migration is `0015_task_check_ins`. See [docs/CHECKIN.md](docs/CHECKIN.md).
+
+## Directory phase 3 — Hire requests, care-team builder, reputation-aware backups
+
+- **Build care team (primary contact):**
+  - Set the patient's needs: preferred or required caretaker gender, languages, city or region, a minimum reputation and must-have skills.
+  - See ranked directory matches with a plain "why", compare up to three side by side, send a hire request, and track or withdraw it.
+- **Hire requests (caretaker):**
+  - Accept or decline in the app.
+  - On accept they join the care team as main caretaker or backup, and only then do their phone and email appear to the family.
+  - Requests expire after 7 days. Delivery is in-app only.
+- **Backups:**
+  - The Backup Matcher adds documented points for reputation, the reliability record, same city or region, language and a soft gender preference.
+  - A hard preference is a visible filter, and unrated people are neutral.
+  - Hard rules (availability, clashes, skills, limits) never change.
+  - When nobody on the team can cover, it suggests directory caretakers to send a request to. It never adds or offers to them on its own.
+- **Removing a member** opens cover for their upcoming tasks right away.
+- **Command Center** warns once when an important task has no backup at the family's minimum rating, and shows open hire requests as one quiet item.
+- **Insights** shows each patient's team reputation.
+- **Configuration:** flag `team_builder`, weights in `core/matcher_policy.py` (`MATCHER_POLICY`), migrations `0018_care_preferences` and `0019_hire_requests`.
+- **Docs:** [docs/DIRECTORY.md](docs/DIRECTORY.md), [docs/BACKUP_MATCHER.md](docs/BACKUP_MATCHER.md), [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
+
+**Limitations:**
+- Notifications are in-app only: no SMS, push or calls.
+- Request expiry and missing check-ins are detected in the scheduler's heavy pass, about once a minute.
+- There is no moderator screen; hiding a review is a database flag.
+- Patient location comes from the family's stated city or region, not an address.
+- The Coverage Planner's N-1 view does not yet apply hard preferences.

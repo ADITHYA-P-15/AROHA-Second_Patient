@@ -155,7 +155,8 @@ the database (`bash scripts/restore.sh backups/<file>.sql.gz --yes`) if data its
 | `COOKIE_SECURE` | `true` | Required by the entrypoint in production. |
 | `DOMAIN` | your hostname | Caddy gets and renews the certificate. |
 | `DEMO_MODE`, `SEED_DEMO`, `DEMO_POPULATION` | `true` for a hosted demo; `false` for real data | With `DEMO_MODE=false` new patients are not marked synthetic and the reset endpoint is closed. |
-| `FEATURES` | `voice_notes,insights,reminders,progress_report` | Allow-list for staged rollout (section 7). `*` enables everything shipped. |
+| `FEATURES` | `voice_notes,insights,reminders,progress_report,checkins,directory,ratings,team_builder` | Allow-list for staged rollout (section 7). `*` enables everything shipped. `checkins`: task check-ins and NO_CHECKIN cover; `directory`: caretaker directory; `ratings`: reputation; `team_builder`: preferences, hire requests and reputation-aware backups. |
+| `CHECKIN_POLICY`, `REPUTATION_POLICY`, `MATCHER_POLICY` | unset (defaults) | Optional JSON overrides, validated at start-up; an invalid value stops the app. See [CHECKIN.md](CHECKIN.md), [REPUTATION.md](REPUTATION.md), [BACKUP_MATCHER.md](BACKUP_MATCHER.md). |
 | `RUN_SCHEDULER` | `true` | `false` on an instance that must only serve web traffic. |
 | `GEMINI_API_KEY`, `GROQ_API_KEY`, models | optional | See [AI.md](AI.md). `python scripts/ai_check.py` verifies them. |
 

@@ -154,6 +154,10 @@ The migration adds the tables `agency_ratings`, `doctor_ratings`, `reviews`, `re
 
 About half the population families reviewed their main caretaker recently. The rest get a **Rate** prompt. Everything is marked synthetic, and review text ends in "(fictional review)".
 
+## Use in the Backup Matcher and team builder (Phase 3)
+
+With `team_builder` on, the composite and the reliability record add documented points in the Backup Matcher ([BACKUP_MATCHER.md](BACKUP_MATCHER.md)). Unrated caretakers get a neutral, labelled 0. The family's minimum rating (care preferences) filters team-builder matches. It also drives one Command Center warning when a HIGH or CRITICAL task in the next 72 hours has no confirmed backup at or above it. Insights shows each patient's team average and lowest score.
+
 ## Code
 
 - `backend/app/core/reputation_policy.py`

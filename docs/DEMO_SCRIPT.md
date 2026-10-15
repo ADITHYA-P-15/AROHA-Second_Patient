@@ -76,3 +76,21 @@ Press **Reset demo data** to run it again. It rebuilds Ramesh and Sharada only; 
 - All people and data are fictional and labelled as demo data.
 - Decisions (status, who covers, what is flagged) are made by deterministic backend rules that can be explained; nothing is decided by AI.
 - Planned next: SMS to the caretaker and family when something is missed (hook: `services/care_status._on_missed`).
+
+## Directory phase 3 in 3 minutes: build a team, hire, and a reputation-ranked backup
+
+Before you start, for a live demo of the missed check-in, run with a shorter allowance:
+
+```
+CHECKIN_POLICY={"grace_min": 0, "missing_after_min": 0}
+```
+
+The scheduler checks about once a minute.
+
+1. **Set preferences (30 s).** Sign in as `anita.iyer@secondpatient.demo` and open **Build care team**. Set Kannada as the language, Bengaluru as the city, a minimum reputation of 60, and Transport as a must-have skill. Save. The matches re-rank, and each "why" line names the points it earned. Tick three and show **Compare**.
+2. **Send a hire request (20 s).** Pick a Bengaluru caretaker, choose **Backup pool**, add a short note and send. Point out the status line ("Waiting ... in the app") and that no phone number is shown anywhere yet.
+3. **The caretaker accepts and the phone appears (40 s).** In another browser, sign in as that caretaker with password `Demo@1234`; the email is in Find caretakers or [DEMO_PEOPLE.md](DEMO_PEOPLE.md). Open **Hire requests** and tap **Accept**. Back as Anita, open **Care Team** and **Caretakers**: the new backup is listed with their (fictional) phone. Find caretakers shows "On your care team".
+4. **A caretaker misses a check-in (40 s).** As Anita, add an appointment starting now in Care Plan and assign it to Savitha (confirm now). Savitha does not tap **I'm here**. Within about a minute, **Cover Requests** shows the task with the reason **No check-in**.
+5. **A reputation-ranked backup accepts (50 s).** Open the request's **Why**. The new backup ranks above others thanks to "Reputation .../100", "Lives in Bengaluru, the patient's city" and "Speaks Kannada", next to the usual availability and continuity points. With automatic coordination on, the best match is offered automatically (otherwise tap Offer). As the backup, accept in Cover Requests. The task is covered only after that acceptance.
+
+Close by saying the ranking is computed from records and ratings, never by AI, and is not a medical judgement. Also say what is not built: no SMS, check-ins are detected about once a minute, and there is no moderator screen.

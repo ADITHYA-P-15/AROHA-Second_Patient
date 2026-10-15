@@ -172,9 +172,9 @@ def _cfg():
 def test_the_migration_chain_has_one_head_in_order():
     from alembic.script import ScriptDirectory
     script = ScriptDirectory.from_config(_cfg())
-    assert script.get_heads() == ["0017_reputation"]
-    chain = [r.revision for r in script.walk_revisions("base", "heads")][:4]
-    assert chain == ["0017_reputation", "0016_directory", "0015_task_check_ins", "0014_wellbeing_check_ins"]
+    assert len(script.get_heads()) == 1
+    chain = [r.revision for r in script.walk_revisions("base", "heads")]
+    assert chain[chain.index("0017_reputation"):chain.index("0014_wellbeing_check_ins") + 1] == ["0017_reputation", "0016_directory", "0015_task_check_ins", "0014_wellbeing_check_ins"]
 
 
 def _upgrade_paths(url, monkeypatch):
@@ -184,11 +184,11 @@ def _upgrade_paths(url, monkeypatch):
     command.upgrade(cfg, "0014_wellbeing_check_ins")  # a database as deployed before these phases
     command.upgrade(cfg, "head")
     tables = set(inspect(engine).get_table_names())
-    assert {"task_check_ins", "caretaker_profiles", "reviews"} <= tables
+    assert {"task_check_ins", "caretaker_profiles", "reviews", "patient_care_preferences", "hire_requests"} <= tables
     checks = {c["name"]: c["sqltext"] for c in inspect(engine).get_check_constraints("cover_requests")}
     assert "NO_CHECKIN" in checks["ck_cover_request_reason"]
     command.downgrade(cfg, "-1")
-    assert "reviews" not in inspect(engine).get_table_names()
+    assert "hire_requests" not in inspect(engine).get_table_names() and "reviews" in inspect(engine).get_table_names()
     command.downgrade(cfg, "0014_wellbeing_check_ins")
     tables = set(inspect(engine).get_table_names())
     assert "task_check_ins" not in tables and "NO_CHECKIN" not in {c["name"]: c["sqltext"] for c in inspect(engine).get_check_constraints("cover_requests")}["ck_cover_request_reason"]

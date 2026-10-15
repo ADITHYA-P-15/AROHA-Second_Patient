@@ -317,3 +317,19 @@ Cumulative record of features built one at a time on top of the phased roadmap i
 - **Migrations:** the chain is now 0014 → 0015_task_check_ins → 0016_directory → 0017_reputation, with one head.
 - **Tests:** `backend/tests/test_checkins.py` (policy, permissions and window, on time vs late, NO_CHECKIN once and cancelled, metric with on-time, late and missing check-ins and with no data, snapshot idempotency, migration chain on SQLite and Postgres), `frontend/src/lib/checkin.test.ts`.
 - **Docs:** [CHECKIN.md](CHECKIN.md).
+
+## Directory phase 3 — hire requests, care-team builder, reputation-aware backups
+
+- **Goal:** let a family build a care team from the directory with one-tap requests and consent-based contact sharing. Backup choices also account for reputation and the patient's preferences, while staying explainable and accept-only.
+- **Shipped:**
+  - Care preferences (migration 0018).
+  - Hire requests (migration 0019): a compare-and-set state machine, 7-day expiry, Idempotency-Key, rate limit, capacity notes, and team join on accept.
+  - The Build care team and Hire requests screens.
+  - Matcher points and the `PREFERENCE` filter, policy in `MATCHER_POLICY`.
+  - Directory suggestions when no one on the team is eligible.
+  - Cover opened for a removed member's tasks.
+  - Command Center items `BACKUP_BELOW_MIN_RATING` and `HIRE_REQUESTS_OPEN`.
+  - Team reputation per patient in Insights.
+- **Code:** `core/matcher_policy.py`, `services/team_builder.py`, `api/team_builder.py`, `engine/backup_matcher.extra_points` (plus `extras` in the snapshot), `services/backup_matcher` (extras and suggestions), `services/care_team.unlink_care_profile` (cover first), `services/command_center` (extra items), `services/insights` (`team_reputation`), `models.PatientCarePreference` / `HireRequest`, `frontend/src/BuildTeam.tsx`, `lib/teambuilder.ts`, and wiring in `CoverRequests.tsx`, `Insights.tsx` and `shell.tsx`.
+- **Tests:** `backend/tests/test_team_builder.py` covers privacy before and after acceptance, every transition and the illegal ones, expiry, duplicates, Idempotency-Key, rate limit, the accept/withdraw/expire race, capacity notes, the matcher (reputation reorders but never overrides a hard rule, hard vs soft, neutral unrated, deterministic ties, explained terms, live cover ranking), suggestions never acted on, removal without stranded tasks, the Command Center warning appearing and clearing, the quiet request item, preferences permissions and Insights. Frontend: `lib/teambuilder.test.ts`. Migration chain tests are in `test_checkins.py`.
+- **Not yet:** SMS or push; preference-aware N-1 in the Coverage Planner; a moderator screen.

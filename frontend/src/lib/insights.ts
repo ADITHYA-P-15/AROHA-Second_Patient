@@ -6,7 +6,16 @@ export type PatientInsight = {
   recent: { due: number; missed: number; taken_pct: number | null }; trend: 'improving' | 'steady' | 'slipping' | 'not_enough_data';
   needs_follow_up: boolean; flags: Flag[]; next_appointment: { id: string; title: string; start: string; covered: boolean } | null;
   uncovered_appointments: number; open_requests: number; medicines: MedicineStat[]; spark: (number | null)[];
+  team_reputation?: { caretakers: number; unrated: number; average: number | null; lowest: number | null } | null;
 };
+
+/** One line on the care team's reputation for a patient; a coordination summary, not a clinical one. */
+export function teamReputationText(t: PatientInsight['team_reputation']): string {
+  if (!t || !t.caretakers) return 'No caretakers on the team yet';
+  const n = `${t.caretakers} caretaker${t.caretakers === 1 ? '' : 's'}`;
+  if (t.average === null) return `${n}, none rated yet`;
+  return `${n}: reputation avg ${Math.round(t.average)}, lowest ${Math.round(t.lowest ?? t.average)}` + (t.unrated ? `, ${t.unrated} not rated yet` : '');
+}
 export type Insights = {
   as_of: string; days: number; note: string; thresholds: { low_taken_pct: number; missed_recent: number; recent_days: number };
   totals: { patients: number; due: number; on_time: number; late: number; missed: number; pending: number; decided: number; taken_pct: number | null; on_time_pct: number | null;

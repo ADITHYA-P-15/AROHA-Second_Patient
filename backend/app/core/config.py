@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     demo_mode: bool = True
     seed_demo: bool = True
     # Staged rollout: a feature that is not listed here is off. New features ship dark and are switched on per environment ("*" = all).
-    features: str = "voice_notes,insights,reminders,progress_report,checkins,directory,ratings"
+    features: str = "voice_notes,insights,reminders,progress_report,checkins,directory,ratings,team_builder"
     # Set to false on web-only instances. The scheduler also takes a database lock, so a second instance never double-runs it.
     run_scheduler: bool = True
     # Background cadence. Small hosts (shared CPU, remote database) do better with longer gaps; reminders are minutes-grained anyway.
@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     reputation_policy: str = ""
     # JSON merged over core/checkin_policy.DEFAULT_POLICY (which tasks need a check-in, grace, missing point); validated at start-up.
     checkin_policy: str = ""
+    # JSON merged over core/matcher_policy.DEFAULT_POLICY (reputation and preference points in the Backup Matcher); validated at start-up.
+    matcher_policy: str = ""
 
 
     @field_validator("database_url")
