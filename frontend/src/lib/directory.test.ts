@@ -23,6 +23,9 @@ describe('directory query building', () => {
     expect(buildDirectoryQuery({ min_experience: 0 })).toBe('');
     expect(buildDirectoryQuery({ min_experience: 'abc' })).toBe('');
     expect(buildDirectoryQuery({ min_experience: 99 })).toBe('?min_experience=60');
+    expect(buildDirectoryQuery({ min_agency_rating: '4' })).toBe('?min_agency_rating=4');
+    expect(buildDirectoryQuery({ min_agency_rating: '' })).toBe('');
+    expect(buildDirectoryQuery({ min_agency_rating: 9 })).toBe('?min_agency_rating=5');
   });
 });
 
@@ -38,6 +41,7 @@ describe('directory card text', () => {
     const text = cardText({ ...card, origin_city: 'Pune', origin_state: 'Maharashtra', agency: null, languages: [], years_experience: 0 });
     expect(text.lines).toEqual(['Female', 'Lives in Pune, Maharashtra', 'Independent caretaker', 'New to caretaking']);
     expect(cardText({ ...card, current_city: '', current_state: '' }).lines[1]).toBe('Location not given');
+    expect(cardText({ ...card, agency_rating: 4.5 }).lines[2]).toBe('Agency: Sahyadri Caregivers · rated 4.5★ by the agency');
   });
   it('labels experience, pages and language lists', () => {
     expect(experienceText(1)).toBe('1 year of experience');

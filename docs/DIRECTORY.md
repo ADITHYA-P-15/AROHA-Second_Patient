@@ -43,7 +43,7 @@ All endpoints are under `/api/v1/directory`.
 
 ### Filters on `GET /caretakers`
 
-`sector`, `agency` (id), `state`, `city` (case-insensitive exact match), `gender` (`FEMALE`, `MALE`, `NON_BINARY`, `UNDISCLOSED`), `language`, `capability` (a support code such as `MEDICATION_ASSIST`), `min_experience` (0–60), `available_on` (a date), `sort` (`name` or `experience`), `limit` (1–50, default 20) and `offset`. Filters combine with AND. The response is `{items, total, limit, offset}`.
+`sector`, `agency` (id), `state`, `city` (case-insensitive exact match), `gender` (`FEMALE`, `MALE`, `NON_BINARY`, `UNDISCLOSED`), `language`, `capability` (a support code such as `MEDICATION_ASSIST`), `min_experience` (0–60), `min_agency_rating` (1–5: the agency's own rating of the caretaker, a reputation source; caretakers without one are left out once it is set), `available_on` (a date), `sort` (`name` or `experience`), `limit` (1–50, default 20) and `offset`. Filters combine with AND. The response is `{items, total, limit, offset}`.
 
 `available_on` is answered by `engine/availability.effective_windows` for that day in the app timezone. A caretaker counts as available if their weekly schedule, minus approved leave, leaves any time on that day.
 
@@ -101,3 +101,11 @@ Rules:
 
 - Add a caretaker from the directory to a care team (Phase 3); the profile's `id` is the caregiver id that flow will use.
 - Agency management, verification of listings, a search index if the directory grows past a few thousand people.
+
+## Agency rating filter and "Is this gender a must?" (after Phase 3)
+
+- **Agency rating filter.** **Find caretakers** and **Build care team** both have a minimum **Agency rating** filter (any, 3★, 3.5★, 4★, 4.5★ and up). It uses the agency's own 1–5 rating of each caretaker, one of the four reputation sources. Independent caretakers, and those their agency has not rated, are left out once a minimum is chosen. Cards and matches show the agency's rating next to the agency name, and the compare view has an "Agency rating" row.
+  - API: `GET /api/v1/directory/caretakers?min_agency_rating=4` and `GET /api/v1/patients/{id}/team-matches?min_agency_rating=4`. Values outside 1–5 return 422.
+- **"Is this gender a must?"** (formerly "How strict") belongs to the patient's gender preference in Build care team.
+  - **Preferred:** caretakers of that gender get +6 points in matches and in the Backup Matcher. Everyone else is still shown and can still be offered cover, just lower.
+  - **Required:** caretakers of other genders, or with no gender recorded, are left out of matches. In cover they appear under "Everyone else" with the reason "Family preference", and they are never offered the task.

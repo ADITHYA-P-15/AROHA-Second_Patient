@@ -118,7 +118,7 @@ def capacity_note(db: Session, cg: Caregiver, at: datetime | None = None) -> str
     return None
 
 
-def matches(db: Session, patient_id, *, limit: int = 20, need: dict | None = None) -> list[dict]:
+def matches(db: Session, patient_id, *, limit: int = 20, need: dict | None = None, min_agency_rating: float | None = None) -> list[dict]:
     """Listed directory caretakers not on the team, hard preferences applied as filters, ranked by documented points with a "why"."""
     from app.core.matcher_policy import policy
     pref = preference_dict(preferences(db, patient_id))
@@ -130,12 +130,17 @@ def matches(db: Session, patient_id, *, limit: int = 20, need: dict | None = Non
     info = profiles(db, [cg.id for _, cg in rows])
     pol = policy()
     from app.engine.backup_matcher import extra_points
+    from app.models import Agency, AgencyRating
+    agency_names = {a.id: a.name for a in db.scalars(select(Agency))}
+    agency_stars = dict(db.execute(select(AgencyRating.caregiver_id, AgencyRating.rating).where(AgencyRating.caregiver_id.in_([cg.id for _, cg in rows]))).all()) if rows else {}
     out = []
     for p, cg in rows:
         prof = info[cg.id]
         missing = sorted(set(pref["capabilities"]) - set(cg.capabilities or []))
         if missing: continue
         if pref["gender"] and pref["gender_mode"] == "HARD" and prof["gender"] != pref["gender"]: continue
+        stars = agency_stars.get(cg.id)
+        if min_agency_rating is not None and (stars is None or stars < min_agency_rating): continue
         below = pref["min_rating"] is not None and prof["composite"] is not None and prof["composite"] < pref["min_rating"]
         if below: continue
         points = extra_points(cg.name, prof, pref, pol)
@@ -145,7 +150,8 @@ def matches(db: Session, patient_id, *, limit: int = 20, need: dict | None = Non
         out.append({"caregiver_id": str(cg.id), "name": cg.name, "score": sum(x["points"] for x in points), "points": points, "why": why,
                     "composite": prof["composite"], "metric": prof["metric"], "city": p.current_city, "state": p.current_state, "sector": prof["sector"],
                     "gender": p.gender, "languages": list(p.languages or []), "capabilities": list(cg.capabilities or []), "years_experience": p.years_experience,
-                    "unrated": prof["composite"] is None})
+                    "unrated": prof["composite"] is None, "agency": agency_names.get(p.agency_id) if p.agency_id else None,
+                    "agency_rating": float(stars) if stars is not None else None})
     out.sort(key=lambda m: (-m["score"], -(m["composite"] or 50), m["name"].lower(), m["caregiver_id"]))
     return out[:limit]
 

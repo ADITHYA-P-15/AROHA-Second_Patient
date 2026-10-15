@@ -7,6 +7,7 @@ export type CaretakerCard = {
   id: string; name: string; gender: string; gender_label: string; origin_state: string; origin_city: string; current_state: string; current_city: string;
   sector: string | null; agency: { id: string; name: string } | null; languages: string[]; capabilities: string[]; years_experience: number; is_synthetic: boolean;
   reputation?: ReputationSummary;
+  agency_rating?: number | null;
 };
 export type CaretakerDetail = CaretakerCard & {
   bio: string; max_activities_per_day: number; max_hours_per_week: number; on_my_team: boolean;
@@ -18,13 +19,14 @@ export type MyDirectoryProfile = Omit<CaretakerCard, 'id' | 'gender_label' | 'is
 export type DirectoryPage = { items: CaretakerCard[]; total: number; limit: number; offset: number };
 export type DirectoryFilters = {
   sector?: string; agency?: string; state?: string; city?: string; gender?: string; language?: string; capability?: string;
-  min_experience?: number | string; available_on?: string; sort?: 'name' | 'experience'; limit?: number; offset?: number;
+  min_experience?: number | string; min_agency_rating?: number | string; available_on?: string; sort?: 'name' | 'experience'; limit?: number; offset?: number;
 };
 
 export const PAGE_SIZE = 12;
 export const MAX_PAGE = 50; // the server refuses more
 export const GENDERS: [string, string][] = [['FEMALE', 'Female'], ['MALE', 'Male'], ['NON_BINARY', 'Non-binary'], ['UNDISCLOSED', 'Prefers not to say']];
-const KEYS: (keyof DirectoryFilters)[] = ['sector', 'agency', 'state', 'city', 'gender', 'language', 'capability', 'min_experience', 'available_on', 'sort', 'limit', 'offset'];
+export const AGENCY_STARS: [string, string][] = [['', 'Any'], ['3', '3★ and up'], ['3.5', '3.5★ and up'], ['4', '4★ and up'], ['4.5', '4.5★ and up']];
+const KEYS: (keyof DirectoryFilters)[] = ['sector', 'agency', 'state', 'city', 'gender', 'language', 'capability', 'min_experience', 'min_agency_rating', 'available_on', 'sort', 'limit', 'offset'];
 
 /** The query string for GET /api/v1/directory/caretakers: blanks dropped, text trimmed, paging kept inside the server's bounds. */
 export function buildDirectoryQuery(filters: DirectoryFilters): string {
@@ -37,6 +39,7 @@ export function buildDirectoryQuery(filters: DirectoryFilters): string {
     if (key === 'limit') value = Math.min(MAX_PAGE, Math.max(1, Math.floor(Number(value)) || PAGE_SIZE));
     if (key === 'offset') { value = Math.max(0, Math.floor(Number(value)) || 0); if (value === 0) continue; }
     if (key === 'min_experience') { const n = Math.floor(Number(value)); if (!Number.isFinite(n) || n <= 0) continue; value = Math.min(60, n); }
+    if (key === 'min_agency_rating') { const n = Number(value); if (!Number.isFinite(n) || n < 1) continue; value = Math.min(5, n); }
     if (key === 'sort' && value === 'name') continue; // the default
     params.set(key, String(value));
   }
@@ -58,7 +61,7 @@ export function cardText(card: CaretakerCard): { title: string; lines: string[];
   const lines = [
     [card.gender_label, origin && origin !== current ? `from ${origin}` : ''].filter(Boolean).join(' · '),
     current ? `Lives in ${current}` : 'Location not given',
-    card.agency ? `Agency: ${card.agency.name}` : 'Independent caretaker',
+    card.agency ? `Agency: ${card.agency.name}${card.agency_rating ? ` · rated ${card.agency_rating.toFixed(1)}★ by the agency` : ''}` : 'Independent caretaker',
     card.languages.length ? `Speaks ${card.languages.join(', ')}` : '',
     experienceText(card.years_experience),
   ].filter(Boolean);

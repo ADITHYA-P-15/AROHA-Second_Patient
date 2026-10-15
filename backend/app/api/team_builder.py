@@ -105,10 +105,11 @@ def put_preferences(pid: uuid.UUID, body: PreferencesIn, user=Depends(_current_u
 
 
 @router.get("/patients/{pid}/team-matches")
-def team_matches(pid: uuid.UUID, limit: int = Query(20, ge=1, le=50), user=Depends(_current_user), db: Session = Depends(get_db)):
+def team_matches(pid: uuid.UUID, limit: int = Query(20, ge=1, le=50), min_agency_rating: float | None = Query(None, ge=1, le=5),
+                 user=Depends(_current_user), db: Session = Depends(get_db)):
     _primary_contact(db, user, pid)
     pending = {str(c) for c in db.scalars(select(HireRequest.caregiver_id).where(HireRequest.patient_id == pid, HireRequest.status == "PENDING"))}
-    items = svc.matches(db, pid, limit=limit)
+    items = svc.matches(db, pid, limit=limit, min_agency_rating=min_agency_rating)
     for m in items: m["request_pending"] = m["caregiver_id"] in pending
     return {"items": items, "preferences": svc.preference_dict(svc.preferences(db, pid))}
 

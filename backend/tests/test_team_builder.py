@@ -330,3 +330,19 @@ def test_insights_show_a_team_reputation_summary_per_patient():
     pro, *_ = join_as_professional(coord, pid)
     row = next(p for p in pro.get("/api/v1/insights/professional?days=30").json()["patients"] if p["id"] == pid)
     assert row["team_reputation"] == {"caretakers": 2, "unrated": 1, "average": 75.0, "lowest": 75.0}
+
+
+def test_team_matches_carry_the_agency_rating_and_can_filter_by_it():
+    from app.models import AgencyRating
+    coord, pid = primary_contact_with_patient()
+    _, high = listed("Agency star", city="Agencyville")
+    _, low = listed("Agency low", city="Agencyville")
+    _, none = listed("Independent one", city="Agencyville")
+    with SessionLocal() as db:
+        db.add_all([AgencyRating(caregiver_id=uuid.UUID(high), rating=4.6), AgencyRating(caregiver_id=uuid.UUID(low), rating=3.2)]); db.commit()
+    coord.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={"city": "Agencyville"})
+    rows = {m["caregiver_id"]: m for m in coord.get(f"/api/v1/patients/{pid}/team-matches?limit=50").json()["items"]}
+    assert rows[high]["agency_rating"] == 4.6 and rows[low]["agency_rating"] == 3.2 and rows[none]["agency_rating"] is None
+    filtered = {m["caregiver_id"] for m in coord.get(f"/api/v1/patients/{pid}/team-matches?limit=50&min_agency_rating=4").json()["items"]}
+    assert high in filtered and low not in filtered and none not in filtered
+    assert coord.get(f"/api/v1/patients/{pid}/team-matches?min_agency_rating=0.5").status_code == 422

@@ -257,3 +257,20 @@ def test_invite_by_email_still_works_alongside_the_directory():
     coord, pid = primary_contact_with_patient()
     cid, _ = caretaker(coord, pid, name="Invited caretaker")
     assert any(c["id"] == cid for c in coord.get(f"/api/v1/patients/{pid}/caregivers").json()["items"])
+
+
+def test_minimum_agency_rating_filter(monkeypatch):
+    from app.models import AgencyRating
+    from app.seed import reputation as reputation_seed
+    with SessionLocal() as db:
+        reputation_seed.agency_ratings(db); db.commit()
+        stars = dict(db.execute(select(AgencyRating.caregiver_id, AgencyRating.rating)).all())
+    pc, *_ = account()
+    top = everyone(pc, min_agency_rating=4)
+    assert top and all(stars.get(uuid.UUID(c["id"]), 0) >= 4 for c in top)
+    assert all(c["agency_rating"] >= 4 for c in top if "agency_rating" in c)
+    assert len(top) < len(everyone(pc)) and len(everyone(pc, min_agency_rating=4.5)) <= len(top)
+    combined = everyone(pc, min_agency_rating=4, sector="SOUTH")
+    assert {c["id"] for c in combined} == {c["id"] for c in top} & {c["id"] for c in everyone(pc, sector="SOUTH")}
+    for bad in (0, 6, "x"):
+        assert pc.get("/api/v1/directory/caretakers", params={"min_agency_rating": bad}).status_code == 422

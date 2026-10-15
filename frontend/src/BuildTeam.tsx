@@ -4,7 +4,8 @@ import { api } from './api/client.ts';
 import { newId } from './lib/id.ts';
 import { supportLabel } from './lib/plan.ts';
 import { usePatientPick } from './PatientPick.tsx';
-import { GENDERS } from './lib/directory.ts';
+import { AGENCY_STARS, GENDERS } from './lib/directory.ts';
+
 import { MAX_COMPARE, compareRows, filterMatches, requestStatusText, roleText, toggleCompare, type HireRequest, type Match, type Preferences } from './lib/teambuilder.ts';
 
 const CAPS = ['MEDICATION_ASSIST', 'APPOINTMENT_ESCORT', 'TRANSPORT', 'DAILY_ASSIST', 'MOBILITY_ASSIST', 'PRESCRIPTION_PICKUP', 'LAB_ESCORT', 'SUPPLIES'];
@@ -19,7 +20,7 @@ export function BuildTeam() {
   const requests = useQuery({ queryKey: ['hire-requests', pid], queryFn: () => api<{ items: HireRequest[] }>(`/api/v1/patients/${pid}/hire-requests`), enabled: !!pid, refetchInterval: 20000 });
   const [form, setForm] = useState<Preferences>({ gender: null, gender_mode: 'SOFT', languages: [], city: '', sector_code: null, min_rating: null, capabilities: [] });
   const [langText, setLangText] = useState('');
-  const [text, setText] = useState(''); const [ratedOnly, setRatedOnly] = useState(false);
+  const [text, setText] = useState(''); const [ratedOnly, setRatedOnly] = useState(false); const [agencyMin, setAgencyMin] = useState('');
   const [compare, setCompare] = useState<string[]>([]);
   const [asking, setAsking] = useState<Match | null>(null);
   const [notice, setNotice] = useState('');
@@ -38,7 +39,7 @@ export function BuildTeam() {
     catch (err) { setNotice(err instanceof Error ? err.message : 'Could not withdraw.'); }
   }
   if (!pid) return <section className="card">Register a patient first in Care Team.</section>;
-  const items = filterMatches(matches.data?.items ?? [], { text, ratedOnly });
+  const items = filterMatches(matches.data?.items ?? [], { text, ratedOnly, minAgencyRating: agencyMin ? Number(agencyMin) : null });
   const picked = (matches.data?.items ?? []).filter(m => compare.includes(m.caregiver_id)).sort((a, b) => compare.indexOf(a.caregiver_id) - compare.indexOf(b.caregiver_id));
   const open = (requests.data?.items ?? []).filter(r => r.status === 'PENDING');
   return <div className="tb">
@@ -49,7 +50,8 @@ export function BuildTeam() {
     <form className="card tb-needs" onSubmit={e => void saveNeeds(e)}><h3>What the patient needs</h3>
       <div className="tb-grid">
         <label>Caretaker gender<select value={form.gender ?? ''} onChange={e => setForm({ ...form, gender: e.target.value || null })}><option value="">No preference</option>{GENDERS.filter(([v]) => v !== 'UNDISCLOSED').map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-        <label>How strict<select value={form.gender_mode} disabled={!form.gender} onChange={e => setForm({ ...form, gender_mode: e.target.value as 'HARD' | 'SOFT' })}><option value="SOFT">Preferred (ranks higher)</option><option value="HARD">Required (others are filtered out)</option></select></label>
+        <label>Is this gender a must?<select value={form.gender_mode} disabled={!form.gender} onChange={e => setForm({ ...form, gender_mode: e.target.value as 'HARD' | 'SOFT' })}><option value="SOFT">Preferred: others still shown, lower</option><option value="HARD">Required: only this gender is shown or offered cover</option></select>
+          <small className="muted">{!form.gender ? 'Choose a gender first.' : form.gender_mode === 'HARD' ? 'Others are left out of matches and backup choices, with the reason shown.' : 'Matching caretakers get extra points; nobody is left out.'}</small></label>
         <label>Languages<input value={langText} onChange={e => setLangText(e.target.value)} placeholder="e.g. Kannada, Hindi"/></label>
         <label>City<input value={form.city} maxLength={80} onChange={e => setForm({ ...form, city: e.target.value })} placeholder="e.g. Bengaluru"/></label>
         <label>Region<select value={form.sector_code ?? ''} onChange={e => setForm({ ...form, sector_code: e.target.value || null })}><option value="">Any</option>{SECTORS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
@@ -66,10 +68,11 @@ export function BuildTeam() {
       {r.status === 'PENDING' && <button className="cp-btn" onClick={() => void withdraw(r)}>Withdraw</button>}</li>)}</ul></section> : null}
 
     <section className="card"><div className="tb-head"><h3>Matches</h3><div className="tb-tools"><input aria-label="Search matches" placeholder="Name or city" value={text} onChange={e => setText(e.target.value)}/>
-      <label className="tb-check"><input type="checkbox" checked={ratedOnly} onChange={e => setRatedOnly(e.target.checked)}/>Rated only</label></div></div>
+      <label className="tb-check"><input type="checkbox" checked={ratedOnly} onChange={e => setRatedOnly(e.target.checked)}/>Rated only</label>
+      <label className="tb-check">Agency rating<select aria-label="Minimum agency rating" value={agencyMin} onChange={e => setAgencyMin(e.target.value)}>{AGENCY_STARS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label></div></div>
       {matches.isLoading ? <div className="skeleton"/> : items.length ? <ul className="tb-matches">{items.map((m, i) => <li key={m.caregiver_id} className="tb-match">
         <div className="tb-match-head"><span className="tb-rank">{i + 1}</span><strong>{m.name}</strong><span className="chip">{m.composite === null ? 'Not rated yet' : `Reputation ${Math.round(m.composite)}/100`}</span></div>
-        <p className="small muted">{[m.city, m.state].filter(Boolean).join(', ')} · {m.languages.join(', ') || 'languages not given'} · {m.years_experience ? `${m.years_experience} years` : 'new'}</p>
+        <p className="small muted">{[m.city, m.state].filter(Boolean).join(', ')} · {m.languages.join(', ') || 'languages not given'} · {m.years_experience ? `${m.years_experience} years` : 'new'} · {m.agency ? `${m.agency}${m.agency_rating ? ` ${m.agency_rating.toFixed(1)}★` : ' (not rated)'}` : 'independent'}</p>
         <ul className="tb-why">{m.why.map(w => <li key={w}>{w}</li>)}</ul>
         <div className="tb-actions"><label className="tb-check"><input type="checkbox" checked={compare.includes(m.caregiver_id)} disabled={!compare.includes(m.caregiver_id) && compare.length >= MAX_COMPARE}
           onChange={() => setCompare(toggleCompare(compare, m.caregiver_id))}/>Compare</label>

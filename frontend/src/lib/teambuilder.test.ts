@@ -11,6 +11,9 @@ describe('builder filtering', () => {
     expect(filterMatches(items, { text: 'mumbai' }).map(x => x.caregiver_id)).toEqual(['b']);
     expect(filterMatches(items, { ratedOnly: true }).map(x => x.caregiver_id)).toEqual(['a', 'c']);
     expect(filterMatches(items, { language: 'tamil' }).map(x => x.caregiver_id)).toEqual(['c']);
+    const rated = [m('x', { agency: 'Deccan Care Circle', agency_rating: 4.6 }), m('y', { agency: 'Nilgiri Home Helpers', agency_rating: 3.4 }), m('z', { agency: null, agency_rating: null })];
+    expect(filterMatches(rated, { minAgencyRating: 4 }).map(x => x.caregiver_id)).toEqual(['x']);
+    expect(filterMatches(rated, { minAgencyRating: null }).map(x => x.caregiver_id)).toEqual(['x', 'y', 'z']);
   });
 });
 
@@ -25,6 +28,8 @@ describe('compare view', () => {
     const rows = compareRows([m('a', { composite: 81.6, why: ['Speaks Marathi'] }), m('b', { composite: null, metric: 55, years_experience: 0 })]);
     const get = (label: string) => rows.find(r => r.label === label)!.values;
     expect(get('Reputation')).toEqual(['82/100', 'Not rated yet']);
+    expect(get('Agency rating')).toEqual(['Independent', 'Independent']);
+    expect(compareRows([m('q', { agency: 'Deccan Care Circle', agency_rating: 4.2 })]).find(r => r.label === 'Agency rating')!.values).toEqual(['4.2★ (Deccan Care Circle)']);
     expect(get('Reliability record')).toEqual(['Not enough history', '55/100']);
     expect(get('Experience')).toEqual(['4 years', 'New']);
     expect(get('Can help with')).toEqual(['Transport', 'Transport']);

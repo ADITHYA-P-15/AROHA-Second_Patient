@@ -5,10 +5,11 @@ import { api } from './api/client.ts';
 import { supportLabel } from './lib/plan.ts';
 import { compositeText } from './lib/reputation.ts';
 import { ReputationBlock } from './Reputation.tsx';
-import { GENDERS, PAGE_SIZE, buildDirectoryQuery, cardText, experienceText, pageLabel, place, type Agency, type CaretakerDetail, type DirectoryFilters, type DirectoryPage, type Sector } from './lib/directory.ts';
+import { AGENCY_STARS, GENDERS, PAGE_SIZE, buildDirectoryQuery, cardText, experienceText, pageLabel, place, type Agency, type CaretakerDetail, type DirectoryFilters, type DirectoryPage, type Sector } from './lib/directory.ts';
 
 const CAPABILITIES = ['MEDICATION_ASSIST', 'APPOINTMENT_ESCORT', 'TRANSPORT', 'DAILY_ASSIST', 'MOBILITY_ASSIST', 'PRESCRIPTION_PICKUP', 'LAB_ESCORT', 'SUPPLIES'];
-const BLANK: DirectoryFilters = { sector: '', agency: '', state: '', city: '', gender: '', language: '', capability: '', min_experience: '', available_on: '', sort: 'name' };
+const BLANK: DirectoryFilters = { sector: '', agency: '', state: '', city: '', gender: '', language: '', capability: '', min_experience: '', min_agency_rating: '', available_on: '', sort: 'name' };
+
 
 /** Browse fictional caretakers by sector and agency. Adding someone to a care team still goes through Care Team (invite by email). */
 export function FindCaretakers() {
@@ -41,6 +42,7 @@ export function FindCaretakers() {
       <label>Language<input value={filters.language} onChange={e => set({ language: e.target.value })} placeholder="e.g. Tamil" maxLength={40}/></label>
       <label>Can help with<select value={filters.capability} onChange={e => set({ capability: e.target.value })}><option value="">Anything</option>{CAPABILITIES.map(c => <option key={c} value={c}>{supportLabel(c)}</option>)}</select></label>
       <label>Min. experience (years)<input type="number" min={0} max={60} value={filters.min_experience} onChange={e => set({ min_experience: e.target.value })}/></label>
+      <label>Agency rating<select value={String(filters.min_agency_rating ?? '')} onChange={e => set({ min_agency_rating: e.target.value })}>{AGENCY_STARS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
       <label>Available on<input type="date" value={filters.available_on} onChange={e => set({ available_on: e.target.value })}/></label>
       <label>Sort by<select value={filters.sort} onChange={e => set({ sort: e.target.value as 'name' | 'experience' })}><option value="name">Name</option><option value="experience">Most experience</option></select></label>
       {active && <button type="button" className="cp-btn dir-clear" onClick={() => set({ ...BLANK, sector: filters.sector })}>Clear filters</button>}

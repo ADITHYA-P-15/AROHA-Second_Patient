@@ -71,6 +71,7 @@ class Filters:
     language: str | None = None
     capability: str | None = None
     min_experience: int | None = None
+    min_agency_rating: float | None = None   # the agency's own 1-5 rating (reputation source); unrated caretakers drop out
     available_on: date | None = None
     sort: str = "name"
     limit: int = 20
@@ -87,6 +88,9 @@ def _listed_rows(db: Session, f: Filters):
     if f.city: stmt = stmt.where(func.lower(CaretakerProfile.current_city) == f.city.strip().lower())
     if f.gender: stmt = stmt.where(CaretakerProfile.gender == f.gender)
     if f.min_experience is not None: stmt = stmt.where(CaretakerProfile.years_experience >= f.min_experience)
+    if f.min_agency_rating is not None:
+        from app.models import AgencyRating
+        stmt = stmt.where(Caregiver.id.in_(select(AgencyRating.caregiver_id).where(AgencyRating.rating >= f.min_agency_rating)))
     return db.execute(stmt).all()
 
 

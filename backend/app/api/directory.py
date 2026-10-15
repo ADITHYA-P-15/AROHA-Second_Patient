@@ -98,12 +98,12 @@ def agencies(sector: Literal["NORTH", "SOUTH", "EAST", "WEST"] | None = None, us
 def caretakers(sector: Literal["NORTH", "SOUTH", "EAST", "WEST"] | None = None, agency: uuid.UUID | None = None,
                state: str | None = Query(None, max_length=60), city: str | None = Query(None, max_length=80),
                gender: Literal["FEMALE", "MALE", "NON_BINARY", "UNDISCLOSED"] | None = None, language: str | None = Query(None, max_length=40),
-               capability: str | None = Query(None, max_length=40), min_experience: int | None = Query(None, ge=0, le=60), available_on: date | None = None,
+               capability: str | None = Query(None, max_length=40), min_experience: int | None = Query(None, ge=0, le=60), min_agency_rating: float | None = Query(None, ge=1, le=5), available_on: date | None = None,
                sort: Literal["name", "experience"] = "name", limit: int = Query(20, ge=1, le=svc.MAX_PAGE), offset: int = Query(0, ge=0, le=100_000),
                user=Depends(_browser), db: Session = Depends(get_db)):
     if capability and capability not in SUPPORT: raise HTTPException(422, "Unknown capability")
     f = svc.Filters(sector=sector, agency=agency, state=state or None, city=city or None, gender=gender, language=language or None, capability=capability,
-                    min_experience=min_experience, available_on=available_on, sort=sort, limit=limit, offset=offset)
+                    min_experience=min_experience, min_agency_rating=min_agency_rating, available_on=available_on, sort=sort, limit=limit, offset=offset)
     rows, total = svc.search(db, f)
     sectors_by_id, agencies_by_id = svc.lookups(db)
     items = [svc.card(p, cg, sectors_by_id, agencies_by_id) for p, cg, _ in rows]
@@ -117,7 +117,10 @@ def _with_reputation(db: Session, items: list[dict]) -> None:
     if not settings.feature("ratings") or not items: return
     from app.services import reputation
     found = reputation.breakdowns(db, [uuid.UUID(i["id"]) for i in items])
-    for i in items: i["reputation"] = reputation.summary(found[uuid.UUID(i["id"])])
+    for i in items:
+        b = found[uuid.UUID(i["id"])]
+        i["reputation"] = reputation.summary(b)
+        i["agency_rating"] = b["sources"]["agency"]["stars"]
 
 
 @router.get("/caretakers/{cid}")
