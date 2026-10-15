@@ -638,3 +638,21 @@ Part 2 of [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
 Same as before, plus `python scripts/load_check.py --base-url http://<LAN-IP>:8000 --users 40 --seconds 20`.
 
+## AI assist — voice notes with transcription and a raise-only urgency suggestion
+
+### What changed
+
+- **Voice notes** on the patient's Request Help page: record up to a minute in any language, listen back, send. The care team sees a player, the transcript with its language, and a note when the transcript may be wrong.
+- **Transcription chain:** Gemma (Gemini API key) first, Groq Whisper as the fallback. A failing provider is skipped for a minute.
+- **Urgency suggestion:** the transcript is routed by the existing rules, then an assistant (Groq, Gemma as fallback) may **raise** the level with a one-sentence reason. It can never lower a level or decide anything.
+- **Works without AI:** with no keys, or when providers fail, the note is stored, routed to the family for a person to listen to, and playable.
+- Everything is documented in [docs/AI.md](docs/AI.md). Check your keys with `python scripts/ai_check.py`.
+
+### New endpoints
+
+`POST /api/v1/patients/{id}/voice-notes`, `GET /api/v1/voice-notes/{id}/audio`. Incidents carry `voice_note`. Migration `0011_voice_notes`.
+
+### Checks
+
+`pytest backend/tests` (new: `test_ai_providers.py`, `test_voice_notes.py`), `npm test` (new: `lib/voice.test.ts`), `python scripts/ai_check.py`.
+

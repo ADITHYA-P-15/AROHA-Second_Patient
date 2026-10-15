@@ -107,3 +107,8 @@
 @media(max-width:650px){.in-row{grid-template-columns:1fr}.in-meds li{grid-template-columns:1fr 1fr}.in-search input{min-width:0;width:100%}.in-search{flex:1 1 100%}}
 .more-demo{margin-top:8px}.more-demo summary{cursor:pointer;font-size:13px;color:var(--brand);min-height:36px;padding:6px 0}
 .in-two{align-items:start}
+/* Voice notes */
+.vn{margin-top:16px;display:grid;gap:10px}.vn h3{margin:0}.vn-big{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:56px;padding:12px 22px;border:0;border-radius:14px;background:var(--brand);color:#fff;font-size:17px;font-weight:600}.vn-big:hover{background:var(--brand-dark)}.vn-big:disabled{opacity:.55}
+.vn-stop{background:#b42318;margin-left:auto}.vn-live{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:18px;font-weight:600}.vn-dot{width:12px;height:12px;border-radius:50%;background:#b42318;animation:vnpulse 1s infinite}@keyframes vnpulse{50%{opacity:.35}}
+.vn-review{display:grid;gap:10px}.vn-review audio,.vn-block audio{width:100%;max-width:420px}.vn-done{padding:12px 14px;border:1px solid #b7e3cf;background:#f1faf5;border-radius:11px}.vn-done p{margin:6px 0}
+.vn-block{display:grid;gap:6px;margin:4px 0}.vn-text{margin:0;font-size:14px;overflow-wrap:anywhere}.vn-warn{margin:0;font-size:12px;color:#8a5a00}.vn-assist{margin:0;font-size:12px;color:var(--brand-dark);background:#e8f3f6;border-radius:8px;padding:6px 10px}

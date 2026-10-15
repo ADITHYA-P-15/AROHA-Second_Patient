@@ -209,3 +209,26 @@ Cumulative record of features built one at a time on top of the phased roadmap i
   - Per-professional notification digests.
   - Trend alerts delivered to the professional (SMS hook in `care_status._on_missed`).
 
+## AI assist: voice notes
+
+- **Why:** voice notes are always reachable when a call is not, and need no typing. Hospitals and families get a record they can replay.
+- **Flow:** record, upload, transcribe (Gemma, Groq fallback), classify by the rules, optional raise-only suggestion, route as a normal request with `voice_note` attached.
+- **Principles:** AI advises, rules decide, a person confirms. Works without AI. The audio is always kept.
+- **Code:**
+  - `services/ai.py`
+  - `api/voice.py`
+  - `models.VoiceNote`
+  - Migration `0011`
+  - `frontend/src/VoiceNote.tsx`
+  - `lib/voice.ts`
+  - `scripts/ai_check.py`
+- **Tests:**
+  - `test_ai_providers.py`
+  - `test_voice_notes.py`
+  - `lib/voice.test.ts`
+- **Docs:** [AI.md](AI.md).
+- **Next:**
+  - Progress reports for professionals.
+  - Caretaker voice handover.
+  - A per-language accuracy test set.
+

@@ -164,8 +164,10 @@ def health(db: Session = Depends(get_db)):
 
 @app.get("/api/v1/meta")
 def meta(db: Session = Depends(get_db)):
+    from app.services import ai as ai_service
+    ai_status = ai_service.status()
     scale = current_escalation_scale(db)
-    return {"app_name": "CareCircle", "version": "0.5.0", "git_sha": settings.git_sha, "phase": 5, "demo_mode": settings.demo_mode, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "server_time": now().isoformat(), "timezone": settings.app_timezone, "ai_enabled": False}
+    return {"app_name": "CareCircle", "version": "0.5.0", "git_sha": settings.git_sha, "phase": 5, "demo_mode": settings.demo_mode, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "server_time": now().isoformat(), "timezone": settings.app_timezone, "ai_enabled": bool(ai_status["speech"] or ai_status["text"]), "ai": ai_status}
 
 
 def incident_recipients(db, patient_id, level):
@@ -220,6 +222,11 @@ def locked_incident(db, incident_id):
 
 @app.post("/api/v1/patients/{patient_id}/messages", status_code=201)
 def patient_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return create_message(patient_id, body, request, user, db)
+
+
+def create_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Request, user: User, db: Session, advisor=None):
+    """Route a message from (or for) a patient. `advisor`, when given, may only raise the level the rules chose."""
     patient, member = patient_access(db, user, patient_id)
     if user.role == Role.PATIENT:
         if not member or member.team_role != TeamRole.PATIENT_SELF: raise HTTPException(403, "Patient access denied")
@@ -235,7 +242,8 @@ def patient_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Requ
             return incident_payload(db.get(Incident, prior.incident_id))
     safe_body = "".join(ch for ch in body.body if unicodedata.category(ch)[0] != "C" or ch in "\n\t").strip()
     if not safe_body: raise HTTPException(422, "Message is empty")
-    classification = classify_message(safe_body, language_hint=body.language_hint, context={"mobility_level": patient.mobility_level}, sos=body.channel == "SOS_BUTTON")
+    classification = classify_message(safe_body, language_hint=body.language_hint, context={"mobility_level": patient.mobility_level}, sos=body.channel == "SOS_BUTTON", advisor=advisor)
+    if advisor is not None and classification.advisor: advisor.applied = classification.advisor.get("applied_level")
     level = classification.level
     no_recipients_levels = []
     recipients = incident_recipients(db, patient.id, level)
@@ -245,10 +253,11 @@ def patient_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Requ
         recipients = incident_recipients(db, patient.id, level)
     if level > 0 and not recipients:
         no_recipients_levels.append(level)
-    topic = REQUEST_TOPICS.get(classification.category, "something that needs a person to read the message")
+    voice = body.channel == "VOICE"
+    topic = REQUEST_TOPICS.get(classification.category, "something that needs a person to listen to the message" if voice else "something that needs a person to read the message")
     safe_summary = f"{patient.name} asked for help with {topic} at {now().astimezone(ZoneInfo(settings.app_timezone)).strftime('%H:%M')}"
     source = "SOS" if body.channel == "SOS_BUTTON" else "CARETAKER_REPORT" if body.on_behalf else "PATIENT_MESSAGE"
-    inc = Incident(patient_id=patient.id, source=source, category=classification.category, initial_level=level, current_level=level, severity=classification.severity, title="Emergency report" if level == 5 else REQUEST_TITLES.get(classification.category, "Message to read"), safe_summary=safe_summary, dedupe_key=f"message:{uuid.uuid4()}", classification=classification.as_dict())
+    inc = Incident(patient_id=patient.id, source=source, category=classification.category, initial_level=level, current_level=level, severity=classification.severity, title="Emergency report" if level == 5 else REQUEST_TITLES.get(classification.category, "Voice note to review" if voice else "Message to read"), safe_summary=safe_summary, dedupe_key=f"message:{uuid.uuid4()}", classification=classification.as_dict())
     db.add(inc); db.flush()
     if level > 0:
         created_at = now()
@@ -291,7 +300,10 @@ def list_incidents(patient_id: uuid.UUID | None = None, status: str | None = Non
     for item in items:
         _, member = patient_access(db, user, item.patient_id)
         if may_read_incident(db, item, user, member): visible.append(incident_payload(item))
-    return {"items": visible[:100]}
+    visible = visible[:100]
+    from app.api.voice import voice_notes_for
+    notes = voice_notes_for(db, [x["id"] for x in visible])
+    return {"items": [{**x, "voice_note": notes.get(x["id"])} for x in visible]}
 
 
 @app.get("/api/v1/incidents/{incident_id}")
@@ -504,6 +516,8 @@ from app.api.care_feeds import router as care_feeds_router
 app.include_router(care_feeds_router)
 from app.api.insights import router as insights_router
 app.include_router(insights_router)
+from app.api.voice import router as voice_router
+app.include_router(voice_router)
 
 
 lookup_attempts: dict[str, deque[float]] = defaultdict(deque)

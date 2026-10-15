@@ -11,6 +11,8 @@ import { ProfessionalPatients } from './ProfessionalPatients.tsx';
 import { MedicinesAppointments } from './MedicinesAppointments.tsx';
 import { MyDay } from './MyDay.tsx';
 import { Insights } from './Insights.tsx';
+import { VoiceNoteBlock, VoiceRecorder } from './VoiceNote.tsx';
+import { LEVEL_NAMES, type VoiceNoteInfo } from './lib/voice.ts';
 import { CarePlan } from './CarePlan.tsx';
 import { usePatientPick } from './PatientPick.tsx';
 import { scheduleSummary, supportLabel, type WeeklyWindow } from './lib/plan.ts';
@@ -165,9 +167,9 @@ function NotificationBell(){
   async function choose(item:{id:string;incident_id?:string|null}){await api(`/api/v1/notifications/${item.id}/read`,{method:'POST'});await client.invalidateQueries({queryKey:['notifications']});setOpen(false);if(item.incident_id)navigate('/incidents');}
   return <div className="notification-menu"><button className="icon-button" aria-label={`Notifications, ${query.data?.unread_count ?? 0} unread`} aria-expanded={open} onClick={()=>setOpen(!open)}><Bell/>{Boolean(query.data?.unread_count)&&<span>{query.data?.unread_count}</span>}</button>{open&&<section className="card" aria-label="Notifications"><h3>Notifications</h3>{query.data?.items.length?query.data.items.slice(0,8).map(item=><button key={item.id} onClick={()=>void choose(item).catch(()=>undefined)}><strong>{item.title}</strong><small>{item.body}</small></button>):<p>No notifications.</p>}</section>}</div>;
 }
-type IncidentRow = { id:string; patient_id:string; current_level:number; category:string; severity:string; status:string; title:string; safe_summary:string; created_at?:string; current_deadline_at?:string|null; deadline_kind?:string|null; emergency_unacknowledged?:boolean; acknowledged_at?:string|null; resolved_at?:string|null };
+type IncidentRow = { id:string; patient_id:string; current_level:number; category:string; severity:string; status:string; title:string; safe_summary:string; created_at?:string; current_deadline_at?:string|null; deadline_kind?:string|null; emergency_unacknowledged?:boolean; acknowledged_at?:string|null; resolved_at?:string|null; voice_note?:VoiceNoteInfo|null };
 // Routing levels describe who is asked to respond, not a medical judgement.
-const levelNames = ['For information','Caretakers asked','Family asked','Healthcare team asked','Doctor asked','Emergency'];
+const levelNames = LEVEL_NAMES;
 const incidentStatus = (s:string) => s==='OPEN'?'Waiting for someone':s==='ACKNOWLEDGED'?'Being handled':s==='RESOLVED'?'Handled':s==='CANCELLED'?'Cancelled':s.toLowerCase();
 function IncidentCenter() {
   const client=useQueryClient(); const [notice,setNotice]=useState(''); const [showClosed,setShowClosed]=useState(false);
@@ -185,6 +187,7 @@ function IncidentCenter() {
   const row=(item:IncidentRow)=><li key={item.id} className={`hr-item hr-l${item.current_level}`}>
     <div className="cp-title"><strong>{item.title}</strong><span className="chip">{levelNames[item.current_level]??`Level ${item.current_level}`}</span><span className={`md-status ${item.status==='OPEN'?'md-st-bad':item.status==='ACKNOWLEDGED'?'md-st-pending':'md-st-muted'}`}>{incidentStatus(item.status)}</span></div>
     <p className="cp-detail">{item.safe_summary}{item.status==='OPEN'&&item.current_deadline_at?` · goes to the next person at ${formatAppTime(item.current_deadline_at,{dateStyle:undefined,timeStyle:'short'})}`:''}</p>
+    {item.voice_note&&<VoiceNoteBlock note={item.voice_note}/>}
     {(item.status==='OPEN'||item.status==='ACKNOWLEDGED')&&<div className="cp-actions">{item.status==='OPEN'&&<button className="cp-btn cp-primary" onClick={()=>void act(item,'acknowledge')}>I’ve got this</button>}{item.status==='ACKNOWLEDGED'&&<button className="cp-btn cp-primary" onClick={()=>void act(item,'resolve')}>Mark handled</button>}</div>}
   </li>;
   return <div className="cp"><div className="section-head"><div><p className="eyebrow">HELP REQUESTS</p><h3>{open.length?`${open.length} open request${open.length===1?'':'s'}`:'No open requests'}</h3></div><button className="cp-filter" onClick={()=>setShowClosed(!showClosed)}>{showClosed?'Hide handled':'Show handled'}</button></div>
@@ -197,6 +200,7 @@ function IncidentCenter() {
 }
 
 function HelpPage() {
+  const client=useQueryClient();
   const patients=useQuery({queryKey:['patients'],queryFn:()=>api<{items:Patient[]}>('/api/v1/patients')});
   // One idempotency key per draft: retrying after a dropped connection reuses it, so no duplicate request is created.
   const draftKey=useRef(newId());
@@ -211,7 +215,7 @@ function HelpPage() {
   },[countdown,patientId]);
   async function send(text=message){if(!patientId||!text.trim())return;setError('');try{const item=await api<IncidentRow>(`/api/v1/patients/${patientId}/messages`,{method:'POST',headers:{'Idempotency-Key':draftKey.current},body:JSON.stringify({body:text.trim(),channel:'TEXT'})});setIncident(item);setMessage('');draftKey.current=newId();}catch{setError('Could not reach CareCircle — call 108/112 or your family directly.');}}
   const chips=['I need water','Help me to the bathroom','I missed my medicine','I feel dizzy','Nobody came',"I'm fine/took my medicine"];
-  return <section className="card"><p className="eyebrow">PATIENT HELP</p><h2>Tell us what you need</h2><p>CareCircle routes your message to the right people. It is not a medical diagnosis and cannot replace emergency services. In immediate danger call 108 / 112.</p><div className="chips help-chips">{chips.map(chip=><button key={chip} onClick={()=>void send(chip)}>{chip}</button>)}</div><label>Your message<textarea maxLength={1000} value={message} onChange={e=>setMessage(e.target.value)} rows={4}/></label><button className="primary" disabled={!message.trim()} onClick={()=>void send()}>Send request</button><div className="card" style={{marginTop:20,borderColor:'#b42318'}}><h3>Emergency SOS</h3>{countdown===null?<button className="primary sos" onClick={()=>{setError('');setCountdown(3);}}>Start SOS · 3 second countdown</button>:<><p role="status">SOS will be sent in {countdown}…</p><button onClick={()=>setCountdown(null)}>Cancel SOS</button></>}</div>{error&&<p role="alert" className="error">{error}</p>}{liveIncident&&<div className="system" role="status"><div><strong>{levelNames[liveIncident.current_level]}</strong><small>{liveIncident.status==='ACKNOWLEDGED'?'Being handled':liveIncident.status==='RESOLVED'?'Resolved':'Sent — waiting for a care team response'}</small></div></div>}{liveIncident?.current_level===5&&<section className="card" aria-label="Emergency contacts"><strong>In immediate danger, call now.</strong><p>{liveIncident.acknowledged_at?'A care team member has acknowledged.':'No one has acknowledged yet — please call 108/112 now.'}</p><a href="tel:108">Call 108</a> · <a href="tel:112">Call 112</a></section>}</section>;
+  return <section className="card"><p className="eyebrow">PATIENT HELP</p><h2>Tell us what you need</h2><p>CareCircle routes your message to the right people. It is not a medical diagnosis and cannot replace emergency services. In immediate danger call 108 / 112.</p><div className="chips help-chips">{chips.map(chip=><button key={chip} onClick={()=>void send(chip)}>{chip}</button>)}</div><VoiceRecorder patientId={patientId} onSent={item=>{void client.invalidateQueries({queryKey:['incidents']});setIncident(item as unknown as IncidentRow);}}/><label>Your message<textarea maxLength={1000} value={message} onChange={e=>setMessage(e.target.value)} rows={4}/></label><button className="primary" disabled={!message.trim()} onClick={()=>void send()}>Send request</button><div className="card" style={{marginTop:20,borderColor:'#b42318'}}><h3>Emergency SOS</h3>{countdown===null?<button className="primary sos" onClick={()=>{setError('');setCountdown(3);}}>Start SOS · 3 second countdown</button>:<><p role="status">SOS will be sent in {countdown}…</p><button onClick={()=>setCountdown(null)}>Cancel SOS</button></>}</div>{error&&<p role="alert" className="error">{error}</p>}{liveIncident&&<div className="system" role="status"><div><strong>{levelNames[liveIncident.current_level]}</strong><small>{liveIncident.status==='ACKNOWLEDGED'?'Being handled':liveIncident.status==='RESOLVED'?'Resolved':'Sent — waiting for a care team response'}</small></div></div>}{liveIncident?.current_level===5&&<section className="card" aria-label="Emergency contacts"><strong>In immediate danger, call now.</strong><p>{liveIncident.acknowledged_at?'A care team member has acknowledged.':'No one has acknowledged yet — please call 108/112 now.'}</p><a href="tel:108">Call 108</a> · <a href="tel:112">Call 112</a></section>}</section>;
 }
 
 function Placeholder({role,title}:{role:string;title:string}){return <section className="card placeholder"><p className="eyebrow">{role} WORKSPACE</p><h2>{title}</h2><p>This part of the care continuity workspace is planned for a later phase.</p></section>}

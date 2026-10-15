@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, Index, text, Float
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum, ForeignKey, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, Index, text, Float
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.clock import now
@@ -453,3 +453,32 @@ class Prescription(Base):
     updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     stopped_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
     stop_reason: Mapped[str] = mapped_column(String(300), default="")
+
+
+class VoiceNote(Base):
+    """A recorded message from the patient (or a caretaker on their behalf): the audio, its transcript and what the assistant suggested.
+
+    The transcript and the suggested level are advice. The incident's level comes from the deterministic classifier, which an
+    AI suggestion may only raise.
+    """
+    __tablename__ = "voice_notes"
+    __table_args__ = (CheckConstraint("status IN ('TRANSCRIBED','UNTRANSCRIBED')", name="ck_voice_note_status"),)
+    id: Mapped[uuid.UUID] = uuid_pk()
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
+    sender_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    incident_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("incidents.id", ondelete="SET NULL"), nullable=True, index=True)
+    mime_type: Mapped[str] = mapped_column(String(60))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    audio: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    status: Mapped[str] = mapped_column(String(16), default="UNTRANSCRIBED")
+    transcript: Mapped[str] = mapped_column(Text, default="")
+    language: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stt_provider: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    stt_model: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    suggested_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    suggested_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    advisor_provider: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    applied_level: Mapped[int | None] = mapped_column(Integer, nullable=True)  # set only when the suggestion raised the routing level
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, index=True)
+

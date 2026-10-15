@@ -60,4 +60,5 @@ Incident responses expose the generated safe summary, not message text. Patient 
 - Docker uses the project's current single Uvicorn process. No multi-worker scheduler lock exists.
 - Classifier phrases need native-speaker review. Routing is not triage and cannot replace emergency services.
 - The patient Help page, cancellable SOS countdown, call buttons, and Help Requests page (formerly Incident Center) are implemented. The escalation policy editor and demo speed panel were removed in the four-role pivot; defaults apply.
+- Voice notes (see [AI.md](AI.md)) are transcribed and then routed by these same rules. An optional assistant may raise, never lower, the level and its reason is shown to the care team.
 - A single missed medicine ("I missed my medicine") routes to L1, the caretaker, and escalates if nobody answers; missing it twice routes to L4. The full-screen alert modal, sound-unlock flow, offline queue, and language switch are not.
