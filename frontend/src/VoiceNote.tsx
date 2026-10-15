@@ -112,7 +112,7 @@ export function VoiceRecorder({ patientId, onSent }: { patientId: string | undef
         <strong>Who will be told</strong>
         <p>{routingHeadline(draft.routing)}</p>
         <p className="muted small">{notifyLine(draft.routing)}{draft.routing.no_recipients ? 'No one on the care team can be reached yet.' : ''}</p>
-        {draft.routing.reason && <p className="vn-assist">{draft.routing.reason}</p>}
+        {draft.routing.applied_level !== null && draft.routing.reason && <p className="vn-assist">{draft.routing.reason}</p>}
         {draft.routing.emergency && <p className="vn-urgent-note">If you are in danger, call 108 or 112 now.</p>}
       </div>}
 

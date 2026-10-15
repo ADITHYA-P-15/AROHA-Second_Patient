@@ -6,10 +6,14 @@ AI is **optional and advisory**. With no keys the app behaves exactly as before.
 
 | Feature | What happens | AI's role | What it can never do |
 |---|---|---|---|
-| **Voice notes** | The patient (or a caretaker on their behalf) records up to a minute, in any language. | Turns the audio into text and detects the language (Groq Whisper, Gemini fallback). | Replace the recording. The audio is always kept and playable. |
-| **Urgency suggestion** | The transcript goes through the normal rules first. | May **raise** the routing level, with a one-sentence reason shown to the care team. | Lower a level, close a request, or decide who covers a task. |
+| **Voice notes** | The patient (or a caretaker on their behalf) records up to a minute, in any language. | Turns the audio into text, detects the language, and translates it to English. | Replace the recording. The audio is always kept and playable. |
+| **Preview before sending** | After recording, the sender sees the words in the spoken language, the English, and who will be told. They can correct the words and re-check. **Nothing is sent until they confirm.** | Provides the text, translation and suggestion shown in the preview. | Send anything by itself. |
+| **Routing from the transcript** | The rules read the spoken text and its English translation, so a mis-heard word in one language can still be caught in the other. | May **raise** the level, with a one-sentence reason. | Lower a level, close a request, or decide who covers a task. |
+| **Ambulance button** | A primary contact sees **Call ambulance 108** on requests that reach them. | None. | Place a call. The phone's dialer does; CareCircle records it and tells the rest of the team so nobody calls twice. |
 
-If transcription fails or hears nothing, the note is still sent, routed to the family ("Voice note to review"), and shown as "Not transcribed. Please play the recording."
+Who is told is decided by the level: 1 caretaker, 2 family, 3 and 4 healthcare team, 5 everyone.
+
+If transcription fails or hears nothing, the sender can type what they said or send the recording as it is. It is routed to the family as "Voice note to review" and shown as "Not transcribed. Please play the recording."
 
 ## Providers (measured on real keys, 15 Oct 2026)
 
@@ -61,9 +65,13 @@ It tells you which of your configured models are not available on your key, so y
 
 ## API
 
-- `POST /api/v1/patients/{id}/voice-notes[?language=hi]`: body is the raw audio (`audio/webm`, `ogg`, `mp4`, `mp3`, `wav`), up to `VOICE_MAX_BYTES` (3 MB). Supports `Idempotency-Key`. Returns the incident plus `voice_note`.
-- `GET /api/v1/voice-notes/{id}/audio`: playback for people who may read the request.
-- `GET /api/v1/incidents` includes `voice_note` where there is one. `GET /api/v1/meta` reports which providers are configured.
+- `POST /api/v1/patients/{id}/voice-notes/preview[?language=hi]`: body is the raw audio (`audio/webm`, `ogg`, `mp4`, `mp3`, `wav`), up to `VOICE_MAX_BYTES` (3 MB). Creates a **draft**: transcript, English, and who would be told. Sends nothing.
+- `POST /api/v1/voice-notes/{id}/check` `{transcript}`: re-translate and re-route corrected words. Still a preview.
+- `POST /api/v1/voice-notes/{id}/send` `{transcript?}`: the confirmation. Only now is a request created. Supports `Idempotency-Key`; confirming twice returns the same request.
+- `DELETE /api/v1/voice-notes/{id}`: throw away an unsent draft. Drafts also expire after a day.
+- `GET /api/v1/voice-notes/{id}/audio`: playback for people who may read the request (drafts: the sender only).
+- `POST /api/v1/incidents/{id}/ambulance`: a primary contact records that they are calling an ambulance; the rest of the team is notified.
+- `GET /api/v1/incidents` includes `voice_note` and `ambulance` where there are any.
 
 ## Next
 

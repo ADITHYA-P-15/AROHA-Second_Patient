@@ -49,6 +49,18 @@ The app also ships with a practical-size population: 24 more patients with famil
 | 16 | Vikram Krishnan (`vikram.krishnan@carecircle.demo`) | **Command Center** | A different family sees only their own patient, with only what needs them. | Many families on one system, nothing shared between them. |
 | 17 | Anjali Verma (`anjali.verma@carecircle.demo`) | **My Day** | Her own patients' doses in one list. | Each caretaker sees only their own work. |
 
+### Part 3 — voice notes and the ambulance button (about 3 minutes, needs the AI keys in `.env`)
+
+| # | Sign in as | Go to | Show | Point to make |
+|---|---|---|---|---|
+| 18 | Ramesh (`ramesh.iyer`) | **Request Help** → **Record a voice note** | Speak a sentence in Hindi, Kannada, Telugu or English, then stop. | No typing and no phone call, in his own language. |
+| 19 | Ramesh | The preview | The words he said, the **English**, and **Who will be told**. Correct a word and press **Check again**. | He verifies before anything is sent. A mis-heard word is fixable, and the English re-check can raise urgency. |
+| 20 | Ramesh | **Yes, this is right. Send it** | Sent. | Only now is the care team told. |
+| 21 | Anita (`anita.iyer`) | **Help Requests** | The request with player, spoken text, English and the assistant's reason, and **Call ambulance · 108**. | The assistant can only raise urgency; the rules and a person decide. |
+| 22 | Anita, then Savitha | Press **Call ambulance**, then Savitha's bell | Savitha is told "Ambulance being called". | The family acts in one tap, and nobody calls twice. |
+
+Run **Reset demo data** afterwards: test voice notes create real requests.
+
 Dr. Arjun Nair (`dr.arjun.nair`) also has Insights: Ramesh plus several of the larger population's patients.
 
 Optional extras:

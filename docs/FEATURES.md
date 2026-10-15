@@ -232,3 +232,10 @@ Cumulative record of features built one at a time on top of the phased roadmap i
   - Caretaker voice handover.
   - A per-language accuracy test set.
 
+### Update: preview before sending, and the ambulance button
+
+- **Preview, then send.** After recording, the sender sees what was heard in the spoken language, its English translation and who will be told. They can correct the words and re-check. Nothing is sent until they confirm.
+- **Routing from the transcript.** The rules read the spoken text and the English translation; the assistant may only raise the level. Level 1 goes to the caretaker, 2 to family, 3 and 4 to the healthcare team, 5 to everyone.
+- **Call ambulance.** A primary contact sees a **Call ambulance 108** button on requests that reach them. The phone dials; CareCircle records it and tells the rest of the care team.
+- New endpoints are listed in [docs/AI.md](docs/AI.md). Migration `0012_voice_note_preview`.
+
