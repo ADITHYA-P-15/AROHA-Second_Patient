@@ -2,7 +2,7 @@
 
 ## 1. Project name, team details, and a short solution summary
 
-**Project:** CareCircle. **Team:** CodeBlue — Aditya Prasad, Gaspar Anothony Savio Simoes, Pusapati Nikhil, and Shrivas Shetty.
+**Project:** CareCircle. **Team:** CodeBlue — Adithya Prasad, Gaspar Anothony Savio Simoes, Pusapati Nikhil, and Shrivas Shetty.
 
 CareCircle coordinates medication doses, appointments, caretaker assignments and replacement cover. Patients, primary contacts, caretakers and healthcare professionals share role-specific views of completed, pending and missed care activities. All demo people are fictional.
 
@@ -106,7 +106,7 @@ The smoke check creates test records; the load check uses seeded demo accounts a
 
 | Team member | Details listed in the project README |
 |---|---|
-| Aditya Prasad | Team member |
+| Adithya Prasad | Team member |
 | Gaspar Anothony Savio Simoes | Team member |
 | Pusapati Nikhil | Team member |
 | Shrivas Shetty | Team member |
