@@ -94,15 +94,31 @@ def agencies(sector: Literal["NORTH", "SOUTH", "EAST", "WEST"] | None = None, us
     return {"items": [{"id": str(a.id), "name": a.name, "city": a.city, "sector": s.code, "is_synthetic": a.is_synthetic} for a, s in rows]}
 
 
+def multi(values: list[str] | None, max_len: int, allowed: set[str] | None = None) -> list[str]:
+    """Repeated (?city=A&city=B) or comma-separated (?city=A,B) values, validated server-side."""
+    items = svc.many(values)
+    if len(items) > 30: raise HTTPException(422, "Choose at most 30 values per filter")
+    for item in items:
+        if len(item) > max_len: raise HTTPException(422, "A filter value is too long")
+        if allowed is not None and item not in allowed: raise HTTPException(422, "Unknown capability")
+    return items
+
+
+@router.get("/options")
+def filter_options(user=Depends(_current_user), db: Session = Depends(get_db)):
+    """Dropdown values that exist among listed caretakers: states, cities (with state), languages, skills."""
+    return svc.options(db)
+
+
 @router.get("/caretakers")
 def caretakers(sector: Literal["NORTH", "SOUTH", "EAST", "WEST"] | None = None, agency: uuid.UUID | None = None,
-               state: str | None = Query(None, max_length=60), city: str | None = Query(None, max_length=80),
-               gender: Literal["FEMALE", "MALE", "NON_BINARY", "UNDISCLOSED"] | None = None, language: str | None = Query(None, max_length=40),
-               capability: str | None = Query(None, max_length=40), min_experience: int | None = Query(None, ge=0, le=60), min_agency_rating: float | None = Query(None, ge=1, le=5), available_on: date | None = None,
+               state: list[str] | None = Query(None), city: list[str] | None = Query(None),
+               gender: Literal["FEMALE", "MALE", "NON_BINARY", "UNDISCLOSED"] | None = None, language: list[str] | None = Query(None),
+               capability: list[str] | None = Query(None), min_experience: int | None = Query(None, ge=0, le=60), min_agency_rating: float | None = Query(None, ge=1, le=5), available_on: date | None = None,
                sort: Literal["name", "experience"] = "name", limit: int = Query(20, ge=1, le=svc.MAX_PAGE), offset: int = Query(0, ge=0, le=100_000),
                user=Depends(_browser), db: Session = Depends(get_db)):
-    if capability and capability not in SUPPORT: raise HTTPException(422, "Unknown capability")
-    f = svc.Filters(sector=sector, agency=agency, state=state or None, city=city or None, gender=gender, language=language or None, capability=capability,
+    state, city, language, capability = multi(state, 60), multi(city, 80), multi(language, 40), multi(capability, 40, SUPPORT)
+    f = svc.Filters(sector=sector, agency=agency, state=state, city=city, gender=gender, language=language, capability=capability,
                     min_experience=min_experience, min_agency_rating=min_agency_rating, available_on=available_on, sort=sort, limit=limit, offset=offset)
     rows, total = svc.search(db, f)
     sectors_by_id, agencies_by_id = svc.lookups(db)

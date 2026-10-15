@@ -4,21 +4,23 @@ import { api } from './api/client.ts';
 import { newId } from './lib/id.ts';
 import { supportLabel } from './lib/plan.ts';
 import { usePatientPick } from './PatientPick.tsx';
-import { AGENCY_STARS, GENDERS, cardText, type Agency, type DirectoryFilters, type Sector } from './lib/directory.ts';
+import { AGENCY_STARS, GENDERS, cardText, cityOptions, type Agency, type DirectoryFilters, type DirectoryOptions, type Sector } from './lib/directory.ts';
+import { MultiSelect } from './MultiSelect.tsx';
 import { compositeText } from './lib/reputation.ts';
 import { ProfileDrawer } from './FindCaretakers.tsx';
 import { MAX_COMPARE, TOP_DEFAULT, buildMatchesQuery, compareRows, requestStatusText, roleText, toggleCompare, type HireRequest, type Match, type MatchPage, type MatchSort, type Preferences } from './lib/teambuilder.ts';
 
 const CAPS = ['MEDICATION_ASSIST', 'APPOINTMENT_ESCORT', 'TRANSPORT', 'DAILY_ASSIST', 'MOBILITY_ASSIST', 'PRESCRIPTION_PICKUP', 'LAB_ESCORT', 'SUPPLIES'];
 const SECTORS: [string, string][] = [['NORTH', 'North'], ['SOUTH', 'South'], ['EAST', 'East'], ['WEST', 'West']];
-const BLANK: DirectoryFilters = { sector: '', agency: '', state: '', city: '', gender: '', language: '', capability: '', min_experience: '', min_agency_rating: '', available_on: '' };
+type Filters = DirectoryFilters & { state: string[]; city: string[]; language: string[]; capability: string[] };
+const BLANK: Filters = { sector: '', agency: '', state: [], city: [], gender: '', language: [], capability: [], min_experience: '', min_agency_rating: '', available_on: '' };
 
 /** Find & build care team: browse the directory with every filter, ranked for this patient the way a backup is ranked
  * (ratings, skills for the patient's needs, place, language, free time), then compare, view a profile and send a hire request. */
 export function BuildTeam() {
   const { id: pid, picker } = usePatientPick();
   const client = useQueryClient();
-  const [filters, setFilters] = useState<DirectoryFilters>(BLANK);
+  const [filters, setFilters] = useState<Filters>(BLANK);
   const [sort, setSort] = useState<MatchSort>('best');
   const [top, setTop] = useState(TOP_DEFAULT);
   const query = buildMatchesQuery(filters, sort, top);
@@ -29,19 +31,19 @@ export function BuildTeam() {
   const matches = useQuery({ queryKey: ['team-matches', pid, query], queryFn: () => api<MatchPage>(`/api/v1/patients/${pid}/team-matches${query}`), enabled: !!pid, placeholderData: keepPreviousData });
   const requests = useQuery({ queryKey: ['hire-requests', pid], queryFn: () => api<{ items: HireRequest[] }>(`/api/v1/patients/${pid}/hire-requests`), enabled: !!pid, refetchInterval: 20000 });
   const [form, setForm] = useState<Preferences>({ languages: [], city: '', sector_code: null, min_rating: null, capabilities: [] });
-  const [langText, setLangText] = useState('');
   const [compare, setCompare] = useState<string[]>([]);
   const [asking, setAsking] = useState<Match | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
-  useEffect(() => { if (prefs.data) { setForm(prefs.data); setLangText(prefs.data.languages.join(', ')); } }, [prefs.data]);
+  useEffect(() => { if (prefs.data) setForm(prefs.data); }, [prefs.data]);
   const refresh = () => Promise.all(['team-matches', 'hire-requests', 'command-center', 'care-preferences'].map(k => client.invalidateQueries({ queryKey: [k] })));
-  const set = (patch: DirectoryFilters) => { setFilters(f => ({ ...f, ...patch })); setTop(TOP_DEFAULT); };
+  const set = (patch: Partial<Filters>) => { setFilters(f => ({ ...f, ...patch })); setTop(TOP_DEFAULT); };
+  const options = useQuery({ queryKey: ['directory-options'], queryFn: () => api<DirectoryOptions>('/api/v1/directory/options'), staleTime: 300_000 });
 
   async function saveNeeds(e: FormEvent) {
     e.preventDefault(); setNotice('');
     try {
-      await api(`/api/v1/patients/${pid}/care-preferences`, { method: 'PUT', body: JSON.stringify({ ...form, languages: langText.split(',').map(s => s.trim()).filter(Boolean) }) });
+      await api(`/api/v1/patients/${pid}/care-preferences`, { method: 'PUT', body: JSON.stringify(form) });
       setNotice('Needs saved. The ranking and backup choices now use them.'); await refresh();
     } catch (err) { setNotice(err instanceof Error ? err.message : 'Could not save.'); }
   }
@@ -52,9 +54,10 @@ export function BuildTeam() {
   if (!pid) return <section className="card">Register a patient first in Care Team.</section>;
   const page = matches.data;
   const items = page?.items ?? [];
-  const states = (sectors.data?.items ?? []).filter(s => !filters.sector || s.code === filters.sector).flatMap(s => s.states).sort();
+  const sectorStates = new Set((sectors.data?.items ?? []).filter(s => !filters.sector || s.code === filters.sector).flatMap(s => s.states));
+  const states = (options.data?.states ?? []).filter(s => sectorStates.has(s) || filters.state.includes(s));
   const picked = items.filter(m => compare.includes(m.caregiver_id)).sort((a, b) => compare.indexOf(a.caregiver_id) - compare.indexOf(b.caregiver_id));
-  const active = Object.entries(filters).some(([k, v]) => k !== 'sector' && v !== '' && v !== undefined);
+  const active = Object.entries(filters).some(([k, v]) => k !== 'sector' && v !== '' && v !== undefined && !(Array.isArray(v) && !v.length));
   return <div className="tb">
     <div className="section-head"><div><p className="eyebrow">FIND &amp; BUILD CARE TEAM · FICTIONAL PEOPLE</p><h3>Choose caretakers for the team</h3></div>{picker}</div>
     <p className="muted small">The best matches come first, ranked like a backup is: ratings, the skills the patient needs, where they live, language and free time. Phone numbers are shared only after a caretaker accepts your request. This is not a medical judgement.</p>
@@ -63,8 +66,10 @@ export function BuildTeam() {
     <details className="card tb-needs" open={!prefs.data?.set}><summary><strong>What the patient needs</strong> <span className="muted small">(used for ranking; must-have skills and the minimum reputation leave others out)</span></summary>
       <form onSubmit={e => void saveNeeds(e)}>
         <div className="tb-grid">
-          <label>Languages<input value={langText} onChange={e => setLangText(e.target.value)} placeholder="e.g. Kannada, Hindi"/></label>
-          <label>Patient's city<input value={form.city} maxLength={80} onChange={e => setForm({ ...form, city: e.target.value })} placeholder="e.g. Bengaluru"/></label>
+          <MultiSelect label="Languages the patient speaks" searchable value={form.languages} onChange={languages => setForm({ ...form, languages })}
+            options={[...new Set([...(options.data?.languages ?? []), ...form.languages])].map(l => ({ value: l, label: l }))}/>
+          <label>Patient's city<select value={form.city} onChange={e => setForm({ ...form, city: e.target.value })}><option value="">Not set</option>
+            {[...new Set([...(options.data?.cities ?? []).map(c => c.city), ...(form.city ? [form.city] : [])])].sort().map(c => <option key={c} value={c}>{c}</option>)}</select></label>
           <label>Region<select value={form.sector_code ?? ''} onChange={e => setForm({ ...form, sector_code: e.target.value || null })}><option value="">Any</option>{SECTORS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
           <label>Minimum reputation (0–100)<input type="number" min={0} max={100} value={form.min_rating ?? ''} onChange={e => setForm({ ...form, min_rating: e.target.value === '' ? null : Number(e.target.value) })}/></label>
         </div>
@@ -81,17 +86,18 @@ export function BuildTeam() {
 
     <div className="cp-filters dir-tabs" role="tablist" aria-label="Sector">
       {[{ code: '', name: 'All sectors' }, ...(sectors.data?.items ?? [])].map(s => <button key={s.code || 'all'} role="tab" aria-selected={filters.sector === s.code}
-        className={`cp-filter${filters.sector === s.code ? ' on' : ''}`} onClick={() => set({ sector: s.code, agency: '', state: '' })}>{s.name}</button>)}
+        className={`cp-filter${filters.sector === s.code ? ' on' : ''}`} onClick={() => set({ sector: s.code, agency: '', state: [], city: [] })}>{s.name}</button>)}
     </div>
     <form className="dir-filters card" onSubmit={e => e.preventDefault()} aria-label="Filters">
       <label>Agency<select value={filters.agency} onChange={e => set({ agency: e.target.value })}><option value="">Any agency</option>
         {(agencies.data?.items ?? []).map(a => <option key={a.id} value={a.id}>{a.name} · {a.city}</option>)}</select></label>
       <label>Agency rating<select value={String(filters.min_agency_rating ?? '')} onChange={e => set({ min_agency_rating: e.target.value })}>{AGENCY_STARS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-      <label>State<select value={filters.state} onChange={e => set({ state: e.target.value })}><option value="">Any state</option>{states.map(s => <option key={s}>{s}</option>)}</select></label>
-      <label>City<input value={filters.city} onChange={e => set({ city: e.target.value })} placeholder="e.g. Pune" maxLength={80}/></label>
+      <MultiSelect label="States" options={states.map(s => ({ value: s, label: s }))} value={filters.state} searchable
+        onChange={state => set({ state, city: filters.city.filter(c => (options.data?.cities ?? []).some(x => x.city === c && (!state.length || state.includes(x.state)))) })}/>
+      <MultiSelect label="Cities" options={cityOptions((options.data?.cities ?? []).filter(c => sectorStates.has(c.state)), filters.state, filters.city)} value={filters.city} searchable onChange={city => set({ city })}/>
       <label>Gender<select value={filters.gender} onChange={e => set({ gender: e.target.value })}><option value="">Any</option>{GENDERS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-      <label>Language<input value={filters.language} onChange={e => set({ language: e.target.value })} placeholder="e.g. Tamil" maxLength={40}/></label>
-      <label>Can help with<select value={filters.capability} onChange={e => set({ capability: e.target.value })}><option value="">Anything</option>{CAPS.map(c => <option key={c} value={c}>{supportLabel(c)}</option>)}</select></label>
+      <MultiSelect label="Languages" options={(options.data?.languages ?? []).map(l => ({ value: l, label: l }))} value={filters.language} searchable onChange={language => set({ language })}/>
+      <MultiSelect label="Can help with" options={(options.data?.capabilities ?? CAPS).map(c => ({ value: c, label: supportLabel(c) }))} value={filters.capability} onChange={capability => set({ capability })}/>
       <label>Min. experience (years)<input type="number" min={0} max={60} value={filters.min_experience} onChange={e => set({ min_experience: e.target.value })}/></label>
       <label>Available on<input type="date" value={filters.available_on} onChange={e => set({ available_on: e.target.value })}/></label>
       <label>Order<select value={sort} onChange={e => setSort(e.target.value as MatchSort)}><option value="best">Best match first</option><option value="experience">Most experience</option><option value="name">Name</option></select></label>

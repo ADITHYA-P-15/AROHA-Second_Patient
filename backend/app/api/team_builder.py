@@ -104,16 +104,17 @@ def put_preferences(pid: uuid.UUID, body: PreferencesIn, user=Depends(_current_u
 
 @router.get("/patients/{pid}/team-matches")
 def team_matches(pid: uuid.UUID, limit: int = Query(20, ge=1, le=50), sector: Literal["NORTH", "SOUTH", "EAST", "WEST"] | None = None, agency: uuid.UUID | None = None,
-                 state: str | None = Query(None, max_length=60), city: str | None = Query(None, max_length=80),
-                 gender: Literal["FEMALE", "MALE", "NON_BINARY", "UNDISCLOSED"] | None = None, language: str | None = Query(None, max_length=40),
-                 capability: str | None = Query(None, max_length=40), min_experience: int | None = Query(None, ge=0, le=60),
+                 state: list[str] | None = Query(None), city: list[str] | None = Query(None),
+                 gender: Literal["FEMALE", "MALE", "NON_BINARY", "UNDISCLOSED"] | None = None, language: list[str] | None = Query(None),
+                 capability: list[str] | None = Query(None), min_experience: int | None = Query(None, ge=0, le=60),
                  min_agency_rating: float | None = Query(None, ge=1, le=5), available_on: date | None = None,
                  sort: Literal["best", "name", "experience"] = "best", user=Depends(_current_user), db: Session = Depends(get_db)):
     """The Find & build team list: every directory filter, ranked for this patient like a backup would be."""
     _primary_contact(db, user, pid)
-    if capability and capability not in SUPPORT: raise HTTPException(422, "Unknown capability")
+    from app.api.directory import multi
     from app.services.directory import Filters
-    f = Filters(sector=sector, agency=agency, state=state or None, city=city or None, gender=gender, language=language or None, capability=capability,
+    state, city, language, capability = multi(state, 60), multi(city, 80), multi(language, 40), multi(capability, 40, SUPPORT)
+    f = Filters(sector=sector, agency=agency, state=state, city=city, gender=gender, language=language, capability=capability,
                 min_experience=min_experience, min_agency_rating=min_agency_rating, available_on=available_on)
     pending = {str(c) for c in db.scalars(select(HireRequest.caregiver_id).where(HireRequest.patient_id == pid, HireRequest.status == "PENDING"))}
     result = svc.matches(db, pid, limit=limit, filters=f, sort=sort)

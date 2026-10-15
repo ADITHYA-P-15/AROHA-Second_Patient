@@ -274,3 +274,32 @@ def test_minimum_agency_rating_filter(monkeypatch):
     assert {c["id"] for c in combined} == {c["id"] for c in top} & {c["id"] for c in everyone(pc, sector="SOUTH")}
     for bad in (0, 6, "x"):
         assert pc.get("/api/v1/directory/caretakers", params={"min_agency_rating": bad}).status_code == 422
+
+
+def test_several_values_per_filter_match_any_and_fields_combine():
+    pc, *_ = account()
+    delhi, pune = everyone(pc, state="Delhi"), everyone(pc, city="Pune")
+    both = everyone(pc, state=["Delhi", "Maharashtra"])
+    assert {c["id"] for c in delhi} < {c["id"] for c in both} and all(c["current_state"] in ("Delhi", "Maharashtra") for c in both)
+    assert {c["id"] for c in everyone(pc, state="Delhi,Maharashtra")} == {c["id"] for c in both}  # comma form
+    cities = everyone(pc, city=["Pune", "Kolkata"])
+    assert {c["current_city"] for c in cities} == {"Pune", "Kolkata"} and {c["id"] for c in pune} < {c["id"] for c in cities}
+    langs = everyone(pc, language=["Tamil", "bengali"])
+    assert langs and all({"Tamil", "Bengali"} & set(c["languages"]) for c in langs)
+    caps = everyone(pc, capability=["LAB_ESCORT", "SUPPLIES"])
+    assert caps and all({"LAB_ESCORT", "SUPPLIES"} & set(c["capabilities"]) for c in caps)
+    combined = everyone(pc, state=["Delhi", "Maharashtra"], language=["Hindi", "Marathi"])
+    assert {c["id"] for c in combined} == {c["id"] for c in both} & {c["id"] for c in everyone(pc, language="Hindi,Marathi")}
+    assert pc.get("/api/v1/directory/caretakers", params={"capability": ["LAB_ESCORT", "FLYING"]}).status_code == 422
+    assert pc.get("/api/v1/directory/caretakers", params={"city": [f"c{i}" for i in range(31)]}).status_code == 422
+
+
+def test_filter_options_come_from_listed_caretakers():
+    pc, *_ = account()
+    opts = pc.get("/api/v1/directory/options").json()
+    assert {"Delhi", "Karnataka", "Maharashtra"} <= set(opts["states"]) and "Atlantis" not in opts["states"]
+    assert {"city": "Pune", "state": "Maharashtra"} in opts["cities"] and "Tamil" in opts["languages"] and "TRANSPORT" in opts["capabilities"]
+    assert len(opts["languages"]) == len({l.lower() for l in opts["languages"]})  # no case duplicates
+    for city in opts["cities"][:3]:
+        assert everyone(pc, city=city["city"])
+    assert TestClient(app).get("/api/v1/directory/options").status_code == 401

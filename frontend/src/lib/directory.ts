@@ -18,9 +18,27 @@ export type MyDirectoryProfile = Omit<CaretakerCard, 'id' | 'gender_label' | 'is
 };
 export type DirectoryPage = { items: CaretakerCard[]; total: number; limit: number; offset: number };
 export type DirectoryFilters = {
-  sector?: string; agency?: string; state?: string; city?: string; gender?: string; language?: string; capability?: string;
+  // state, city, language and capability take several values: a caretaker matches any one of them.
+  sector?: string; agency?: string; state?: string | string[]; city?: string | string[]; gender?: string; language?: string | string[]; capability?: string | string[];
   min_experience?: number | string; min_agency_rating?: number | string; available_on?: string; sort?: 'name' | 'experience'; limit?: number; offset?: number;
 };
+
+export type DirectoryOptions = { states: string[]; cities: { city: string; state: string }[]; languages: string[]; capabilities: string[] };
+
+/** What a closed multi-select shows: "Any", the one or two picked, or "Pune, Mumbai +2". */
+export function selectionSummary(value: string[], options: { value: string; label: string }[]): string {
+  if (!value.length) return 'Any';
+  const label = (v: string) => options.find(o => o.value === v)?.label ?? v;
+  return value.length <= 2 ? value.map(label).join(', ') : `${value.slice(0, 2).map(label).join(', ')} +${value.length - 2}`;
+}
+
+/** Cities to offer: those in the picked states (all when none is picked), keeping any city already picked. */
+export function cityOptions(all: DirectoryOptions['cities'], states: string[], picked: string[] = []): { value: string; label: string; hint: string }[] {
+  const inStates = all.filter(c => !states.length || states.includes(c.state));
+  const keep = all.filter(c => picked.includes(c.city) && !inStates.includes(c));
+  const seen = new Set<string>();
+  return [...inStates, ...keep].filter(c => !seen.has(c.city) && seen.add(c.city)).map(c => ({ value: c.city, label: c.city, hint: c.state }));
+}
 
 export const PAGE_SIZE = 12;
 export const MAX_PAGE = 50; // the server refuses more
@@ -34,6 +52,11 @@ export function buildDirectoryQuery(filters: DirectoryFilters): string {
   for (const key of KEYS) {
     let value = filters[key];
     if (value === undefined || value === null) continue;
+    if (Array.isArray(value)) {  // repeated parameters: ?city=Pune&city=Mumbai
+      const seen = new Set<string>();
+      for (const v of value.map(x => String(x).trim()).filter(Boolean)) { if (!seen.has(v.toLowerCase())) { seen.add(v.toLowerCase()); params.append(key, v); } }
+      continue;
+    }
     if (typeof value === 'string') value = value.trim();
     if (value === '') continue;
     if (key === 'limit') value = Math.min(MAX_PAGE, Math.max(1, Math.floor(Number(value)) || PAGE_SIZE));

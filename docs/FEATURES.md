@@ -340,3 +340,9 @@ Cumulative record of features built one at a time on top of the phased roadmap i
 - **Merged screen:** Find caretakers and Build care team are now one screen, **Find & build team**, with every directory filter. It shows the top matches ranked with the backup logic (ratings, skills for the patient's needs, place, language, free time) and a reason for each.
 - **Gender strictness removed:** the hard/soft gender preference, the matcher's `PREFERENCE` status and the soft-gender points are gone. Gender is a filter only. The preference columns are left unused, with no migration. `MATCHER_POLICY` adds `need_covered` and `little_capacity`, and drops `soft_gender`.
 - **Tests:** `test_team_builder.py` (the merged list with filters and ranking; preferences never filter; gender rejected in preferences) and `lib/teambuilder.test.ts` (the query builder).
+
+## Follow-up: multi-select filters
+
+- **Shipped:** on Find & build team, States, Cities, Languages and Can help with are now multi-select dropdowns, filled from real directory values by `GET /api/v1/directory/options`. The patient's languages and city in "What the patient needs" are dropdowns as well. Several values within a field match any of them; fields combine with AND.
+- **Code:** `services/directory.many` / `options`, `api/directory.multi`, `frontend/src/MultiSelect.tsx`, `lib/directory.ts` (repeated query parameters, `selectionSummary`, `cityOptions`).
+- **Tests:** `test_directory.py` (several values, comma form, combination, limits, options), `test_team_builder.py` (several values in team matches), `lib/directory.test.ts`.

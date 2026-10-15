@@ -65,11 +65,12 @@ def canonical_state(db: Session, value: str) -> tuple[str, uuid.UUID | None]:
 class Filters:
     sector: str | None = None
     agency: uuid.UUID | None = None
-    state: str | None = None
-    city: str | None = None
+    # Several values per field: a caretaker matches if any one of them matches; different fields combine with AND.
+    state: list[str] | str | None = None
+    city: list[str] | str | None = None
     gender: str | None = None
-    language: str | None = None
-    capability: str | None = None
+    language: list[str] | str | None = None
+    capability: list[str] | str | None = None
     min_experience: int | None = None
     min_agency_rating: float | None = None   # the agency's own 1-5 rating (reputation source); unrated caretakers drop out
     available_on: date | None = None
@@ -78,14 +79,26 @@ class Filters:
     offset: int = 0
 
 
+def many(value) -> list[str]:
+    """None, "a", "a,b" or ["a", "b,c"] -> ["a", "b", "c"]: trimmed, without blanks or repeats (case-insensitive)."""
+    if value is None: return []
+    items = value if isinstance(value, (list, tuple)) else [value]
+    out: list[str] = []
+    for item in items:
+        for part in str(item).split(","):
+            part = part.strip()
+            if part and part.lower() not in {x.lower() for x in out}: out.append(part)
+    return out
+
+
 def _listed_rows(db: Session, f: Filters):
     stmt = (select(CaretakerProfile, Caregiver, User).join(Caregiver, Caregiver.id == CaretakerProfile.caregiver_id).join(User, User.id == Caregiver.user_id)
             .where(CaretakerProfile.listed.is_(True), Caregiver.is_active.is_(True), Caregiver.kind == "CARETAKER", User.is_active.is_(True), User.role == Role.CARETAKER))
     if f.sector:
         stmt = stmt.join(Sector, Sector.id == CaretakerProfile.sector_id).where(Sector.code == f.sector.upper())
     if f.agency: stmt = stmt.where(CaretakerProfile.agency_id == f.agency)
-    if f.state: stmt = stmt.where(func.lower(CaretakerProfile.current_state) == f.state.strip().lower())
-    if f.city: stmt = stmt.where(func.lower(CaretakerProfile.current_city) == f.city.strip().lower())
+    if many(f.state): stmt = stmt.where(func.lower(CaretakerProfile.current_state).in_([s.lower() for s in many(f.state)]))
+    if many(f.city): stmt = stmt.where(func.lower(CaretakerProfile.current_city).in_([c.lower() for c in many(f.city)]))
     if f.gender: stmt = stmt.where(CaretakerProfile.gender == f.gender)
     if f.min_experience is not None: stmt = stmt.where(CaretakerProfile.years_experience >= f.min_experience)
     if f.min_agency_rating is not None:
@@ -103,11 +116,12 @@ def available_on_day(caregiver_id_rows: dict, overrides: dict, cid: uuid.UUID, d
 
 def search(db: Session, f: Filters) -> tuple[list[tuple], int]:
     rows = _listed_rows(db, f)
-    if f.language:
-        wanted = f.language.strip().lower()
-        rows = [r for r in rows if wanted in {str(x).lower() for x in (r[0].languages or [])}]
-    if f.capability:
-        rows = [r for r in rows if f.capability in (r[1].capabilities or [])]
+    if many(f.language):
+        wanted = {x.lower() for x in many(f.language)}
+        rows = [r for r in rows if wanted & {str(x).lower() for x in (r[0].languages or [])}]
+    if many(f.capability):
+        wanted_caps = set(many(f.capability))
+        rows = [r for r in rows if wanted_caps & set(r[1].capabilities or [])]
     if f.available_on and rows:
         ids = [r[1].id for r in rows]
         schedules: dict = {}
@@ -173,3 +187,18 @@ def own_view(db: Session, user: User) -> dict:
                 "current_city": "", "current_district": "", "sector": None, "agency": None, "languages": [], "capabilities": list(cg.capabilities or []) if cg else [],
                 "years_experience": 0, "bio": "", "listed": False}
     return {**card(profile, cg, sectors, agencies), "exists": True, "bio": profile.bio, "current_district": profile.current_district, "listed": profile.listed}
+
+
+def options(db: Session) -> dict:
+    """The values that exist among listed caretakers, for the filter dropdowns: states, cities (with their state), languages, skills."""
+    rows = db.execute(select(CaretakerProfile, Caregiver).join(Caregiver, Caregiver.id == CaretakerProfile.caregiver_id)
+                      .where(CaretakerProfile.listed.is_(True), Caregiver.is_active.is_(True), Caregiver.kind == "CARETAKER")).all()
+    states, cities, languages, capabilities = set(), set(), {}, set()
+    for p, cg in rows:
+        if p.current_state: states.add(p.current_state)
+        if p.current_city: cities.add((p.current_city, p.current_state))
+        for lang in p.languages or []: languages.setdefault(str(lang).lower(), str(lang))
+        capabilities.update(cg.capabilities or [])
+    return {"states": sorted(states), "cities": [{"city": c, "state": st} for c, st in sorted(cities, key=lambda x: (x[0].lower(), x[1]))],
+            "languages": sorted(languages.values(), key=str.lower), "capabilities": sorted(capabilities)}
+

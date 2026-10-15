@@ -118,3 +118,18 @@ For primary contacts, **Find caretakers** and **Build care team** are now one sc
 - the profile drawer, compare up to 3, send a hire request, and request tracking.
 
 API: `GET /api/v1/patients/{id}/team-matches` takes every directory filter, plus `sort` (`best`, `name`, `experience`) and `limit` (up to 50). It returns `{items, total, needs}`. The public `GET /api/v1/directory/caretakers` stays for patients and professionals.
+
+## Several states, cities, languages and skills at once
+
+On **Find & build team**, **States**, **Cities**, **Languages** and **Can help with** are dropdowns where you can tick several values. The values come from what listed caretakers actually have.
+- The city list follows the picked states.
+- The patient's own languages and city in "What the patient needs" are dropdowns too.
+
+How filters combine:
+- **Within one field**, a caretaker matches if they fit **any** picked value. For example, Pune or Mumbai; or Tamil or Kannada; or can help with transport or lab visits.
+- **Different fields combine with AND.**
+- To insist on a skill, use the must-have skills under "What the patient needs". A caretaker must have all of those.
+
+API:
+- `GET /api/v1/directory/caretakers` and `GET /api/v1/patients/{id}/team-matches` accept repeated parameters (`?city=Pune&city=Mumbai`) or comma-separated ones (`?city=Pune,Mumbai`) for `state`, `city`, `language` and `capability`. Up to 30 values per field; an unknown skill returns 422.
+- `GET /api/v1/directory/options` (any signed-in person) returns `{states, cities: [{city, state}], languages, capabilities}` from listed caretakers.

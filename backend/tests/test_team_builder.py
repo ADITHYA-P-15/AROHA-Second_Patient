@@ -380,3 +380,17 @@ def test_the_merged_list_applies_directory_filters_and_ranks_like_a_backup():
     coord.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={"capabilities": ["LAB_ESCORT"]})  # must-have skill is a hard rule
     assert {m["caregiver_id"] for m in coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville").json()["items"]} == {both, man}
     assert coord.get(f"/api/v1/patients/{pid}/team-matches?capability=FLYING").status_code == 422
+
+
+def test_team_matches_take_several_states_cities_languages_and_skills():
+    coord, pid = primary_contact_with_patient()
+    _, a = listed("Multi A", city="Alphaville", state="Kerala", languages=("Malayalam",))
+    _, b = listed("Multi B", city="Betatown", state="Goa", languages=("Konkani",))
+    _, c = listed("Multi C", city="Gammaburg", state="Kerala", languages=("Tamil",))
+    with SessionLocal() as db:
+        db.get(Caregiver, uuid.UUID(a)).capabilities = ["LAB_ESCORT"]; db.get(Caregiver, uuid.UUID(b)).capabilities = ["SUPPLIES"]; db.get(Caregiver, uuid.UUID(c)).capabilities = ["TRANSPORT"]; db.commit()
+    get = lambda q: {m["caregiver_id"] for m in coord.get(f"/api/v1/patients/{pid}/team-matches?limit=50&{q}").json()["items"]}
+    assert get("city=Alphaville&city=Betatown") == {a, b}
+    assert get("city=Alphaville,Betatown,Gammaburg&language=Konkani&language=Tamil") == {b, c}
+    assert get("city=Alphaville,Betatown,Gammaburg&capability=LAB_ESCORT,SUPPLIES") == {a, b}
+    assert get("state=Kerala&city=Alphaville,Betatown,Gammaburg") == {a, c}

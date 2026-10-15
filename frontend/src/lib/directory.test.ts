@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDirectoryQuery, cardText, experienceText, pageLabel, splitLanguages, type CaretakerCard } from './directory.ts';
+import { buildDirectoryQuery, cardText, cityOptions, experienceText, pageLabel, selectionSummary, splitLanguages, type CaretakerCard } from './directory.ts';
 
 const card: CaretakerCard = {
   id: 'c1', name: 'Asha Nair', gender: 'FEMALE', gender_label: 'Female', origin_state: 'Kerala', origin_city: 'Thrissur', current_state: 'Maharashtra', current_city: 'Pune',
@@ -15,6 +15,11 @@ describe('directory query building', () => {
   });
   it('combines filters in a stable order and encodes text', () => {
     expect(buildDirectoryQuery({ language: 'Konkani', sector: 'WEST', city: 'Navi Mumbai', min_experience: '5' })).toBe('?sector=WEST&city=Navi+Mumbai&language=Konkani&min_experience=5');
+  });
+  it('sends several states, cities, languages and skills as repeated parameters', () => {
+    expect(buildDirectoryQuery({ state: ['Kerala', 'Goa'], city: ['Kochi', ' kochi ', 'Panaji'], language: [], capability: ['TRANSPORT', 'LAB_ESCORT'] }))
+      .toBe('?state=Kerala&state=Goa&city=Kochi&city=Panaji&capability=TRANSPORT&capability=LAB_ESCORT');
+    expect(buildDirectoryQuery({ language: ['Tamil'], sector: 'SOUTH' })).toBe('?sector=SOUTH&language=Tamil');
   });
   it('keeps paging and experience inside the server bounds', () => {
     expect(buildDirectoryQuery({ limit: 500 })).toBe('?limit=50');
@@ -48,5 +53,21 @@ describe('directory card text', () => {
     expect(pageLabel({ total: 30, limit: 12, offset: 12 }, 12)).toBe('13–24 of 30');
     expect(pageLabel({ total: 0, limit: 12, offset: 0 }, 0)).toBe('No caretakers match');
     expect(splitLanguages('Tamil, english , ,Hindi')).toEqual(['Tamil', 'english', 'Hindi']);
+  });
+});
+
+describe('multi-select helpers', () => {
+  const opts = [{ value: 'Pune', label: 'Pune' }, { value: 'Mumbai', label: 'Mumbai' }, { value: 'Goa', label: 'Goa' }, { value: 'TRANSPORT', label: 'Transport' }];
+  it('summarises the picks when closed', () => {
+    expect(selectionSummary([], opts)).toBe('Any');
+    expect(selectionSummary(['TRANSPORT'], opts)).toBe('Transport');
+    expect(selectionSummary(['Pune', 'Mumbai', 'Goa', 'X'], opts)).toBe('Pune, Mumbai +2');
+  });
+  it('offers the cities of the picked states and keeps picked ones', () => {
+    const all = [{ city: 'Pune', state: 'Maharashtra' }, { city: 'Mumbai', state: 'Maharashtra' }, { city: 'Kochi', state: 'Kerala' }];
+    expect(cityOptions(all, []).map(c => c.value)).toEqual(['Pune', 'Mumbai', 'Kochi']);
+    expect(cityOptions(all, ['Kerala']).map(c => c.value)).toEqual(['Kochi']);
+    expect(cityOptions(all, ['Kerala'], ['Pune']).map(c => c.value)).toEqual(['Kochi', 'Pune']);
+    expect(cityOptions(all, ['Kerala'])[0].hint).toBe('Kerala');
   });
 });
