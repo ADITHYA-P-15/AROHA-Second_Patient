@@ -289,6 +289,8 @@ class Notification(Base):
     channel: Mapped[str] = mapped_column(String(12), default="ALERT")
     acked_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
     read_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dedupe_key: Mapped[str | None] = mapped_column(String(120), nullable=True)  # one reminder per person: "remind:<activity>:15m"
+    link: Mapped[str | None] = mapped_column(String(200), nullable=True)        # where the notification takes you in the app
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, index=True)
 
 

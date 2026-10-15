@@ -25,6 +25,7 @@ from app.core.security import create_token, hash_password, verify_password
 from app.core.permissions import require_patient_access
 from app.models import ActivityHistory, CareTeamMember, Patient, Role, TeamRole, User, Caregiver, CaregiverPatientLink, CaregiverWeeklySchedule, AvailabilityOverride, CareActivity, ActivityDependency, CareAssignment, PatientSupportNeed, PatientMessage, Incident, IncidentEvent, Notification, EscalationPolicy, AppSetting, ActionItem
 from app.schemas import LoginIn, PasswordIn, PatientIn, PatientLookupIn, PatientPatch, RegisterIn, TeamIn
+from app.services.notify import notify, name_of, family_ids as family_user_ids
 from app.services.care_team import ensure_care_profile, new_care_code, normalise_code, unlink_care_profile
 from app.engine.escalation_classifier import classify_message
 from app.engine.escalation_machine import DEFAULT_POLICY, deadline_minutes
@@ -35,6 +36,7 @@ from app.services.coverage_planner import run_planner_tick
 from app.services.care_feeds import roll_forward
 from app.services.care_status import mark_missed
 from app.services.auto_cover import run_auto_coordination
+from app.services.reminders import run_reminders
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.seed import run_seed
 
@@ -63,7 +65,7 @@ async def request_context(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'"
     if request.url.path.startswith("/assets/"):
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     return response
@@ -277,9 +279,16 @@ def create_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Reque
     db.add(IncidentEvent(incident_id=inc.id, kind="CLASSIFIED", level=level, actor_user_id=None, meta={"reasons": list(classification.reasons), "classifier_version": classification.classifier_version}))
     for no_recipient_level in no_recipients_levels: db.add(IncidentEvent(incident_id=inc.id, kind="NO_RECIPIENTS", level=no_recipient_level, meta={"advanced_to": level}))
     audit(db, user, patient.id, "INCIDENT_CREATED", "incident", inc.id, "Care request routed", request.state.request_id)
+    if level == 0:  # nothing needed, but the family likes to know ("I'm fine", "took my medicine")
+        notify(db, [u for u in family_user_ids(db, patient.id) if u != user.id], patient.id, f"Update from {patient.name}", safe_summary + ". Nothing is needed.", kind="STATUS", severity="LOW", incident_id=inc.id, link="/incidents")
+    told: dict = {}
+    for person in recipients: told.setdefault(person.role.value, []).append(person.name)
+    if level == 0:
+        for person_id in family_user_ids(db, patient.id): told.setdefault("PRIMARY_CONTACT", []).append(name_of(db, person_id))
     db.flush(); reconcile_patient(db, patient.id)
     db.commit(); db.refresh(inc)
-    return incident_payload(inc)
+    labels = {"CARETAKER": "Caretaker", "PRIMARY_CONTACT": "Family", "PROFESSIONAL": "Healthcare team"}
+    return {**incident_payload(inc), "notified": [{"role": r, "label": labels.get(r, r.title()), "names": sorted(set(n))} for r, n in told.items()]}
 
 
 @app.post("/api/v1/patients/{patient_id}/sos", status_code=201)
@@ -374,6 +383,8 @@ def acknowledge_incident(incident_id: uuid.UUID, request: Request, user: User = 
         inc.status = "ACKNOWLEDGED"; inc.owner_user_id = user.id; inc.acknowledged_at = now(); inc.version += 1
         set_deadline(inc, policy_for(db, patient.id), "RESOLVE", inc.acknowledged_at, current_escalation_scale(db))
         db.add(IncidentEvent(incident_id=inc.id, kind="ACKNOWLEDGED", level=inc.current_level, actor_user_id=user.id, note="Recipient acknowledged"))
+        notify(db, [m.user_id for m in db.scalars(select(CareTeamMember).where(CareTeamMember.patient_id == patient.id, CareTeamMember.team_role == TeamRole.PATIENT_SELF))],
+               patient.id, "Someone is on it", f"{user.name} is handling your request.", kind="STATUS", severity="MEDIUM", incident_id=inc.id, link="/request-help", exclude=[user.id])
         # Someone has it now: the alerts about this request are answered for everyone; the others get one "being handled" note.
         for notice in db.scalars(select(Notification).where(Notification.incident_id == inc.id, Notification.read_at.is_(None))): notice.read_at = now()
         event = db.scalar(select(IncidentEvent).where(IncidentEvent.incident_id == inc.id, IncidentEvent.level == inc.current_level, IncidentEvent.kind.in_(("CREATED", "MANUAL_ESCALATED", "AUTO_ESCALATED"))).order_by(IncidentEvent.at.desc()))
@@ -408,12 +419,22 @@ def acknowledge_activity(activity_id: uuid.UUID, request: Request, user: User = 
 
 
 @app.get("/api/v1/notifications")
-def list_notifications(unread: bool = False, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def list_notifications(unread: bool = False, limit: int = Query(60, ge=1, le=200), user: User = Depends(current_user), db: Session = Depends(get_db)):
     query = select(Notification).where(Notification.user_id == user.id)
     if unread: query = query.where(Notification.read_at.is_(None))
-    rows = db.scalars(query.order_by(Notification.created_at.desc()).limit(100)).all()
-    unread_count=db.scalar(select(func.count(Notification.id)).where(Notification.user_id==user.id,Notification.read_at.is_(None))) or 0
-    return {"items": [{"id": n.id, "patient_id": n.patient_id, "incident_id": n.incident_id, "kind": n.kind, "severity": n.severity, "title": n.title, "body": n.body, "requires_ack": n.requires_ack, "channel": n.channel, "read_at": n.read_at, "created_at": n.created_at} for n in rows], "unread_count": unread_count}
+    rows = db.scalars(query.order_by(Notification.created_at.desc()).limit(limit)).all()
+    unread_count = db.scalar(select(func.count(Notification.id)).where(Notification.user_id == user.id, Notification.read_at.is_(None))) or 0
+    def utc(value): return value.replace(tzinfo=UTC) if value is not None and value.tzinfo is None else value
+    return {"items": [{"id": n.id, "patient_id": n.patient_id, "incident_id": n.incident_id, "kind": n.kind, "severity": n.severity, "title": n.title, "body": n.body,
+                       "requires_ack": n.requires_ack, "channel": n.channel, "link": n.link, "read_at": utc(n.read_at), "created_at": utc(n.created_at)} for n in rows], "unread_count": unread_count}
+
+
+@app.post("/api/v1/notifications/read-all")
+def notifications_read_all(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    stamp = now()
+    for item in db.scalars(select(Notification).where(Notification.user_id == user.id, Notification.read_at.is_(None))): item.read_at = stamp
+    db.commit()
+    return {"status": "ok"}
 
 
 @app.post("/api/v1/notifications/{notification_id}/read")
@@ -622,6 +643,9 @@ def add_team(patient_id: uuid.UUID, body: TeamIn, request: Request, user: User =
     m = CareTeamMember(patient_id=p.id, user_id=target.id, team_role=team_role); db.add(m)
     if team_role == TeamRole.CARETAKER:
         ensure_care_profile(db, target, p.id, created_by=user.id)
+    notify(db, [target.id], p.id, f"You were added to {p.name}'s care team", f"{user.name} added you as {role_label(team_role.value, team_role.value).lower()}.", kind="DECISION", severity="MEDIUM",
+           link="/my-day" if team_role == TeamRole.CARETAKER else "/care-plan")
+    notify(db, family_user_ids(db, p.id), p.id, "Care team changed", f"{target.name} joined as {role_label(team_role.value, team_role.value).lower()}.", kind="DECISION", link=f"/care-team?patient={p.id}", exclude=[user.id])
     audit(db, user, p.id, "care_team.member_added", "care_team_member", target.id, f"{role_label(team_role.value)} {target.name} added", request.state.request_id)
     db.commit(); db.refresh(m)
     return {"id": m.id, "user_id": target.id, "team_role": team_role.value, "role_label": role_label(target.role.value, team_role.value)}
@@ -632,6 +656,8 @@ def regenerate_care_code(patient_id: uuid.UUID, request: Request, user: User = D
     """Issue a new CareCircle ID (e.g. it was shared by mistake). Professionals already on the team stay on it."""
     p, _ = _primary_contact(db, user, patient_id)
     p.care_code = new_care_code(db)
+    notify(db, family_user_ids(db, p.id), p.id, "CareCircle ID changed", f"{user.name} issued a new CareCircle ID. The old one no longer works for new joiners.", kind="DECISION", severity="MEDIUM",
+           link=f"/care-team?patient={p.id}", exclude=[user.id])
     audit(db, user, p.id, "patient.care_code_changed", "patient", p.id, "CareCircle ID changed", request.state.request_id)
     db.commit()
     return {"care_code": p.care_code}
@@ -660,6 +686,9 @@ def remove_team(patient_id: uuid.UUID, member_id: uuid.UUID, request: Request, u
     if member.team_role == TeamRole.PROFESSIONAL:
         # A new CareCircle ID stops the removed professional from simply joining again with the old one.
         p.care_code = new_care_code(db); summary += "; CareCircle ID changed"
+    notify(db, [member.user_id], p.id, f"You were removed from {p.name}'s care team", f"{user.name} removed you.", kind="DECISION", severity="MEDIUM", link="/")
+    notify(db, family_user_ids(db, p.id), p.id, "Care team changed", f"{name_of(db, member.user_id)} was removed from the care team" + (f"; {released} upcoming tasks were released for cover." if released else "."),
+           kind="DECISION", link=f"/care-team?patient={p.id}", exclude=[user.id, member.user_id])
     db.delete(member); audit(db, user, p.id, "care_team.member_removed", "care_team_member", member_id, summary, request.state.request_id)
     db.flush(); reconcile_patient(db, p.id); db.commit(); return Response(status_code=204)
 
@@ -756,6 +785,7 @@ def _run_escalation_tick():
             roll_forward(db)
             run_cover_tick(db, now())
             run_auto_coordination(db, now())
+            run_reminders(db, now())
             db.commit()  # commit cover/command-center work before the planner so it can never be rolled back by it
             run_planner_tick(db, now())
             db.commit()

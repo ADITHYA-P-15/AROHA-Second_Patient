@@ -15,6 +15,7 @@ from app.core.db import get_db
 from app.core.permissions import require_patient_access
 from app.engine.availability import Window, effective_windows, is_available_for
 from app.engine.workload import buffered_window, overlaps_for, workload
+from app.services.notify import caregiver_user_id, family_ids, holder_user_id, notify, team_user_ids
 from app.models import (ActivityDependency, ActivityHistory, AvailabilityOverride, CareActivity, CareAssignment, Caregiver, CaregiverPatientLink, CaregiverWeeklySchedule, CareTeamMember, Patient, PatientSupportNeed, Role, TeamRole, User, Incident, IncidentEvent, CoverRequest)
 from app.services import care_status as care_status_service
 from app.services.reassess import TriggerEvent, reassess
@@ -296,6 +297,13 @@ def _activity_dict(db, user, a, ctx=None):
     return {"cover": cover, "id": a.id, "patient_id": a.patient_id, "series_id": a.series_id, "title": a.title, "description": a.description, "category": a.category, "scheduled_start": to_utc(_as_aware(a.scheduled_start)), "scheduled_end": to_utc(_as_aware(a.scheduled_end)), "deadline": to_utc(_as_aware(a.deadline)) if a.deadline else None, "importance": a.importance, "requires_caregiver": a.requires_caregiver, "required_support": a.required_support, "buffer_before_min": a.buffer_before_min, "buffer_after_min": a.buffer_after_min, "location_note": a.location_note, "lifecycle_status": a.lifecycle_status, "care_status": care_status_service.care_status(a), "due_by": to_utc(care_status_service.due_by(a)), "source": a.source, "source_id": a.source_id, "completed_at": to_utc(_as_aware(a.completed_at)) if a.completed_at else None, "completed_late": a.completed_late, "missed_at": to_utc(_as_aware(a.missed_at)) if a.missed_at else None, "coverage_status": a.coverage_status, "is_synthetic": a.is_synthetic, "assignments": assignment_rows, "preliminary_support_status": "Support confirmed" if primary_confirmed else "Not confirmed", "my_permissions": permissions}
 
 
+def _local(value) -> str:
+    from zoneinfo import ZoneInfo
+    from app.core.config import settings
+    moment = value.replace(tzinfo=UTC) if value.tzinfo is None else value
+    return moment.astimezone(ZoneInfo(settings.app_timezone)).strftime("%a %d %b, %H:%M")
+
+
 def _history(db, user, request, pid, event, entity, entity_id, summary, payload=None):
     db.add(ActivityHistory(actor_user_id=user.id, patient_id=pid, event_type=event, entity_type=entity, entity_id=str(entity_id), summary=summary, payload=payload or {}, request_id=request.state.request_id))
 
@@ -487,7 +495,15 @@ def add_override(cid: uuid.UUID, body: OverrideIn, request: Request, user: User 
     if body.end_at <= body.start_at: raise HTTPException(422, "end_at must be after start_at")
     values = body.model_dump(); values["start_at"] = to_utc(values["start_at"]); values["end_at"] = to_utc(values["end_at"])
     row = AvailabilityOverride(caregiver_id=cid, created_by=user.id, **values); db.add(row)
-    pids = _linked_patient_ids(db, cid); _history(db, user, request, pids[0] if pids else None, "availability.override_added", "availability_override", "pending", "Availability override added", {"status": body.status, "reason": body.reason})
+    pids = _linked_patient_ids(db, cid)
+    if body.status == "UNAVAILABLE":
+        span = f"{_local(values['start_at'])} to {_local(values['end_at'])}"
+        for pid_ in pids:
+            notify(db, family_ids(db, pid_), pid_, f"{cg.name} is unavailable", f"{span}. Their tasks in that time are being offered to others.", kind="DECISION", severity="MEDIUM",
+                   link=f"/cover?patient={pid_}", exclude=[user.id])
+        if cg.user_id and cg.user_id != user.id and pids:
+            notify(db, [cg.user_id], pids[0], "You were marked unavailable", f"{user.name} recorded you as unavailable {span}.", kind="DECISION", severity="MEDIUM", link="/care-network")
+    _history(db, user, request, pids[0] if pids else None, "availability.override_added", "availability_override", "pending", "Availability override added", {"status": body.status, "reason": body.reason})
     reassess(db, pids, TriggerEvent.CAREGIVER_UNAVAILABLE if body.status == "UNAVAILABLE" else TriggerEvent.AVAILABILITY_CHANGED, {"caregiver_id": str(cid)}); db.commit(); db.refresh(row); return {"id": row.id, "status": row.status, "start_at": row.start_at, "end_at": row.end_at}
 
 
@@ -498,7 +514,10 @@ def cancel_override(cid: uuid.UUID, oid: uuid.UUID, request: Request, user: User
     if not cg or not row or row.caregiver_id != cid: raise HTTPException(404, "Availability override not found")
     if not _can_edit_caregiver(db, user, cg): raise HTTPException(403, "Permission denied")
     if row.cancelled_at: raise HTTPException(409, "Override already cancelled")
-    row.cancelled_at = now(); pids = _linked_patient_ids(db, cid); _history(db, user, request, pids[0] if pids else None, "availability.override_cancelled", "availability_override", oid, "Availability override cancelled")
+    row.cancelled_at = now(); pids = _linked_patient_ids(db, cid)
+    for pid_ in pids:
+        notify(db, family_ids(db, pid_), pid_, f"{cg.name} is available again", "Their unavailable time was removed.", kind="STATUS", severity="LOW", link=f"/care-network?patient={pid_}", exclude=[user.id])
+    _history(db, user, request, pids[0] if pids else None, "availability.override_cancelled", "availability_override", oid, "Availability override cancelled")
     reassess(db, pids, TriggerEvent.AVAILABILITY_CHANGED, {"caregiver_id": str(cid)}); db.commit(); return {"status": "cancelled", "cancelled_at": row.cancelled_at}
 
 
@@ -629,6 +648,8 @@ def complete_activity(aid: uuid.UUID, request: Request, user: User = Depends(__i
     try: care_status_service.complete(db, a, user.id)
     except care_status_service.StatusError as exc: raise HTTPException(409, str(exc)) from None
     _history(db, user, request, a.patient_id, "activity.completed", "care_activity", aid, f"{a.title} recorded as done" + (" (late)" if a.completed_late else ""))
+    notify(db, family_ids(db, a.patient_id), a.patient_id, f"Done: {a.title}", f"{user.name} recorded it as done" + (" (late)." if a.completed_late else "."),
+           kind="STATUS", severity="LOW", link=f"/care-plan?patient={a.patient_id}", exclude=[user.id])
     for incident in db.scalars(select(Incident).where(Incident.related_activity_id == aid, Incident.status.in_(("OPEN", "ACKNOWLEDGED")))):
         incident.status="RESOLVED";incident.resolved_at=now();incident.resolution_code="HANDLED";incident.resolution_note="Activity completed";incident.current_deadline_at=None;incident.deadline_kind=None;incident.version+=1
         db.add(IncidentEvent(incident_id=incident.id,kind="RESOLVED",level=incident.current_level,actor_user_id=user.id,note="Related activity completed"))
@@ -697,6 +718,9 @@ def add_assignment(aid: uuid.UUID, body: AssignmentIn, request: Request, user: U
             assignment = CareAssignment(activity_id=target.id, caregiver_id=cg.id, role=body.role, status=status, assigned_by=user.id, confirmed_at=now() if body.confirm_now else None, confirmed_by=user.id if body.confirm_now else None, confirmed_via="COORDINATOR" if body.confirm_now else None)
             db.add(assignment); db.flush()
             warning_list = _warnings(db, target, cg)
+            if cg.user_id and cg.user_id != user.id:
+                notify(db, [cg.user_id], target.patient_id, f"New task for you: {target.title}", f"{user.name} assigned it for {_local(target.scheduled_start)}." + ("" if status == "CONFIRMED" else " Please confirm."),
+                       kind="DECISION", severity="MEDIUM", link="/my-day", dedupe_key=f"assign:{assignment.id}")
             _history(db, user, request, target.patient_id, "assignment.added", "care_assignment", assignment.id, "Caregiver assigned", {"role": body.role, "status": status})
             created.append({"id": assignment.id, "activity_id": target.id, "caregiver_id": cg.id, "role": assignment.role, "status": assignment.status, "warnings": warning_list})
     except IntegrityError:
@@ -730,6 +754,13 @@ def _transition(aid, action, body, request, user, db):
     assignment.status = matrix[action][assignment.status]; assignment.updated_at = now()
     _history(db, user, request, act.patient_id, f"assignment.{action.replace('-', '_')}", "care_assignment", aid, f"Assignment {action.replace('-', ' ')}", {"status": assignment.status})
     trigger = TriggerEvent.ASSIGNMENT_UNCONFIRMED if assignment.status == "AWAITING_CONFIRMATION" else TriggerEvent.ASSIGNMENT_REMOVED if assignment.status in TERMINAL else TriggerEvent.GAP_RESOLVED_OR_REAPPEARED
+    family = family_ids(db, act.patient_id)
+    when = _local(act.scheduled_start)
+    if action == "confirm" and self_user: notify(db, family, act.patient_id, f"{cg.name} confirmed: {act.title}", f"They will do it on {when}.", kind="DECISION", link=f"/care-plan?patient={act.patient_id}", exclude=[user.id])
+    elif action == "decline": notify(db, family, act.patient_id, f"{cg.name} declined: {act.title}", f"{(body or {}).get('reason', '').strip() or 'No reason given'}. Another caretaker will be asked.", kind="DECISION", severity="MEDIUM",
+                                     link=f"/care-plan?patient={act.patient_id}", exclude=[user.id])
+    elif action == "request-confirmation" and cg.user_id: notify(db, [cg.user_id], act.patient_id, f"Please confirm: {act.title}", f"{user.name} asked you to confirm it for {when}.", kind="DECISION", severity="MEDIUM", link="/my-day", exclude=[user.id])
+    elif action in ("reject", "cancel") and cg.user_id: notify(db, [cg.user_id], act.patient_id, f"Taken off your plan: {act.title}", f"{user.name} removed you from it ({when}).", kind="DECISION", severity="MEDIUM", link="/my-day", exclude=[user.id])
     reassess(db, [act.patient_id], trigger, {"assignment_id": str(aid)}); db.commit()
     return {"id": assignment.id, "status": assignment.status, "confirmed_at": assignment.confirmed_at}
 

@@ -17,6 +17,7 @@ from app.core.permissions import require_patient_access
 from app.models import ActivityHistory, CareActivity, CaregiverPatientLink, Prescription, Role, TeamRole
 from app.services import care_feeds as feeds
 from app.services.care_status import care_status
+from app.services.notify import caregiver_user_id, family_ids, holder_user_id, name_of, notify, team_user_ids
 from app.services.reassess import TriggerEvent, reassess
 
 router = APIRouter(prefix="/api/v1", tags=["care feeds"])
@@ -97,6 +98,22 @@ def _professional(db, user, patient_id):
     return patient, member
 
 
+def _circle(db, patient_id, actor):
+    """Who hears about a prescription or appointment decision: the family, the patient and the main caretaker (not the person who did it)."""
+    main = feeds.main_caretaker(db, patient_id)
+    ids = team_user_ids(db, patient_id, [TeamRole.PRIMARY_CONTACT, TeamRole.PATIENT_SELF])
+    if main is not None and main.user_id: ids.append(main.user_id)
+    return [u for u in dict.fromkeys(ids) if u != actor.id]
+
+
+def _when(value) -> str:
+    from datetime import UTC
+    from zoneinfo import ZoneInfo
+    from app.core.config import settings
+    moment = value.replace(tzinfo=UTC) if value.tzinfo is None else value
+    return moment.astimezone(ZoneInfo(settings.app_timezone)).strftime("%a %d %b, %H:%M")
+
+
 def _history(db, user, patient_id, event, entity_type, entity_id, summary):
     db.add(ActivityHistory(actor_user_id=user.id, patient_id=patient_id, event_type=event, entity_type=entity_type, entity_id=str(entity_id), summary=summary[:500], payload={}, request_id=""))
 
@@ -136,6 +153,8 @@ def create_prescription(patient_id: uuid.UUID, body: PrescriptionIn, user=Depend
                      times=body.times, start_date=body.start_date, end_date=body.end_date, status="ACTIVE", prescribed_by=user.id)
     db.add(p); db.flush()
     created = feeds.generate_doses(db, p, actor_id=user.id)
+    notify(db, _circle(db, patient.id, user), patient.id, f"New medicine: {p.medicine} {p.dose}".strip(),
+           f"{user.name} prescribed it at {', '.join(p.times)}. {created} doses were added to the plan.", kind="DECISION", severity="MEDIUM", link=f"/care-plan?patient={patient.id}")
     _history(db, user, patient.id, "prescription.created", "prescription", p.id, f"{user.name} prescribed {p.medicine} {p.dose} at {', '.join(p.times)}")
     reassess(db, [patient.id], TriggerEvent.ACTIVITY_ADDED, {"prescription_id": str(p.id)}); db.commit()
     return {**_prescription_dict(db, p), "doses_created": created}
@@ -163,6 +182,9 @@ def update_prescription(prescription_id: uuid.UUID, body: PrescriptionPatch, use
     else:
         cancelled, created = 0, 0
         feeds.refresh_future_doses(db, p)
+    if changes:
+        notify(db, _circle(db, p.patient_id, user), p.patient_id, f"Medicine changed: {p.medicine}", f"{user.name} updated {', '.join(sorted(changes)).replace('_', ' ')}. Check the plan for the new times.",
+               kind="DECISION", severity="MEDIUM", link=f"/care-plan?patient={p.patient_id}")
     _history(db, user, p.patient_id, "prescription.updated", "prescription", p.id, f"{user.name} changed {p.medicine}: {', '.join(sorted(changes)) or 'no changes'}")
     reassess(db, [p.patient_id], TriggerEvent.ACTIVITY_RESCHEDULED, {"prescription_id": str(p.id)}); db.commit()
     return {**_prescription_dict(db, p), "doses_cancelled": cancelled, "doses_created": created}
@@ -174,6 +196,8 @@ def stop_prescription(prescription_id: uuid.UUID, body: StopIn | None = None, us
     if p.status == "STOPPED": return _prescription_dict(db, p)
     p.status, p.stopped_at, p.stop_reason = "STOPPED", now(), (body.reason if body else "").strip()
     cancelled = feeds.cancel_future_doses(db, p, "Prescription stopped")
+    notify(db, _circle(db, p.patient_id, user), p.patient_id, f"Medicine stopped: {p.medicine}", f"{user.name} stopped it" + (f": {p.stop_reason}" if p.stop_reason else ".") + " Upcoming doses were removed.",
+           kind="DECISION", severity="MEDIUM", link=f"/care-plan?patient={p.patient_id}")
     _history(db, user, p.patient_id, "prescription.stopped", "prescription", p.id, f"{user.name} stopped {p.medicine}" + (f": {p.stop_reason}" if p.stop_reason else ""))
     reassess(db, [p.patient_id], TriggerEvent.ACTIVITY_RESCHEDULED, {"prescription_id": str(p.id)}); db.commit()
     return {**_prescription_dict(db, p), "doses_cancelled": cancelled}
@@ -197,6 +221,13 @@ def create_appointment(patient_id: uuid.UUID, body: AppointmentIn, user=Depends(
     if body.start <= now(): raise HTTPException(422, "Appointments must be in the future")
     a = feeds.create_appointment(db, patient, title=body.title.strip(), start=body.start, minutes=body.duration_minutes, location=body.location.strip(),
                                  notes=body.notes.strip(), needs_escort=body.needs_escort, importance=body.importance, actor_id=user.id)
+    escort = holder_user_id(db, a.id)
+    notify(db, [u for u in family_ids(db, patient.id) + team_user_ids(db, patient.id, [TeamRole.PATIENT_SELF]) if u != user.id], patient.id, f"Appointment: {a.title}",
+           f"{user.name} booked it for {_when(a.scheduled_start)}" + (f" at {a.location_note}" if a.location_note else "") + ("." if escort or not a.requires_caregiver else ". No escort yet."),
+           kind="DECISION", severity="MEDIUM", link=f"/care-plan?patient={patient.id}")
+    if escort and escort != user.id:
+        notify(db, [escort], patient.id, f"You are escorting: {a.title}", f"{_when(a.scheduled_start)}" + (f", {a.location_note}" if a.location_note else "") + f". Booked by {user.name}.",
+               kind="DECISION", severity="MEDIUM", link="/my-day")
     reassess(db, [patient.id], TriggerEvent.ACTIVITY_ADDED, {"activity_id": str(a.id)}); db.commit()
     return _appointment_dict(a)
 
@@ -207,6 +238,10 @@ def cancel_appointment(activity_id: uuid.UUID, body: StopIn | None = None, user=
     if not a or a.category != "APPOINTMENT": raise HTTPException(404, "Appointment not found")
     _professional(db, user, a.patient_id)
     if a.lifecycle_status == "SCHEDULED":
+        escort = holder_user_id(db, a.id)
+        who = [u for u in dict.fromkeys(family_ids(db, a.patient_id) + team_user_ids(db, a.patient_id, [TeamRole.PATIENT_SELF]) + ([escort] if escort else [])) if u != user.id]
+        notify(db, who, a.patient_id, f"Appointment cancelled: {a.title}", f"{user.name} cancelled the visit planned for {_when(a.scheduled_start)}.",
+               kind="DECISION", severity="MEDIUM", link=f"/care-plan?patient={a.patient_id}")
         feeds.cancel_activity(db, a, (body.reason if body else "") or "Cancelled by the hospital")
         _history(db, user, a.patient_id, "appointment.cancelled", "care_activity", a.id, f"{user.name} cancelled {a.title}")
         reassess(db, [a.patient_id], TriggerEvent.ACTIVITY_RESCHEDULED, {"activity_id": str(a.id)}); db.commit()
@@ -236,6 +271,10 @@ def set_main_caretaker(patient_id: uuid.UUID, body: MainCaretakerIn, user=Depend
     for activity in db.scalars(select(CareActivity).where(CareActivity.patient_id == patient.id, CareActivity.lifecycle_status == "SCHEDULED",
                                                           CareActivity.source.in_(("PRESCRIPTION", "APPOINTMENT")), CareActivity.scheduled_start > now())):
         assigned += feeds.auto_assign(db, activity, user.id) is not None
+    new_main = caregiver_user_id(db, body.caregiver_id)
+    if new_main:
+        notify(db, [new_main], patient.id, f"You are now the main caretaker for {patient.name}", f"{assigned} upcoming doses and visits were given to you.", kind="DECISION", severity="MEDIUM", link="/my-day", exclude=[user.id])
+    notify(db, family_ids(db, patient.id), patient.id, "Main caretaker changed", f"{user.name} set {name_of(db, new_main)} as the main caretaker.", kind="DECISION", link=f"/care-network?patient={patient.id}", exclude=[user.id])
     _history(db, user, patient.id, "care_team.main_caretaker", "caregiver", body.caregiver_id, f"Main caretaker set; {assigned} upcoming activities assigned")
     reassess(db, [patient.id], TriggerEvent.ASSIGNMENT_ADDED, {"main_caretaker": str(body.caregiver_id)}); db.commit()
     return {"caregiver_id": body.caregiver_id, "assigned": assigned}
