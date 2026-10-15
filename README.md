@@ -9,7 +9,8 @@ CareCircle puts every **medication dose** and **appointment** for a patient in o
 
 The product spec is in [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md). For a 10-minute walkthrough, follow [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
-**Team: CodeBlue : **
+Team: CodeBlue: 
+
 Aditya Prasad,
 
 Gaspar Anothony Savio Simoes,
