@@ -107,3 +107,26 @@ def test_recordings_are_validated_and_roles_respected(setup, monkeypatch):
     assert on_behalf.status_code == 201 and on_behalf.json()["voice_note"]["status"] == "UNTRANSCRIBED"
     other, _, _ = account("CARETAKER")
     assert upload(other, pid).status_code == 403
+
+
+def test_demo_reset_removes_voice_notes_of_the_demo_patients(monkeypatch):
+    from sqlalchemy import func, select
+    from app.core.db import SessionLocal
+    from app.main import seed
+    from app.models import VoiceNote
+    from app.services import demo
+    monkeypatch.setattr(ai, "transcribe_audio", lambda audio, mime, hint=None: None)
+    monkeypatch.setattr(ai, "urgency_advisor", lambda: None)
+    seed()
+    anita = TestClient(app)
+    assert anita.post("/api/v1/auth/login", headers=H, json={"email": "anita.iyer@secondpatient.demo", "password": settings.demo_password}).status_code == 200
+    ramesh = TestClient(app)
+    assert ramesh.post("/api/v1/auth/login", headers=H, json={"email": "ramesh.iyer@secondpatient.demo", "password": settings.demo_password}).status_code == 200
+    pid = ramesh.get("/api/v1/patients").json()["items"][0]["id"]
+    assert upload(ramesh, pid).status_code == 201
+    with SessionLocal() as db:
+        ids = [p.id for p in demo.demo_patients(db).values()]
+        assert db.scalar(select(func.count()).select_from(VoiceNote).where(VoiceNote.patient_id.in_(ids))) >= 1
+    assert anita.post("/api/v1/demo/reset", headers=H).status_code == 200
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(VoiceNote).where(VoiceNote.patient_id.in_(ids))) == 0
