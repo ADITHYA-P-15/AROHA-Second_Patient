@@ -108,7 +108,8 @@ def team_matches(pid: uuid.UUID, limit: int = Query(20, ge=1, le=50), sector: Li
                  gender: Literal["FEMALE", "MALE", "NON_BINARY", "UNDISCLOSED"] | None = None, language: list[str] | None = Query(None),
                  capability: list[str] | None = Query(None), min_experience: int | None = Query(None, ge=0, le=60),
                  min_agency_rating: float | None = Query(None, ge=1, le=5), available_on: date | None = None,
-                 sort: Literal["best", "name", "experience"] = "best", user=Depends(_current_user), db: Session = Depends(get_db)):
+                 sort: Literal["best", "name", "experience"] = "best", must_have: list[str] | None = Query(None),
+                 user=Depends(_current_user), db: Session = Depends(get_db)):
     """The Find & build team list: every directory filter, ranked for this patient like a backup would be."""
     _primary_contact(db, user, pid)
     from app.api.directory import multi
@@ -117,7 +118,9 @@ def team_matches(pid: uuid.UUID, limit: int = Query(20, ge=1, le=50), sector: Li
     f = Filters(sector=sector, agency=agency, state=state, city=city, gender=gender, language=language, capability=capability,
                 min_experience=min_experience, min_agency_rating=min_agency_rating, available_on=available_on)
     pending = {str(c) for c in db.scalars(select(HireRequest.caregiver_id).where(HireRequest.patient_id == pid, HireRequest.status == "PENDING"))}
-    result = svc.matches(db, pid, limit=limit, filters=f, sort=sort)
+    # must_have absent: the patient's recorded help and saved must-haves; present (even empty, "must_have="): exactly those ticked.
+    required = multi(must_have, 40, SUPPORT) if must_have is not None else None
+    result = svc.matches(db, pid, limit=limit, filters=f, sort=sort, must_have=required)
     for m in result["items"]: m["request_pending"] = m["caregiver_id"] in pending
     return {**result, "preferences": svc.preference_dict(svc.preferences(db, pid))}
 

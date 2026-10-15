@@ -10,7 +10,7 @@ export type Match = {
   languages: string[]; capabilities: string[]; years_experience: number; unrated: boolean; request_pending?: boolean;
   agency?: { id: string; name: string } | null; agency_name?: string | null; agency_rating?: number | null; capacity_note?: string | null; reputation?: ReputationSummary;
 };
-export type MatchPage = { items: Match[]; total: number; needs: string[] };
+export type MatchPage = { items: Match[]; total: number; needs: string[]; must_have: string[] };
 export type Preferences = { languages: string[]; city: string; sector_code: string | null; min_rating: number | null; capabilities: string[]; set?: boolean };
 export type HireStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'WITHDRAWN' | 'EXPIRED';
 export type HireRequest = {
@@ -21,15 +21,28 @@ export type Suggestion = { caregiver_id: string; name: string; composite: number
 export type MatchSort = 'best' | 'name' | 'experience';
 
 export const MAX_COMPARE = 3;
-export const TOP_DEFAULT = 12;
+export const TOP_DEFAULT = 5;  // the screen shows the top five recommendations only
 
-/** Query for GET /patients/{id}/team-matches: every directory filter, plus how many of the top matches and the order. */
-export function buildMatchesQuery(filters: DirectoryFilters, sort: MatchSort = 'best', limit: number = TOP_DEFAULT): string {
+/** Query for GET /patients/{id}/team-matches: every directory filter, the order, how many, and the must-help skills.
+ * mustHave null: the server uses the patient's recorded help and saved must-haves; a list (even empty): exactly those, all required. */
+export function buildMatchesQuery(filters: DirectoryFilters, sort: MatchSort = 'best', limit: number = TOP_DEFAULT, mustHave: string[] | null = null): string {
   const base = buildDirectoryQuery({ ...filters, sort: undefined, limit: undefined, offset: undefined }).replace(/^\?/, '');
   const params = new URLSearchParams(base);
   if (sort !== 'best') params.set('sort', sort);
   params.set('limit', String(Math.min(50, Math.max(1, Math.floor(limit) || TOP_DEFAULT))));
+  if (mustHave !== null) params.set('must_have', [...new Set(mustHave)].join(','));
   return `?${params.toString()}`;
+}
+
+/** Whether any filter is set, so "Reset all filters" can be enabled only when it would do something. */
+export function hasActiveFilters(filters: DirectoryFilters, sort: MatchSort = 'best'): boolean {
+  return sort !== 'best' || Object.values(filters).some(v => Array.isArray(v) ? v.length > 0 : v !== undefined && v !== null && String(v).trim() !== '');
+}
+
+/** At most three short reasons on a card: the strongest positive points first. */
+export function topReasons(m: Pick<Match, 'points' | 'why'>, n = 3): string[] {
+  const positive = [...m.points].filter(p => p.points > 0).sort((a, b) => b.points - a.points).map(p => p.label);
+  return (positive.length ? positive : m.why).slice(0, n);
 }
 
 /** Client-side narrowing of the ranked matches (the server applied the filters and hard rules). Order is kept. */

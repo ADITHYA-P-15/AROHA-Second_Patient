@@ -133,3 +133,16 @@ How filters combine:
 API:
 - `GET /api/v1/directory/caretakers` and `GET /api/v1/patients/{id}/team-matches` accept repeated parameters (`?city=Pune&city=Mumbai`) or comma-separated ones (`?city=Pune,Mumbai`) for `state`, `city`, `language` and `capability`. Up to 30 values per field; an unknown skill returns 422.
 - `GET /api/v1/directory/options` (any signed-in person) returns `{states, cities: [{city, state}], languages, capabilities}` from listed caretakers.
+
+## Find & build team, simplified (top 5, must-help fix)
+
+- **Must help with** sits at the top as one row of skill buttons. **Every ticked skill is required.**
+  - The buttons start from the help recorded for the patient (Patient Profile, "Help needed") plus any saved must-haves.
+  - A change applies to the list at once; "Save as patient's needs" keeps it.
+  - **Fix:** previously the patient's recorded help only added points, and ticked must-haves only applied after saving. Now both filter the list. The regression test is `test_the_patients_must_help_skills_filter_the_list`.
+  - API: `team-matches` takes `must_have=A,B`, and every value is required. Without the parameter, the default is the patient's recorded help plus saved must-haves. `must_have=` (empty) means none. The response includes `must_have`.
+- **Filters:** Region, States, Cities, Languages, Gender, Agency, Agency rating, Experience, Free on, and Order.
+  - "Can help with" was removed from the filters; use Must help with instead.
+  - **Reset all filters** clears every filter and the order in one tap. It does not change the patient's must-help skills.
+- **Top 5 only:** the screen shows the five best matches, with no "Show more". Each card shows match points, reputation, one line of place, agency, experience and languages, and the three strongest reasons.
+- Less helper text: other languages, the patient's city, region and minimum reputation are under "More about the patient".

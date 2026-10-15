@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMatchesQuery, compareRows, filterMatches, requestStatusText, toggleCompare, type Match } from './teambuilder.ts';
+import { buildMatchesQuery, compareRows, filterMatches, hasActiveFilters, requestStatusText, toggleCompare, topReasons, type Match } from './teambuilder.ts';
 
 const m = (id: string, over: Partial<Match> = {}): Match => ({ caregiver_id: id, name: `Person ${id}`, score: 0, points: [], why: [], composite: 70, metric: null, city: 'Pune',
   state: 'Maharashtra', sector: 'WEST', gender: 'FEMALE', languages: ['Marathi'], capabilities: ['TRANSPORT'], years_experience: 4, unrated: false, ...over });
@@ -51,9 +51,28 @@ describe('request status wording', () => {
 
 describe('merged list query', () => {
   it('sends every directory filter, the top-N limit and a non-default order', () => {
-    expect(buildMatchesQuery({})).toBe('?limit=12');
+    expect(buildMatchesQuery({})).toBe('?limit=5');
     expect(buildMatchesQuery({ sector: 'SOUTH', gender: 'FEMALE', min_agency_rating: '4', city: ' Bengaluru ' }, 'best', 20)).toBe('?sector=SOUTH&city=Bengaluru&gender=FEMALE&min_agency_rating=4&limit=20');
     expect(buildMatchesQuery({ language: 'Kannada' }, 'experience', 500)).toBe('?language=Kannada&sort=experience&limit=50');
-    expect(buildMatchesQuery({ sort: 'name' }, 'name')).toBe('?sort=name&limit=12');
+    expect(buildMatchesQuery({ sort: 'name' }, 'name')).toBe('?sort=name&limit=5');
+  });
+});
+
+describe('must-help, reset and reasons', () => {
+  it('sends the ticked must-help skills, or leaves the default to the server', () => {
+    expect(buildMatchesQuery({}, 'best', 5, null)).toBe('?limit=5');
+    expect(buildMatchesQuery({}, 'best', 5, ['LAB_ESCORT', 'TRANSPORT', 'LAB_ESCORT'])).toBe('?limit=5&must_have=LAB_ESCORT%2CTRANSPORT');
+    expect(buildMatchesQuery({}, 'best', 5, [])).toBe('?limit=5&must_have=');
+  });
+  it('knows when there is something to reset', () => {
+    expect(hasActiveFilters({ sector: '', state: [], city: [], gender: '' })).toBe(false);
+    expect(hasActiveFilters({ city: ['Pune'] })).toBe(true);
+    expect(hasActiveFilters({ min_agency_rating: '4' })).toBe(true);
+    expect(hasActiveFilters({}, 'name')).toBe(true);
+  });
+  it('shows the three strongest reasons', () => {
+    const points = [{ label: 'Reputation 90/100', points: 8 }, { label: 'Speaks Tamil', points: 6 }, { label: 'Little free time', points: -5 }, { label: 'Lives in Pune', points: 5 }, { label: 'Region', points: 2 }];
+    expect(topReasons({ points, why: [] })).toEqual(['Reputation 90/100', 'Speaks Tamil', 'Lives in Pune']);
+    expect(topReasons({ points: [], why: ['No rating yet'] })).toEqual(['No rating yet']);
   });
 });

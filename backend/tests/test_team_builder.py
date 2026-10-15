@@ -362,7 +362,7 @@ def test_the_merged_list_applies_directory_filters_and_ranks_like_a_backup():
         db.get(Caregiver, uuid.UUID(one)).capabilities = ["TRANSPORT"]
         db.get(Caregiver, uuid.UUID(man)).capabilities = ["TRANSPORT", "LAB_ESCORT"]
         db.add(AgencyRating(caregiver_id=uuid.UUID(one), rating=5.0)); db.commit()
-    body = coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville&limit=10").json()
+    body = coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville&limit=10&must_have=").json()
     ids = [m["caregiver_id"] for m in body["items"]]
     assert set(ids) == {both, one, man} and body["total"] == 3 and body["needs"] == ["LAB_ESCORT", "TRANSPORT"]
     top = body["items"][0]
@@ -370,12 +370,12 @@ def test_the_merged_list_applies_directory_filters_and_ranks_like_a_backup():
     labels = [p["label"] for p in body["items"][ids.index(both)]["points"]]
     assert any(l.startswith("Can ") and l.endswith("(2 of 2 needs)") for l in labels)
     assert all("phone" not in m and "private" not in m for m in body["items"])
-    women = {m["caregiver_id"] for m in coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville&gender=FEMALE").json()["items"]}
+    women = {m["caregiver_id"] for m in coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville&gender=FEMALE&must_have=").json()["items"]}
     assert women == {both, one}
-    rated = {m["caregiver_id"] for m in coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville&min_agency_rating=4.5").json()["items"]}
+    rated = {m["caregiver_id"] for m in coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville&min_agency_rating=4.5&must_have=").json()["items"]}
     assert rated == {one}
-    assert len(coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville&limit=1").json()["items"]) == 1
-    names = [m["name"] for m in coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville&sort=name").json()["items"]]
+    assert len(coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville&limit=1&must_have=").json()["items"]) == 1
+    names = [m["name"] for m in coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville&sort=name&must_have=").json()["items"]]
     assert names == sorted(names, key=str.lower)
     coord.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={"capabilities": ["LAB_ESCORT"]})  # must-have skill is a hard rule
     assert {m["caregiver_id"] for m in coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville").json()["items"]} == {both, man}
@@ -394,3 +394,21 @@ def test_team_matches_take_several_states_cities_languages_and_skills():
     assert get("city=Alphaville,Betatown,Gammaburg&language=Konkani&language=Tamil") == {b, c}
     assert get("city=Alphaville,Betatown,Gammaburg&capability=LAB_ESCORT,SUPPLIES") == {a, b}
     assert get("state=Kerala&city=Alphaville,Betatown,Gammaburg") == {a, c}
+
+
+def test_the_patients_must_help_skills_filter_the_list():
+    """Regression: the help the patient needs (Patient Profile) and the must-haves ticked on screen only added points."""
+    from app.models import PatientSupportNeed
+    coord, pid = primary_contact_with_patient()
+    _, has = listed("Mustville has", city="Mustville")
+    _, lacks = listed("Mustville lacks", city="Mustville")
+    with SessionLocal() as db:
+        db.get(Caregiver, uuid.UUID(has)).capabilities = ["LAB_ESCORT", "TRANSPORT"]; db.get(Caregiver, uuid.UUID(lacks)).capabilities = ["TRANSPORT"]
+        db.add(PatientSupportNeed(patient_id=uuid.UUID(pid), support_code="LAB_ESCORT")); db.commit()
+    get = lambda q="": {m["caregiver_id"] for m in coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mustville{q}").json()["items"]}
+    assert get() == {has}                                   # the patient's own needs are required
+    assert get("&must_have=TRANSPORT") == {has, lacks}      # ticked on screen (not yet saved): exactly these are required
+    assert get("&must_have=LAB_ESCORT,TRANSPORT") == {has}  # all of them, not any
+    body = coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mustville").json()
+    assert body["must_have"] == ["LAB_ESCORT"]
+    assert coord.get(f"/api/v1/patients/{pid}/team-matches?must_have=FLYING").status_code == 422

@@ -346,3 +346,13 @@ Cumulative record of features built one at a time on top of the phased roadmap i
 - **Shipped:** on Find & build team, States, Cities, Languages and Can help with are now multi-select dropdowns, filled from real directory values by `GET /api/v1/directory/options`. The patient's languages and city in "What the patient needs" are dropdowns as well. Several values within a field match any of them; fields combine with AND.
 - **Code:** `services/directory.many` / `options`, `api/directory.multi`, `frontend/src/MultiSelect.tsx`, `lib/directory.ts` (repeated query parameters, `selectionSummary`, `cityOptions`).
 - **Tests:** `test_directory.py` (several values, comma form, combination, limits, options), `test_team_builder.py` (several values in team matches), `lib/directory.test.ts`.
+
+## Follow-up: Find & build team, simplified
+
+- **Fix:** must-help skills now filter the list, and all are required. This covers both the help recorded for the patient and the ticked must-haves, which apply before saving (`must_have` on `team-matches`).
+- **Screen:**
+  - "Can help with" was removed from the filters.
+  - **Reset all filters** was added.
+  - Only the top 5 matches are shown.
+  - Labels are shorter, reasons are capped at three per card, and the secondary needs are folded under "More about the patient".
+- **Tests:** `test_the_patients_must_help_skills_filter_the_list` (failed before the fix), and `lib/teambuilder.test.ts` (`must_have` query, reset state, top reasons).

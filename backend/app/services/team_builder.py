@@ -119,7 +119,8 @@ def capacity_note(db: Session, cg: Caregiver, at: datetime | None = None) -> str
     return None
 
 
-def matches(db: Session, patient_id, *, limit: int = 20, need: dict | None = None, filters=None, min_agency_rating: float | None = None, sort: str = "best") -> dict:
+def matches(db: Session, patient_id, *, limit: int = 20, need: dict | None = None, filters=None, min_agency_rating: float | None = None, sort: str = "best",
+            must_have: list[str] | None = None) -> dict:
     """Listed directory caretakers not on the team, narrowed by the directory filters, ranked like the Backup Matcher ranks a
     backup: hard rules first (must-have skills, minimum reputation), then documented points for reputation, the reliability
     record, the patient's support needs they can help with, city or region, language, and little free time this week.
@@ -141,14 +142,18 @@ def matches(db: Session, patient_id, *, limit: int = 20, need: dict | None = Non
     rows = [(p, cg) for p, cg, _ in found if cg.id not in team]
     info = profiles(db, [cg.id for _, cg in rows])
     pol = policy()
-    needs = sorted(set(db.scalars(select(PatientSupportNeed.support_code).where(PatientSupportNeed.patient_id == patient_id))) | set(pref["capabilities"]))
+    support = set(db.scalars(select(PatientSupportNeed.support_code).where(PatientSupportNeed.patient_id == patient_id)))
+    # Must-help skills are a hard rule (every one required). Default: the help recorded for the patient plus the saved must-haves.
+    # The screen sends what is ticked right now, so a change applies before it is saved.
+    required = sorted(set(must_have) if must_have is not None else support | set(pref["capabilities"]))
+    needs = sorted(support | set(pref["capabilities"]) | set(required))
     sectors, agencies = directory.lookups(db)
     stars = dict(db.execute(select(AgencyRating.caregiver_id, AgencyRating.rating).where(AgencyRating.caregiver_id.in_([cg.id for _, cg in rows]))).all()) if rows else {}
     from app.services.reputation import summary as rep_summary
     out = []
     for p, cg in rows:
         prof = info[cg.id]
-        if set(pref["capabilities"]) - set(cg.capabilities or []): continue                        # hard: must-have skills
+        if set(required) - set(cg.capabilities or []): continue                                     # hard: every must-help skill
         if pref["min_rating"] is not None and prof["composite"] is not None and prof["composite"] < pref["min_rating"]: continue  # hard: minimum reputation
         points = extra_points(cg.name, prof, pref, pol)
         covered = [n for n in needs if n in (cg.capabilities or [])]
@@ -157,7 +162,7 @@ def matches(db: Session, patient_id, *, limit: int = 20, need: dict | None = Non
             points.append({"label": f"Can {support_phrase(covered)} ({len(covered)} of {len(needs)} needs)", "points": pol["need_covered"] * len(covered)})
         why = [x["label"] for x in points if x["points"] > 0]
         if prof["composite"] is None: why.append("No rating yet: shown, not ranked down")
-        if pref["capabilities"]: why.append("Has every must-have skill")
+        if required: why.append("Has every must-help skill")
         card = directory.card(p, cg, sectors, agencies)
         card.update(caregiver_id=str(cg.id), score=sum(x["points"] for x in points), points=points, why=why, composite=prof["composite"], metric=prof["metric"],
                     city=p.current_city, state=p.current_state, unrated=prof["composite"] is None, agency_rating=float(stars[cg.id]) if cg.id in stars else None,
@@ -179,7 +184,7 @@ def matches(db: Session, patient_id, *, limit: int = 20, need: dict | None = Non
         from app.services import reputation
         found_rep = reputation.breakdowns(db, [uuid.UUID(c["caregiver_id"]) for c in top]) if top else {}
         for c in top: c["reputation"] = rep_summary(found_rep[uuid.UUID(c["caregiver_id"])])
-    return {"items": top, "total": len(out), "needs": needs}
+    return {"items": top, "total": len(out), "needs": needs, "must_have": required}
 
 
 def suggestions(db: Session, patient_id, required: list[str], limit: int = 3) -> list[dict]:

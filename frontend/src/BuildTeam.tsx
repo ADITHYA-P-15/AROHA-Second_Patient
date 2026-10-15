@@ -1,30 +1,31 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { RotateCcw } from 'lucide-react';
 import { api } from './api/client.ts';
 import { newId } from './lib/id.ts';
 import { supportLabel } from './lib/plan.ts';
 import { usePatientPick } from './PatientPick.tsx';
-import { AGENCY_STARS, GENDERS, cardText, cityOptions, type Agency, type DirectoryFilters, type DirectoryOptions, type Sector } from './lib/directory.ts';
+import { AGENCY_STARS, GENDERS, cityOptions, type Agency, type DirectoryFilters, type DirectoryOptions, type Sector } from './lib/directory.ts';
 import { MultiSelect } from './MultiSelect.tsx';
-import { compositeText } from './lib/reputation.ts';
 import { ProfileDrawer } from './FindCaretakers.tsx';
-import { MAX_COMPARE, TOP_DEFAULT, buildMatchesQuery, compareRows, requestStatusText, roleText, toggleCompare, type HireRequest, type Match, type MatchPage, type MatchSort, type Preferences } from './lib/teambuilder.ts';
+import { MAX_COMPARE, TOP_DEFAULT, buildMatchesQuery, compareRows, hasActiveFilters, requestStatusText, roleText, toggleCompare, topReasons, type HireRequest, type Match, type MatchPage, type MatchSort, type Preferences } from './lib/teambuilder.ts';
 
 const CAPS = ['MEDICATION_ASSIST', 'APPOINTMENT_ESCORT', 'TRANSPORT', 'DAILY_ASSIST', 'MOBILITY_ASSIST', 'PRESCRIPTION_PICKUP', 'LAB_ESCORT', 'SUPPLIES'];
 const SECTORS: [string, string][] = [['NORTH', 'North'], ['SOUTH', 'South'], ['EAST', 'East'], ['WEST', 'West']];
-type Filters = DirectoryFilters & { state: string[]; city: string[]; language: string[]; capability: string[] };
-const BLANK: Filters = { sector: '', agency: '', state: [], city: [], gender: '', language: [], capability: [], min_experience: '', min_agency_rating: '', available_on: '' };
+type Filters = DirectoryFilters & { state: string[]; city: string[]; language: string[] };
+const BLANK: Filters = { sector: '', agency: '', state: [], city: [], gender: '', language: [], min_experience: '', min_agency_rating: '', available_on: '' };
 
-/** Find & build care team: browse the directory with every filter, ranked for this patient the way a backup is ranked
- * (ratings, skills for the patient's needs, place, language, free time), then compare, view a profile and send a hire request. */
+/** Find & build team: the top five caretakers for this patient, ranked like a backup (ratings, the help the patient needs,
+ * place, language, free time). Must-help skills are all required. Nobody joins without a request and their acceptance. */
 export function BuildTeam() {
   const { id: pid, picker } = usePatientPick();
   const client = useQueryClient();
   const [filters, setFilters] = useState<Filters>(BLANK);
   const [sort, setSort] = useState<MatchSort>('best');
-  const [top, setTop] = useState(TOP_DEFAULT);
-  const query = buildMatchesQuery(filters, sort, top);
+  const [must, setMust] = useState<string[] | null>(null);  // null: the patient's recorded help and saved must-haves
+  const query = buildMatchesQuery(filters, sort, TOP_DEFAULT, must);
   const sectors = useQuery({ queryKey: ['directory-sectors'], queryFn: () => api<{ items: Sector[] }>('/api/v1/directory/sectors'), staleTime: 300_000 });
+  const options = useQuery({ queryKey: ['directory-options'], queryFn: () => api<DirectoryOptions>('/api/v1/directory/options'), staleTime: 300_000 });
   const agencies = useQuery({ queryKey: ['directory-agencies', filters.sector], staleTime: 300_000,
     queryFn: () => api<{ items: Agency[] }>(`/api/v1/directory/agencies${filters.sector ? `?sector=${filters.sector}` : ''}`) });
   const prefs = useQuery({ queryKey: ['care-preferences', pid], queryFn: () => api<Preferences>(`/api/v1/patients/${pid}/care-preferences`), enabled: !!pid });
@@ -36,15 +37,17 @@ export function BuildTeam() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   useEffect(() => { if (prefs.data) setForm(prefs.data); }, [prefs.data]);
+  useEffect(() => { setMust(null); setCompare([]); }, [pid]);
   const refresh = () => Promise.all(['team-matches', 'hire-requests', 'command-center', 'care-preferences'].map(k => client.invalidateQueries({ queryKey: [k] })));
-  const set = (patch: Partial<Filters>) => { setFilters(f => ({ ...f, ...patch })); setTop(TOP_DEFAULT); };
-  const options = useQuery({ queryKey: ['directory-options'], queryFn: () => api<DirectoryOptions>('/api/v1/directory/options'), staleTime: 300_000 });
+  const set = (patch: Partial<Filters>) => setFilters(f => ({ ...f, ...patch }));
+  const page = matches.data;
+  const mustNow = must ?? page?.must_have ?? [];
 
   async function saveNeeds(e: FormEvent) {
     e.preventDefault(); setNotice('');
     try {
-      await api(`/api/v1/patients/${pid}/care-preferences`, { method: 'PUT', body: JSON.stringify(form) });
-      setNotice('Needs saved. The ranking and backup choices now use them.'); await refresh();
+      await api(`/api/v1/patients/${pid}/care-preferences`, { method: 'PUT', body: JSON.stringify({ ...form, capabilities: mustNow }) });
+      setNotice('Saved.'); await refresh();
     } catch (err) { setNotice(err instanceof Error ? err.message : 'Could not save.'); }
   }
   async function withdraw(r: HireRequest) {
@@ -52,80 +55,77 @@ export function BuildTeam() {
     catch (err) { setNotice(err instanceof Error ? err.message : 'Could not withdraw.'); }
   }
   if (!pid) return <section className="card">Register a patient first in Care Team.</section>;
-  const page = matches.data;
   const items = page?.items ?? [];
   const sectorStates = new Set((sectors.data?.items ?? []).filter(s => !filters.sector || s.code === filters.sector).flatMap(s => s.states));
   const states = (options.data?.states ?? []).filter(s => sectorStates.has(s) || filters.state.includes(s));
   const picked = items.filter(m => compare.includes(m.caregiver_id)).sort((a, b) => compare.indexOf(a.caregiver_id) - compare.indexOf(b.caregiver_id));
-  const active = Object.entries(filters).some(([k, v]) => k !== 'sector' && v !== '' && v !== undefined && !(Array.isArray(v) && !v.length));
-  return <div className="tb">
-    <div className="section-head"><div><p className="eyebrow">FIND &amp; BUILD CARE TEAM · FICTIONAL PEOPLE</p><h3>Choose caretakers for the team</h3></div>{picker}</div>
-    <p className="muted small">The best matches come first, ranked like a backup is: ratings, the skills the patient needs, where they live, language and free time. Phone numbers are shared only after a caretaker accepts your request. This is not a medical judgement.</p>
+  const toggleMust = (c: string) => setMust(mustNow.includes(c) ? mustNow.filter(x => x !== c) : [...mustNow, c]);
+  const pending = (requests.data?.items ?? []).filter(r => r.status === 'PENDING' || r.status === 'ACCEPTED' || r.status === 'DECLINED');
+
+  return <div className="tb tb-clean">
+    <div className="section-head"><h3>Find &amp; build team</h3>{picker}</div>
     {notice && <p className="md-notice" role="status">{notice}</p>}
 
-    <details className="card tb-needs" open={!prefs.data?.set}><summary><strong>What the patient needs</strong> <span className="muted small">(used for ranking; must-have skills and the minimum reputation leave others out)</span></summary>
-      <form onSubmit={e => void saveNeeds(e)}>
-        <div className="tb-grid">
-          <MultiSelect label="Languages the patient speaks" searchable value={form.languages} onChange={languages => setForm({ ...form, languages })}
+    <section className="card tb-block">
+      <h4>Must help with <small className="muted">all required</small></h4>
+      <div className="tb-chips">{CAPS.map(c => <button key={c} type="button" className={`cp-filter${mustNow.includes(c) ? ' on' : ''}`} aria-pressed={mustNow.includes(c)} onClick={() => toggleMust(c)}>{supportLabel(c)}</button>)}</div>
+      <details className="tb-more"><summary>More about the patient</summary>
+        <form className="tb-grid" onSubmit={e => void saveNeeds(e)}>
+          <MultiSelect label="Languages" searchable value={form.languages} onChange={languages => setForm({ ...form, languages })}
             options={[...new Set([...(options.data?.languages ?? []), ...form.languages])].map(l => ({ value: l, label: l }))}/>
-          <label>Patient's city<select value={form.city} onChange={e => setForm({ ...form, city: e.target.value })}><option value="">Not set</option>
+          <label>City<select value={form.city} onChange={e => setForm({ ...form, city: e.target.value })}><option value="">Any</option>
             {[...new Set([...(options.data?.cities ?? []).map(c => c.city), ...(form.city ? [form.city] : [])])].sort().map(c => <option key={c} value={c}>{c}</option>)}</select></label>
           <label>Region<select value={form.sector_code ?? ''} onChange={e => setForm({ ...form, sector_code: e.target.value || null })}><option value="">Any</option>{SECTORS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-          <label>Minimum reputation (0–100)<input type="number" min={0} max={100} value={form.min_rating ?? ''} onChange={e => setForm({ ...form, min_rating: e.target.value === '' ? null : Number(e.target.value) })}/></label>
-        </div>
-        <fieldset className="pp-needs"><legend>Must be able to help with</legend>{CAPS.map(c => <label key={c}><input type="checkbox" checked={form.capabilities.includes(c)}
-          onChange={e => setForm({ ...form, capabilities: e.target.checked ? [...form.capabilities, c] : form.capabilities.filter(x => x !== c) })}/>{supportLabel(c)}</label>)}</fieldset>
-        <button className="primary">Save needs</button>
-      </form>
-    </details>
+          <label>Min. reputation<input type="number" min={0} max={100} placeholder="0–100" value={form.min_rating ?? ''} onChange={e => setForm({ ...form, min_rating: e.target.value === '' ? null : Number(e.target.value) })}/></label>
+          <button className="cp-btn cp-primary tb-save">Save as patient's needs</button>
+        </form>
+      </details>
+    </section>
 
-    {(requests.data?.items.length ?? 0) > 0 && <section className="card"><h3>Requests</h3><ul className="tb-requests">{(requests.data?.items ?? []).map(r => <li key={r.id} className={`tb-req tb-${r.status.toLowerCase()}`}>
-      <div><strong>{r.caretaker.name}</strong> <span className="chip">{roleText(r.intended_role)}</span> <span className="chip">{r.status_text}</span></div>
-      <p className="small">{requestStatusText(r)}</p>{r.capacity_note && <p className="small tb-warn">{r.capacity_note}</p>}
-      {r.status === 'PENDING' && <button className="cp-btn" onClick={() => void withdraw(r)}>Withdraw</button>}</li>)}</ul></section>}
-
-    <div className="cp-filters dir-tabs" role="tablist" aria-label="Sector">
-      {[{ code: '', name: 'All sectors' }, ...(sectors.data?.items ?? [])].map(s => <button key={s.code || 'all'} role="tab" aria-selected={filters.sector === s.code}
-        className={`cp-filter${filters.sector === s.code ? ' on' : ''}`} onClick={() => set({ sector: s.code, agency: '', state: [], city: [] })}>{s.name}</button>)}
-    </div>
-    <form className="dir-filters card" onSubmit={e => e.preventDefault()} aria-label="Filters">
-      <label>Agency<select value={filters.agency} onChange={e => set({ agency: e.target.value })}><option value="">Any agency</option>
-        {(agencies.data?.items ?? []).map(a => <option key={a.id} value={a.id}>{a.name} · {a.city}</option>)}</select></label>
-      <label>Agency rating<select value={String(filters.min_agency_rating ?? '')} onChange={e => set({ min_agency_rating: e.target.value })}>{AGENCY_STARS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-      <MultiSelect label="States" options={states.map(s => ({ value: s, label: s }))} value={filters.state} searchable
-        onChange={state => set({ state, city: filters.city.filter(c => (options.data?.cities ?? []).some(x => x.city === c && (!state.length || state.includes(x.state)))) })}/>
-      <MultiSelect label="Cities" options={cityOptions((options.data?.cities ?? []).filter(c => sectorStates.has(c.state)), filters.state, filters.city)} value={filters.city} searchable onChange={city => set({ city })}/>
-      <label>Gender<select value={filters.gender} onChange={e => set({ gender: e.target.value })}><option value="">Any</option>{GENDERS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-      <MultiSelect label="Languages" options={(options.data?.languages ?? []).map(l => ({ value: l, label: l }))} value={filters.language} searchable onChange={language => set({ language })}/>
-      <MultiSelect label="Can help with" options={(options.data?.capabilities ?? CAPS).map(c => ({ value: c, label: supportLabel(c) }))} value={filters.capability} onChange={capability => set({ capability })}/>
-      <label>Min. experience (years)<input type="number" min={0} max={60} value={filters.min_experience} onChange={e => set({ min_experience: e.target.value })}/></label>
-      <label>Available on<input type="date" value={filters.available_on} onChange={e => set({ available_on: e.target.value })}/></label>
-      <label>Order<select value={sort} onChange={e => setSort(e.target.value as MatchSort)}><option value="best">Best match first</option><option value="experience">Most experience</option><option value="name">Name</option></select></label>
-      {active && <button type="button" className="cp-btn dir-clear" onClick={() => set({ ...BLANK, sector: filters.sector })}>Clear filters</button>}
-    </form>
+    <section className="card tb-block" aria-label="Filters">
+      <div className="tb-filter-head"><h4>Filters</h4>
+        <button type="button" className="cp-btn" disabled={!hasActiveFilters(filters, sort)} onClick={() => { setFilters(BLANK); setSort('best'); }}><RotateCcw size={14} aria-hidden="true"/>Reset all filters</button></div>
+      <div className="tb-filters">
+        <label>Region<select value={filters.sector} onChange={e => set({ sector: e.target.value, agency: '', state: [], city: [] })}><option value="">All</option>{SECTORS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+        <MultiSelect label="States" searchable options={states.map(s => ({ value: s, label: s }))} value={filters.state}
+          onChange={state => set({ state, city: filters.city.filter(c => (options.data?.cities ?? []).some(x => x.city === c && (!state.length || state.includes(x.state)))) })}/>
+        <MultiSelect label="Cities" searchable options={cityOptions((options.data?.cities ?? []).filter(c => sectorStates.has(c.state)), filters.state, filters.city)} value={filters.city} onChange={city => set({ city })}/>
+        <MultiSelect label="Languages" searchable options={(options.data?.languages ?? []).map(l => ({ value: l, label: l }))} value={filters.language} onChange={language => set({ language })}/>
+        <label>Gender<select value={filters.gender} onChange={e => set({ gender: e.target.value })}><option value="">Any</option>{GENDERS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+        <label>Agency<select value={filters.agency} onChange={e => set({ agency: e.target.value })}><option value="">Any</option>{(agencies.data?.items ?? []).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
+        <label>Agency rating<select value={String(filters.min_agency_rating ?? '')} onChange={e => set({ min_agency_rating: e.target.value })}>{AGENCY_STARS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+        <label>Experience<select value={String(filters.min_experience ?? '')} onChange={e => set({ min_experience: e.target.value })}><option value="">Any</option>{[2, 5, 10, 15].map(n => <option key={n} value={n}>{n}+ years</option>)}</select></label>
+        <label>Free on<input type="date" value={filters.available_on} onChange={e => set({ available_on: e.target.value })}/></label>
+        <label>Order<select value={sort} onChange={e => setSort(e.target.value as MatchSort)}><option value="best">Best match</option><option value="experience">Experience</option><option value="name">Name</option></select></label>
+      </div>
+    </section>
 
     {matches.isError && <p className="error" role="alert">Could not load caretakers.</p>}
-    {matches.isLoading ? <div className="skeleton"/> : page && <>
-      <p className="muted small" role="status">{page.total ? `Top ${items.length} of ${page.total} caretakers who fit` : 'No caretakers fit these filters and needs.'}{page.needs.length ? ` · ranked for: ${page.needs.map(supportLabel).join(', ')}` : ''}</p>
-      {items.length > 0 ? <ul className="tb-matches">{items.map((m, i) => { const t = cardText({ ...m, id: m.caregiver_id, gender_label: m.gender_label ?? m.gender, origin_city: m.origin_city ?? '', origin_state: m.origin_state ?? '',
-        current_city: m.city, current_state: m.state, agency: m.agency ?? null, is_synthetic: true }); return <li key={m.caregiver_id} className="tb-match">
-        <div className="tb-match-head"><span className="tb-rank">{i + 1}</span><strong>{m.name}</strong>{m.reputation && <span className="chip">{compositeText(m.reputation)}</span>}<span className="chip">{m.score} match points</span></div>
-        <p className="small muted">{t.lines.join(' · ')}</p>
-        <p className="dir-skills">{t.skills.map(s => <span key={s} className="chip">{s}</span>)}</p>
-        <ul className="tb-why">{m.why.map(w => <li key={w}>{w}</li>)}</ul>
-        {m.capacity_note && <p className="small tb-warn">{m.capacity_note}</p>}
-        <div className="tb-actions"><button className="cp-btn" onClick={() => setOpenId(m.caregiver_id)}>View profile</button>
+    <section aria-label="Top matches">
+      <h4 className="tb-title">Top {Math.min(TOP_DEFAULT, items.length) || ''} matches {page && <small className="muted">of {page.total}</small>}</h4>
+      {matches.isLoading ? <div className="skeleton"/> : items.length ? <ol className="tb-matches">{items.map((m, i) => <li key={m.caregiver_id} className="tb-match">
+        <div className="tb-match-head"><span className="tb-rank">{i + 1}</span><strong>{m.name}</strong>
+          <span className="tb-score" title="Match points">{m.score} pts</span>{m.composite !== null && <span className="chip">★ {Math.round(m.composite)}</span>}</div>
+        <p className="tb-meta">{[m.city, m.agency_name ? `${m.agency_name}${m.agency_rating ? ` ${m.agency_rating.toFixed(1)}★` : ''}` : 'Independent', m.years_experience ? `${m.years_experience} yrs` : 'New', m.languages.slice(0, 3).join(', ')].filter(Boolean).join(' · ')}</p>
+        <div className="tb-reasons">{topReasons(m).map(r => <span key={r} className="tb-reason">{r}</span>)}</div>
+        {m.capacity_note && <p className="tb-warn small">{m.capacity_note}</p>}
+        <div className="tb-actions"><button className="text-button" onClick={() => setOpenId(m.caregiver_id)}>Profile</button>
           <label className="tb-check"><input type="checkbox" checked={compare.includes(m.caregiver_id)} disabled={!compare.includes(m.caregiver_id) && compare.length >= MAX_COMPARE}
             onChange={() => setCompare(toggleCompare(compare, m.caregiver_id))}/>Compare</label>
-          {m.request_pending ? <span className="chip">Request waiting</span> : <button className="cp-btn cp-primary" onClick={() => setAsking(m)}>Send request</button>}</div>
-      </li>; })}</ul> : <section className="card cp-empty"><p>Loosen a filter or a must-have to see more caretakers.</p></section>}
-      {page.total > items.length && top < 50 && <div className="dir-pager"><button className="cp-btn" onClick={() => setTop(Math.min(50, top + TOP_DEFAULT))}>Show more</button></div>}
-    </>}
+          {m.request_pending ? <span className="chip">Request sent</span> : <button className="cp-btn cp-primary" onClick={() => setAsking(m)}>Send request</button>}</div>
+      </li>)}</ol> : <p className="muted">No one fits. Untick a must-help skill or reset the filters.</p>}
+    </section>
 
-    {picked.length > 0 && <section className="card tb-compare"><h3>Compare ({picked.length}/{MAX_COMPARE})</h3><div className="tb-table-wrap"><table><thead><tr><th scope="col"></th>{picked.map(m => <th key={m.caregiver_id} scope="col">{m.name}</th>)}</tr></thead>
+    {picked.length > 0 && <section className="card tb-compare"><h4>Compare</h4><div className="tb-table-wrap"><table><thead><tr><th scope="col"></th>{picked.map(m => <th key={m.caregiver_id} scope="col">{m.name}</th>)}</tr></thead>
       <tbody>{compareRows(picked).map(r => <tr key={r.label}><th scope="row">{r.label}</th>{r.values.map((v, i) => <td key={i}>{v}</td>)}</tr>)}</tbody></table></div>
-      <button className="text-button" onClick={() => setCompare([])}>Clear comparison</button></section>}
+      <button className="text-button" onClick={() => setCompare([])}>Clear</button></section>}
 
+    {pending.length > 0 && <section className="card tb-block"><h4>Requests</h4><ul className="tb-requests">{pending.map(r => <li key={r.id} className={`tb-req tb-${r.status.toLowerCase()}`}>
+      <div><strong>{r.caretaker.name}</strong> <span className="chip">{roleText(r.intended_role)}</span></div>
+      <p className="small muted">{requestStatusText(r)}</p>
+      {r.status === 'PENDING' && <button className="text-button" onClick={() => void withdraw(r)}>Withdraw</button>}</li>)}</ul></section>}
+
+    <p className="muted small">Ranked from records and ratings, not a medical judgement. Contact details are shared after a caretaker accepts.</p>
     {openId && <ProfileDrawer id={openId} onClose={() => setOpenId(null)}/>}
     {asking && <SendRequest pid={pid} match={asking} onClose={() => setAsking(null)} onSent={async message => { setAsking(null); setNotice(message); await refresh(); }}/>}
   </div>;
