@@ -39,6 +39,7 @@ from app.services.auto_cover import run_auto_coordination
 from app.services.reminders import run_reminders
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.seed import run_seed
+from app.seed.population import build_in_background as build_population_in_background
 
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("second_patient")
@@ -174,7 +175,7 @@ def meta(db: Session = Depends(get_db)):
     from app.services import ai as ai_service
     ai_status = ai_service.status()
     scale = current_escalation_scale(db)
-    return {"app_name": "CareCircle", "version": "0.5.0", "git_sha": settings.git_sha, "phase": 5, "demo_mode": settings.demo_mode, "features": settings.feature_list, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "server_time": now().isoformat(), "timezone": settings.app_timezone, "ai_enabled": bool(ai_status["speech"] or ai_status["text"]), "ai": ai_status}
+    return {"app_name": "CareCircle", "version": "0.5.0", "git_sha": settings.git_sha, "phase": 5, "demo_mode": settings.demo_mode, "features": settings.feature_list, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "server_time": now().isoformat(), "poll_seconds": max(3, settings.client_poll_seconds), "timezone": settings.app_timezone, "ai_enabled": bool(ai_status["speech"] or ai_status["text"]), "ai": ai_status}
 
 
 def incident_recipients(db, patient_id, level):
@@ -817,7 +818,7 @@ def _tick_as_leader():
     db = SessionLocal()
     try:
         changed = run_escalation_tick(db, now(), scale=current_escalation_scale(db))
-        if time.monotonic() - _last_command_center_tick >= 60:
+        if time.monotonic() - _last_command_center_tick >= settings.scheduler_heavy_seconds:
             run_command_center_tick(db, now())
             mark_missed(db, now())
             roll_forward(db)
@@ -835,17 +836,22 @@ def _tick_as_leader():
 
 async def _escalation_worker():
     while True:
-        await asyncio.sleep(15)
+        await asyncio.sleep(max(5, settings.scheduler_tick_seconds))
         try:
             await asyncio.to_thread(_run_escalation_tick)
+            scheduler_state["last_error"] = None
         except Exception as exc:
             scheduler_state["last_error"] = type(exc).__name__
+            scheduler_state["last_error_at"] = now().isoformat()
             log.exception("escalation tick failed")
 
 
 @app.on_event("startup")
 async def start_escalation_worker():
     ensure_system_escalation_policy()
+    if settings.seed_demo and settings.demo_population:
+        # The larger demo population is written after the site is up, so slow hosts answer requests straight away.
+        asyncio.create_task(asyncio.to_thread(build_population_in_background))
     if settings.run_scheduler:
         app.state.escalation_task = asyncio.create_task(_escalation_worker())
 

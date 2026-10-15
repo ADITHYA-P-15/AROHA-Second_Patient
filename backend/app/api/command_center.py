@@ -1,6 +1,7 @@
 """Patient-scoped Command Center and action-item endpoints."""
 from __future__ import annotations
 
+import time
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal
@@ -12,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.clock import now
-from app.core.db import get_db
+from app.core.db import data_version, get_db
 from app.core.permissions import require_patient_access
 from app.models import (ActionItem, ActivityHistory, CareActivity,
                         CareAssignment, Caregiver, CareTeamMember, CommandCenterSetting,
@@ -20,6 +21,11 @@ from app.models import (ActionItem, ActivityHistory, CareActivity,
 from app.services.command_center import plan_and_attention, reconcile_patient, serialize_action, settings_for
 
 router = APIRouter(prefix="/api/v1", tags=["caregiver command center"])
+
+# The board is expensive to compute (about twenty queries) and several people poll the same one. An answer is reused only while
+# nothing has been written anywhere and for a few seconds at most (time-driven attention such as "starting soon" still moves).
+_BOARD_TTL_SECONDS = 10
+_board_cache: dict = {}
 
 
 class Input(BaseModel):
@@ -76,6 +82,10 @@ def _patient_scope(db: Session, user, patient_id, *, write=False):
 @router.get("/command-center")
 def command_center(patient_id: uuid.UUID, day: date | None = Query(default=None, alias="date"), user=Depends(_current_user), db: Session = Depends(get_db)):
     patient, member, role_view = _patient_scope(db, user, patient_id)
+    cache_key = (str(patient.id), str(day), str(user.id), role_view)
+    hit = _board_cache.get(cache_key)
+    if hit and hit[0] == data_version() and time.monotonic() - hit[1] < _BOARD_TTL_SECONDS:
+        return hit[2]
     data = plan_and_attention(db, patient.id, day=day)
     snap, plan = data["snapshot"], data["plan"]
     actions = [serialize_action(x) for x in data["active_items"]]
@@ -113,6 +123,8 @@ def command_center(patient_id: uuid.UUID, day: date | None = Query(default=None,
         "handled_actions": actions,
     }
     db.commit()
+    if len(_board_cache) > 500: _board_cache.clear()
+    _board_cache[cache_key] = (data_version(), time.monotonic(), payload)
     return payload
 
 

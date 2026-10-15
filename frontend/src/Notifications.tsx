@@ -6,7 +6,7 @@ import { api } from './api/client.ts';
 import { DEFAULT_PREFS, ago, freshOnes, highest, loadPrefs, savePrefs, shouldPopUp, staysUntilDismissed, tabTitle, type AppNotification, type NotifyPrefs } from './lib/notify.ts';
 
 type Feed = { items: AppNotification[]; unread_count: number };
-const POLL_MS = 5000;
+const DEFAULT_POLL_SECONDS = 5;
 const BASE_TITLE = 'CareCircle';
 const MAX_TOASTS = 4;
 
@@ -34,7 +34,10 @@ export function NotificationCenter() {
   const [open, setOpen] = useState(false); const [prefs, setPrefsState] = useState<NotifyPrefs>(() => loadPrefs());
   const [toasts, setToasts] = useState<AppNotification[]>([]);
   const seen = useRef<Set<string> | null>(null); const timers = useRef<Map<string, number>>(new Map());
-  const feed = useQuery({ queryKey: ['notifications'], queryFn: () => api<Feed>('/api/v1/notifications?limit=40'), refetchInterval: POLL_MS, refetchIntervalInBackground: true });
+  // The server says how often to poll (slow hosts ask for longer gaps). A hidden tab does not poll at all and catches up on return.
+  const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<{ poll_seconds?: number }>('/api/v1/meta') });
+  const pollMs = Math.max(3, meta.data?.poll_seconds ?? DEFAULT_POLL_SECONDS) * 1000;
+  const feed = useQuery({ queryKey: ['notifications'], queryFn: () => api<Feed>('/api/v1/notifications?limit=40'), refetchInterval: pollMs, refetchIntervalInBackground: false, refetchOnWindowFocus: true });
   const permission = typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
 
   const setPrefs = (next: NotifyPrefs) => { setPrefsState(next); savePrefs(next); };

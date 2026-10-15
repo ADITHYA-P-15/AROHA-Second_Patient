@@ -1,14 +1,16 @@
 # Render Blueprint for a hosted CareCircle demo: one always-on Docker web service and one managed Postgres.
 # Render > New > Blueprint > pick this repository. Step-by-step: docs/DEPLOY_RENDER.md
 #
-# Why paid plans: a free web service sleeps after 15 minutes without traffic, which stops the scheduler
-# (reminders, missed-dose alerts, automatic cover), and a free Postgres expires after 30 days.
+# FREE PLANS (no card needed). The trade-offs are real: a free web service sleeps after 15 minutes without traffic
+# (the scheduler is paused while it sleeps and the next visitor waits 1 to 2 minutes), and a free Postgres expires
+# after 30 days. Good for a demo or a judging session. For an always-on deployment change the two `plan:` lines below
+# to `starter` (web service) and `basic-256mb` (database); nothing else changes.
 databases:
   - name: carecircle-db
     databaseName: carecircle
     user: carecircle
     region: singapore            # near India; the web service must be in the same region
-    plan: basic-256mb
+    plan: free                   # always-on alternative: basic-256mb
     postgresMajorVersion: "16"
     ipAllowList: []              # no public access: only services in this Render region can connect
 
@@ -17,7 +19,7 @@ services:
     name: carecircle
     runtime: docker
     region: singapore
-    plan: starter                # always on (no sleeping), so the scheduler keeps running
+    plan: free                   # always-on alternative: starter (no sleeping, so the scheduler keeps running)
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /api/health
@@ -45,14 +47,23 @@ services:
         value: "true"
       - key: SEED_DEMO
         value: "true"
+      # The larger fictional population (24 patients, 30 days of history) makes every background tick several times heavier.
+      # Switch it on once the service has a paid instance; the core demo family and the second patient are always there.
       - key: DEMO_POPULATION
-        value: "true"
+        value: "false"
       - key: AUTO_COORDINATION
         value: "true"
       - key: FEATURES
         value: voice_notes,insights,reminders
       - key: RUN_SCHEDULER
         value: "true"
+      # Gentler cadence for a small shared CPU: background checks every 30 s (heavy pass every 2 min), browsers refresh every 20 s.
+      - key: SCHEDULER_TICK_SECONDS
+        value: "30"
+      - key: SCHEDULER_HEAVY_SECONDS
+        value: "120"
+      - key: CLIENT_POLL_SECONDS
+        value: "20"
       # AI is optional. Leave the keys empty and the app works; voice notes are then routed for a person to listen to.
       - key: GEMINI_API_KEY
         sync: false                  # Render asks for the value in the dashboard

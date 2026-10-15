@@ -241,10 +241,24 @@ def _can_edit_caregiver(db, user, cg):
     return any(_is_coordinator(db, user, pid) for pid in _linked_patient_ids(db, cg.id))
 
 
-def _caregiver_dict(db, user, cg, pid=None):
-    links = db.scalars(select(CaregiverPatientLink).where(CaregiverPatientLink.caregiver_id == cg.id)).all()
+def _caregiver_dicts(db, user, caregivers, pid):
+    """The same rows as `_caregiver_dict`, with the link lookup and the coordinator check done once for the whole list."""
+    caregivers = list(caregivers)
+    links: dict = {}
+    if caregivers:
+        for link in db.scalars(select(CaregiverPatientLink).where(CaregiverPatientLink.caregiver_id.in_([c.id for c in caregivers]))):
+            links.setdefault(link.caregiver_id, []).append(link)
+    coordinator = pid is not None and _is_coordinator(db, user, pid)
+    return [_caregiver_dict(db, user, cg, pid, links=links.get(cg.id, []), coordinator=coordinator) for cg in caregivers]
+
+
+def _caregiver_dict(db, user, cg, pid=None, links=None, coordinator=None):
+    if links is None:
+        links = db.scalars(select(CaregiverPatientLink).where(CaregiverPatientLink.caregiver_id == cg.id)).all()
     link = next((x for x in links if x.patient_id == pid), None)
-    show_phone = cg.user_id == user.id or (pid is not None and _is_coordinator(db, user, pid))
+    if coordinator is None:
+        coordinator = pid is not None and _is_coordinator(db, user, pid)
+    show_phone = cg.user_id == user.id or coordinator
     return {"id": cg.id, "user_id": cg.user_id, "name": cg.name, "kind": cg.kind, "phone": cg.phone if show_phone else None, "capabilities": cg.capabilities, "max_activities_per_day": cg.max_activities_per_day, "max_hours_per_week": cg.max_hours_per_week, "is_active": cg.is_active, "notes": cg.notes, "relationship": link.relationship if link else "", "is_designated_backup": link.is_designated_backup if link else False, "is_main_caretaker": link.is_main_caretaker if link else False, "linked_patient_count": len(links), "is_synthetic": cg.is_synthetic}
 
 
@@ -378,7 +392,7 @@ def overview(pid: uuid.UUID, user: User = Depends(__import__("app.main", fromlis
     for a in activities:
         if not db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == a.id, CareAssignment.role == "PRIMARY", CareAssignment.status == "CONFIRMED")): unconfirmed += 1
     ctx = _load_context(db, user, activities)
-    return {"upcoming_activities": [_activity_dict(db, user, x, ctx) for x in activities], "not_yet_confirmed_count": unconfirmed, "caregivers": [_caregiver_dict(db, user, c, pid) for c in caregivers], "recent_history": [{"event_type": e.event_type, "summary": e.summary, "occurred_at": e.occurred_at} for e in events]}
+    return {"upcoming_activities": [_activity_dict(db, user, x, ctx) for x in activities], "not_yet_confirmed_count": unconfirmed, "caregivers": _caregiver_dicts(db, user, caregivers, pid), "recent_history": [{"event_type": e.event_type, "summary": e.summary, "occurred_at": e.occurred_at} for e in events]}
 
 
 @router.get("/patients/{pid}/caregivers")
@@ -387,7 +401,7 @@ def list_caregivers(pid: uuid.UUID, user: User = Depends(__import__("app.main", 
     rows = db.scalars(select(Caregiver).join(CaregiverPatientLink).where(CaregiverPatientLink.patient_id == pid).order_by(Caregiver.name)).all()
     if user.role == Role.CARETAKER:
         rows = [cg for cg in rows if cg.user_id == user.id]
-    return {"items": [_caregiver_dict(db, user, x, pid) for x in rows]}
+    return {"items": _caregiver_dicts(db, user, rows, pid)}
 
 
 @router.post("/patients/{pid}/caregivers", status_code=201)

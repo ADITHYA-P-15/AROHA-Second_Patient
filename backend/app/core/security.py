@@ -6,7 +6,9 @@ from argon2.exceptions import VerifyMismatchError
 
 from app.core.config import settings
 
-hasher = PasswordHasher()
+# OWASP's minimum argon2id profile (19 MiB, 2 passes, 1 lane): the library default (64 MiB, 3 passes, 4 lanes) takes seconds on a
+# shared 0.1 CPU. Existing hashes keep verifying with their own stored parameters.
+hasher = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1)
 ALGORITHM = "HS256"
 
 

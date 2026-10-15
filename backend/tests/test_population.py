@@ -88,3 +88,17 @@ def test_reset_keeps_the_population_and_caretakers_only_see_their_own_work():
     for patient in patients:
         for item in anjali.get(f"/api/v1/patients/{patient['id']}/activities?limit=100").json()["items"]:
             assert any(a["is_mine"] for a in item["assignments"])
+
+
+def test_background_build_respects_its_switches_and_is_idempotent(monkeypatch):
+    from sqlalchemy import func
+    from app.models import AppSetting
+    from app.seed.population import build_in_background
+    seed()
+    monkeypatch.setattr(settings, "demo_population", False)
+    build_in_background()  # switched off: nothing happens, nothing breaks
+    monkeypatch.setattr(settings, "seed_demo", True); monkeypatch.setattr(settings, "demo_population", True)
+    build_in_background(); build_in_background()  # twice: the second is a no-op
+    with SessionLocal() as db:
+        assert db.get(AppSetting, "demo_population") is not None
+        assert db.scalar(select(func.count()).select_from(Patient).where(Patient.name == "Lalitha Krishnan")) == 1

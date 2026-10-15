@@ -22,7 +22,7 @@ What the app needs decides this, not preference:
 | Google Cloud Run / similar scale-to-zero | Poor fit | Scales to zero between requests, which stops the scheduler. Only works with "minimum one instance, CPU always allocated", at which point it costs like a VM. |
 | **Vercel / Netlify** | **Not suitable for the backend** | Serverless functions run per request with a time limit and no background loop, so the scheduler cannot run. They could host a static copy of the UI only, but then the API would be on another origin: cross-site cookies, CORS and the strict `connect-src 'self'` policy would all need rework, for no benefit. |
 
-**Free tiers do not work for this app.** On Render, a free web service sleeps after 15 minutes without traffic (the scheduler
+**Free tiers are for trying it out, not for keeping it running.** On Render, a free web service sleeps after 15 minutes without traffic (the scheduler
 stops, and the first visitor waits about a minute for a cold start), and a free Postgres database expires after 30 days and is
 then deleted after a short grace period ([Render free tier](https://render.com/docs/free)). Use the Starter web service and a paid
 Postgres plan. Check current prices on Render's pricing page before you commit.
@@ -77,6 +77,23 @@ database): health, version, production flags, hidden schema, scheduler running, 
 | Backups | Check which backup and recovery features your Postgres plan includes in the database's page. In addition, take your own dump: add your IP to the database's access list, run `pg_dump "<external connection string>" \| gzip > carecircle.sql.gz`, then remove the IP again. Test a restore once. |
 | Reset the demo | The sidebar's **Reset demo data** button (demo accounts only). |
 | Bigger | Change the instance type. Keep one instance: login rate limits are per process (the scheduler is already protected by a database lock). |
+
+## 4b. If it feels slow
+
+Measured causes, in the order they matter:
+
+1. **Region mismatch (biggest).** The web service and the database must be in the same region (`singapore` for India). Every page
+   makes several database calls, and a call across regions costs roughly 0.15 to 0.2 s each. A service's region cannot be changed:
+   delete the service and create it again from the Blueprint (New, Blueprint), which puts both in `singapore`. The database is new
+   too, so the demo data is rebuilt.
+2. **Free instance.** 0.1 CPU and 512 MB, and it sleeps after 15 minutes idle (the first visitor then waits 1 to 2 minutes). For a
+   demo, point a free uptime pinger at `/api/health` every 10 minutes, or move the web service to `starter` (always on, 0.5 CPU).
+3. **Background load.** `render.yaml` ships with `DEMO_POPULATION=false`, a 30 s scheduler tick and a 20 s browser refresh. On a
+   paid instance set `DEMO_POPULATION=true`, `SCHEDULER_TICK_SECONDS=15`, `CLIENT_POLL_SECONDS=5` for the full demo.
+
+What the code does for you: database connections are tested only after sitting idle (not on every request), sign-in uses a lighter
+argon2 profile, the caregiver list and the Command Center board avoid repeated queries (the board is reused for at most 10 s and
+only while nothing has been written), and open tabs stop polling when hidden.
 
 ## 5. What a public demo means (read this before sharing the link)
 

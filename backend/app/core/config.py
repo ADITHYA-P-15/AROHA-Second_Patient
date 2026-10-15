@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     features: str = "voice_notes,insights,reminders"
     # Set to false on web-only instances. The scheduler also takes a database lock, so a second instance never double-runs it.
     run_scheduler: bool = True
+    # Background cadence. Small hosts (shared CPU, remote database) do better with longer gaps; reminders are minutes-grained anyway.
+    scheduler_tick_seconds: int = 15
+    scheduler_heavy_seconds: int = 60
+    # How often open browsers refresh their notification bell (served to the UI in /api/v1/meta).
+    client_poll_seconds: int = 5
     # Build the larger fictional population (more families, caretakers, hospital staff, 30 days of history) with the demo.
     demo_population: bool = True
     demo_password: str = "Demo@1234"

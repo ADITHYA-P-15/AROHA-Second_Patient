@@ -1,25 +1,27 @@
-"""Practical-size fictional population: more families, caretakers and hospital staff, with 30 days of history."""
+"""Practical-size fictional population: more families, caretakers and hospital staff, with 30 days of history.
+
+It is built in the background after the server is already listening (see `build_in_background`), not before it, so a
+small or throttled host does not hold the whole site back while about two thousand records are written.
+"""
 import logging
 
-from sqlalchemy.orm import Session
-
 from app.core.config import settings
-from app.seed import register
 
 log = logging.getLogger("second_patient")
 
 
-def seed_population(db: Session) -> None:
-    if not settings.demo_population: return
+def build_in_background() -> None:
+    """Runs in a worker thread at start-up. Idempotent: it does nothing once this version of the population exists."""
+    if not (settings.seed_demo and settings.demo_population): return
+    from app.core.db import SessionLocal
     from app.services import population
+    db = SessionLocal()
     try:
         counts = population.ensure(db)
         db.commit()
+        if counts: log.info("demo population built: %s", counts)
     except Exception:
         db.rollback()
         log.exception("demo population failed; the core demo story is unaffected")
-        return
-    if counts: log.info("demo population built: %s", counts)
-
-
-register(20, "demo-population", seed_population)
+    finally:
+        db.close()

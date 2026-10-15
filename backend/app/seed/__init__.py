@@ -13,7 +13,6 @@ def register(order: int, name: str, fn: SeedFunction) -> None:
 
 def run_seed(db: Session | None = None) -> None:
     from app.seed import phase1  # noqa: F401
-    from app.seed import population  # noqa: F401
     own_session = db is None
     if own_session:
         from app.core.db import SessionLocal

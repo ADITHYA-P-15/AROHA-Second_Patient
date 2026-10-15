@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.core.clock import now
 from app.main import app
-from tests.helpers import join_as_professional
+from tests.helpers import caretaker, join_as_professional, primary_contact_with_patient
 
 H = {"X-Requested-With": "second-patient"}
 
@@ -57,3 +57,15 @@ def test_incident_reconcile_stores_uuid_on_sqlite():
     assert center.status_code == 200
     items = center.json()["needs_now"] + center.json()["at_risk"]
     assert any(x["related_incident_id"] == sent.json()["id"] for x in items)
+
+
+def test_board_is_served_from_cache_until_something_is_written():
+    from app.api import command_center as cc
+    coord, pid = primary_contact_with_patient()
+    first = coord.get(f"/api/v1/command-center?patient_id={pid}").json()
+    again = coord.get(f"/api/v1/command-center?patient_id={pid}").json()
+    assert again["as_of"] == first["as_of"]  # unchanged data: the stored answer is reused
+    caretaker(coord, pid, "Cache Helper")  # any write invalidates it
+    fresh = coord.get(f"/api/v1/command-center?patient_id={pid}").json()
+    assert fresh["as_of"] != first["as_of"]
+    cc._board_cache.clear()
