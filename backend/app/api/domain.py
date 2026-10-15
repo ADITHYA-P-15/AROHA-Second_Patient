@@ -489,10 +489,11 @@ def list_activities(pid: uuid.UUID, start: datetime | None = Query(default=None,
     if end: stmt = stmt.where(CareActivity.scheduled_start < end)
     if lifecycle_status: stmt = stmt.where(CareActivity.lifecycle_status == lifecycle_status)
     if category: stmt = stmt.where(CareActivity.category == category)
-    rows = db.scalars(stmt.order_by(CareActivity.scheduled_start).offset(offset).limit(limit)).all()
     if user.role == Role.CARETAKER:  # caretakers see their own work; professionals and family see the whole plan
         own = db.scalar(select(Caregiver.id).where(Caregiver.user_id == user.id))
-        rows = [a for a in rows if own and db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == a.id, CareAssignment.caregiver_id == own, CareAssignment.status.in_(ACTIVE)))]
+        mine = select(CareAssignment.activity_id).where(CareAssignment.caregiver_id == own, CareAssignment.status.in_(ACTIVE)) if own else None
+        stmt = stmt.where(CareActivity.id.in_(mine)) if mine is not None else stmt.where(CareActivity.id.is_(None))  # filtered before the limit, so paging stays correct
+    rows = db.scalars(stmt.order_by(CareActivity.scheduled_start).offset(offset).limit(limit)).all()
     if caregiver_id: rows = [a for a in rows if db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == a.id, CareAssignment.caregiver_id == caregiver_id))]
     if unconfirmed: rows = [a for a in rows if not db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == a.id, CareAssignment.role == "PRIMARY", CareAssignment.status == "CONFIRMED"))]
     return {"items": [_activity_dict(db, user, x) for x in rows], "total": len(rows), "limit": limit, "offset": offset}

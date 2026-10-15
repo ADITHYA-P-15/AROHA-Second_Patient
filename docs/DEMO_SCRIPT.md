@@ -37,12 +37,26 @@ The second patient, **Sharada Pai** (primary contact Meera, Dr. Divya Menon), sh
 | 11 | Savitha | **Help Requests** | The medicine request appears. **I’ve got this** → **Mark handled**. | The caretaker is asked first; it goes to the family if nobody answers in time. |
 | 12 | Anita | **Coverage Forecast** and **Workload Balancer** | Nothing to secure, and one suggestion to share Savitha's load with Lakshmi. | Planning ahead: gaps and single points of failure are flagged before they happen. |
 
+### Part 2 — the bigger picture (about 5 minutes)
+
+The app also ships with a practical-size population: 24 more patients with families, 12 caretakers, 5 more hospital staff and a month of dose history. See [DEMO_PEOPLE.md](DEMO_PEOPLE.md) for every account.
+
+| # | Sign in as | Go to | Show | Point to make |
+|---|---|---|---|---|
+| 13 | Dr. Kavita Rao (`kavita.rao@carecircle.demo`) | **Insights** | Doses given, missed doses, follow-up suggested, a daily chart, and a ranked patient list. Switch between 7, 14 and 30 days. | A professional with many patients sees who needs a phone call first, instead of opening each chart. |
+| 14 | Dr. Kavita Rao | Insights → **Follow-up suggested** | Select the band; read why each patient is flagged ("9 doses not recorded as given in the last 7 days"). Open **Medicines** from a row. | Flags are plain, deterministic rules (3+ missed doses in a week, or under 75% given). They are about coordination, not diagnosis. |
+| 15 | Dr. Kavita Rao | **Insights** → **Export CSV**; then **Patients** → search | A spreadsheet-ready list; search by name or CareCircle ID. | Practical for clinic review meetings. |
+| 16 | Vikram Krishnan (`vikram.krishnan@carecircle.demo`) | **Command Center** | A different family sees only their own patient, with only what needs them. | Many families on one system, nothing shared between them. |
+| 17 | Anjali Verma (`anjali.verma@carecircle.demo`) | **My Day** | Her own patients' doses in one list. | Each caretaker sees only their own work. |
+
+Dr. Arjun Nair (`dr.arjun.nair`) also has Insights: Ramesh plus several of the larger population's patients.
+
 Optional extras:
 - **Leave:** as Savitha, open **My Day → Take leave** for tomorrow evening. Her evening dose is offered to Lakshmi.
 - **Change caretaker:** as Anita, in **Care Plan** press **Change caretaker** on any upcoming item, pick someone, or let CareCircle find someone.
 - **Availability:** as Anita, **Caretakers** shows each person's skills, usual hours and limits.
 
-Press **Reset demo data** to run it again.
+Press **Reset demo data** to run it again. It rebuilds Ramesh and Sharada only; the larger population is never touched.
 
 ## Things to say about safety
 

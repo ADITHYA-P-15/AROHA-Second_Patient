@@ -1,7 +1,7 @@
 import { FormEvent, Fragment, useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bell, CalendarClock, CalendarDays, HandHelping, HeartHandshake, History, LifeBuoy, ListChecks, LogOut, Menu, Network, RotateCcw, Pill, Scale, Siren, Stethoscope, Sun, UserRound, Users, X, type LucideIcon } from 'lucide-react';
+import { BarChart3, Bell, CalendarClock, CalendarDays, HandHelping, HeartHandshake, History, LifeBuoy, ListChecks, LogOut, Menu, Network, RotateCcw, Pill, Scale, Siren, Stethoscope, Sun, UserRound, Users, X, type LucideIcon } from 'lucide-react';
 import { CommandCenter } from './CommandCenter.tsx';
 import { WorkloadBalancer } from './WorkloadBalancer.tsx';
 import { CoverRequests } from './CoverRequests.tsx';
@@ -10,6 +10,7 @@ import { CareTeam, CareCodeCard } from './CareTeam.tsx';
 import { ProfessionalPatients } from './ProfessionalPatients.tsx';
 import { MedicinesAppointments } from './MedicinesAppointments.tsx';
 import { MyDay } from './MyDay.tsx';
+import { Insights } from './Insights.tsx';
 import { CarePlan } from './CarePlan.tsx';
 import { usePatientPick } from './PatientPick.tsx';
 import { scheduleSummary, supportLabel, type WeeklyWindow } from './lib/plan.ts';
@@ -20,6 +21,12 @@ import { newId } from './lib/id.ts';
 type User = { id: string; email: string; name: string; role: string; role_label?: string };
 type Patient = { id: string; name: string; birth_year?: number; care_notes: string; clinical_notes?: string | null; is_synthetic: boolean };
 const demo: Record<string, string> = { PRIMARY_CONTACT: 'anita.iyer@secondpatient.demo', CARETAKER: 'savitha@secondpatient.demo', PROFESSIONAL: 'dr.arjun.nair@secondpatient.demo', PATIENT: 'ramesh.iyer@secondpatient.demo' };
+// A larger fictional population (see docs/DEMO_PEOPLE.md): hospital staff, families and caretakers with a month of history.
+const moreDemo: [string, string][] = [
+  ['Dr. Kavita Rao · hospital', 'kavita.rao@carecircle.demo'], ['Dr. Imran Shaikh · hospital', 'imran.shaikh@carecircle.demo'], ['Priya Nair · nurse', 'priya.nair@carecircle.demo'],
+  ['Vikram Krishnan · family', 'vikram.krishnan@carecircle.demo'], ['Sunita Das · family', 'sunita.das@carecircle.demo'], ['Zoya Khan · family', 'zoya.khan@carecircle.demo'],
+  ['Anjali Verma · caretaker', 'anjali.verma@carecircle.demo'], ['Bhaskar Reddy · caretaker', 'bhaskar.reddy@carecircle.demo'], ['Lalitha Krishnan · patient', 'lalitha.krishnan.patient@carecircle.demo'],
+];
 const roleLabels: Record<string, string> = { PRIMARY_CONTACT: 'Primary contact', CARETAKER: 'Caretaker', PROFESSIONAL: 'Healthcare professional', PATIENT: 'Patient' };
 const signUpRoles: { role: string; blurb: string }[] = [
   { role: 'PRIMARY_CONTACT', blurb: 'a relative who registers the patient and oversees care' },
@@ -51,6 +58,7 @@ const roleNav: Record<string, NavItem[]> = {
   ],
   PROFESSIONAL: [
     { title: 'Patients', path: '/patients', icon: Stethoscope },
+    { title: 'Insights', path: '/insights', icon: BarChart3 },
     { title: 'Medicines & Appointments', path: '/medicines', icon: Pill },
     { title: 'Care Plan', path: '/care-plan', icon: CalendarDays },
     { title: 'Help Requests', path: '/incidents', icon: Siren },
@@ -75,7 +83,7 @@ function Login({ onLogin, demoMode }: { onLogin: (u: User) => void; demoMode: bo
       onLogin(u);
     } catch (err) { setError(err instanceof Error ? err.message : 'Sign-in failed'); }
   }
-  return <><main className="login"><div className="brand"><span className="brand-icon"><HeartHandshake/></span><span>CareCircle</span></div><p className="eyebrow">THE CAREGIVER IS THE SECOND PATIENT</p><h1>{registering ? 'Start a care circle.' : 'Support that stays connected.'}</h1><p className="muted">{registering ? 'Choose your role to create an account. Patients get their login from their primary contact.' : 'Sign in to coordinate the everyday care around someone you love.'}</p><form onSubmit={submit}>{registering&&<label>Your name<input required minLength={1} maxLength={160} value={name} onChange={e=>setName(e.target.value)}/></label>}{registering&&<fieldset className="ct-roles"><legend>I am a…</legend>{signUpRoles.map(r=><label key={r.role} className="ct-role"><input type="radio" name="role" value={r.role} checked={role===r.role} onChange={()=>setRole(r.role)}/><span><strong>{roleLabels[r.role]}</strong> — {r.blurb}</span></label>)}</fieldset>}<label>Email<input type="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Password<input type="password" required minLength={8} value={password} onChange={e=>setPassword(e.target.value)}/></label>{error&&<p className="error">{error}</p>}<button className="primary">{registering?'Create account':'Sign in'}</button></form><button className="text-button" onClick={()=>{setRegistering(!registering);setError('');}}>{registering?'Already have an account? Sign in':'Create an account'}</button>{demoMode&&!registering&&<><p className="eyebrow demo-label">DEMO ACCOUNTS</p><div className="chips">{Object.keys(demo).map(r=><button key={r} onClick={()=>setEmail(demo[r])}>{roleLabels[r]}</button>)}</div><p className="muted small">Demo password: Demo@1234</p></>}</main><div className="login-disclaimer">Operational care-coordination tool — not a diagnostic or emergency service. Demo data is fictional.</div></>;
+  return <><main className="login"><div className="brand"><span className="brand-icon"><HeartHandshake/></span><span>CareCircle</span></div><p className="eyebrow">THE CAREGIVER IS THE SECOND PATIENT</p><h1>{registering ? 'Start a care circle.' : 'Support that stays connected.'}</h1><p className="muted">{registering ? 'Choose your role to create an account. Patients get their login from their primary contact.' : 'Sign in to coordinate the everyday care around someone you love.'}</p><form onSubmit={submit}>{registering&&<label>Your name<input required minLength={1} maxLength={160} value={name} onChange={e=>setName(e.target.value)}/></label>}{registering&&<fieldset className="ct-roles"><legend>I am a…</legend>{signUpRoles.map(r=><label key={r.role} className="ct-role"><input type="radio" name="role" value={r.role} checked={role===r.role} onChange={()=>setRole(r.role)}/><span><strong>{roleLabels[r.role]}</strong> — {r.blurb}</span></label>)}</fieldset>}<label>Email<input type="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Password<input type="password" required minLength={8} value={password} onChange={e=>setPassword(e.target.value)}/></label>{error&&<p className="error">{error}</p>}<button className="primary">{registering?'Create account':'Sign in'}</button></form><button className="text-button" onClick={()=>{setRegistering(!registering);setError('');}}>{registering?'Already have an account? Sign in':'Create an account'}</button>{demoMode&&!registering&&<><p className="eyebrow demo-label">DEMO ACCOUNTS</p><div className="chips">{Object.keys(demo).map(r=><button key={r} onClick={()=>setEmail(demo[r])}>{roleLabels[r]}</button>)}</div><p className="muted small">Demo password: Demo@1234</p><details className="more-demo"><summary>More demo people</summary><div className="chips">{moreDemo.map(([label,mail])=><button key={mail} type="button" onClick={()=>setEmail(mail)}>{label}</button>)}</div></details></>}</main><div className="login-disclaimer">Operational care-coordination tool — not a diagnostic or emergency service. Demo data is fictional.</div></>;
 }
 function App() {
   const queryClient = useQueryClient(); const navigate = useNavigate();
@@ -119,6 +127,7 @@ function Workspace({ user, meta }: { user: User; meta?: { phase: number; version
       case '/request-help': return <HelpPage/>;
       case '/care-team': return <CareTeam/>;
       case '/patients': return <ProfessionalPatients/>;
+      case '/insights': return <Insights/>;
       case '/patient-profile': return <PatientProfile/>;
       case '/care-network': return <CareNetwork role={user.role}/>;
       case '/care-plan': return <CarePlan role={user.role}/>;

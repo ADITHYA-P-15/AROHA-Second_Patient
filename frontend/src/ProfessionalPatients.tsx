@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api, ApiError } from './api/client.ts';
+import { bandOf, pctText, type Insights } from './lib/insights.ts';
 
 type PatientItem = { id: string; name: string; birth_year?: number; care_code?: string | null };
 type Found = { id: string; name: string; birth_year: number; care_code: string; already_on_team: boolean };
@@ -15,6 +16,8 @@ function lookupMessage(err: unknown) {
 export function ProfessionalPatients() {
   const client = useQueryClient();
   const patients = useQuery({ queryKey: ['patients'], queryFn: () => api<{ items: PatientItem[] }>('/api/v1/patients') });
+  const insights = useQuery({ queryKey: ['insights', 30], queryFn: () => api<Insights>('/api/v1/insights/professional?days=30'), refetchInterval: 60000 });
+  const [filter, setFilter] = useState('');
   const [code, setCode] = useState('');
   const [year, setYear] = useState('');
   const [found, setFound] = useState<Found | null>(null);
@@ -35,11 +38,14 @@ export function ProfessionalPatients() {
       await client.invalidateQueries({ queryKey: ['patients'] });
     } catch (err) { setError(lookupMessage(err)); } finally { setBusy(false); }
   }
-  const items = patients.data?.items ?? [];
+  const stats = new Map((insights.data?.patients ?? []).map(p => [p.id, p]));
+  const all = patients.data?.items ?? [];
+  const items = all.filter(p => !filter.trim() || p.name.toLowerCase().includes(filter.trim().toLowerCase()) || (p.care_code ?? '').toLowerCase().includes(filter.trim().toLowerCase()));
   const thisYear = new Date().getFullYear();
   return <div className="ct">
     <section className="card"><p className="eyebrow">MY PATIENTS</p><h2>Patients on your list</h2>
-      {patients.isLoading ? <div className="skeleton"/> : items.length ? <ul className="team-list">{items.map(p => <li key={p.id}><span><strong>{p.name}</strong><small>{p.birth_year ? `Born ${p.birth_year}` : ''}{p.care_code ? ` · ${p.care_code}` : ''}</small></span><span className="pp-links"><Link className="cp-btn" to={`/medicines?patient=${p.id}`}>Medicines</Link><Link className="cp-btn" to={`/care-plan?patient=${p.id}`}>Care plan</Link></span></li>)}</ul> : <p className="muted">No patients yet. Find a patient below with their CareCircle ID and birth year.</p>}
+      {all.length > 6 && <div className="pp-search"><input type="search" aria-label="Search your patients" placeholder="Search name or CareCircle ID" value={filter} onChange={e => setFilter(e.target.value)}/><Link className="cp-btn" to="/insights">Insights</Link></div>}
+      {patients.isLoading ? <div className="skeleton"/> : items.length ? <ul className="team-list">{items.map(p => { const st = stats.get(p.id); const band = st ? bandOf(st) : null; return <li key={p.id}><span><strong>{p.name}</strong><small>{p.birth_year ? `Born ${p.birth_year}` : ''}{p.care_code ? ` · ${p.care_code}` : ''}</small>{st && st.decided > 0 && <span className="pp-tags"><span className={`pp-tag ${band === 'follow_up' ? 'bad' : band === 'watch' ? 'watch' : 'ok'}`}>{pctText(st.taken_pct)} of doses given</span>{st.needs_follow_up && <span className="pp-tag bad">Follow-up suggested</span>}{st.next_appointment && <span className="pp-tag">Next: {st.next_appointment.title}</span>}</span>}</span><span className="pp-links"><Link className="cp-btn" to={`/medicines?patient=${p.id}`}>Medicines</Link><Link className="cp-btn" to={`/care-plan?patient=${p.id}`}>Care plan</Link></span></li>; })}</ul> : filter.trim() ? <p className="muted">No patients match “{filter.trim()}”.</p> : <p className="muted">No patients yet. Find a patient below with their CareCircle ID and birth year.</p>}
     </section>
     <form className="card" onSubmit={e => void lookup(e)}>
       <p className="eyebrow">FIND A PATIENT</p><h3>Find a patient</h3>

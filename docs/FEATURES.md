@@ -184,3 +184,28 @@ Cumulative record of features built one at a time on top of the phased roadmap i
   - `lib/plan.test.ts`
 - **Walkthrough:** [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
 
+## Scale-up (practical-size usage)
+
+- **Why:** the demo had two patients and one doctor, which hides how the app behaves with real numbers and gives a professional nothing to analyse.
+- **Population:** `services/population.py` builds 24 patients with families, 12 caretakers, 5 professionals and 30 days of history (about 2,000 doses, 70 appointments). It is deterministic, built once per version, and separate from the core story and its reset. People: [DEMO_PEOPLE.md](DEMO_PEOPLE.md).
+- **Analytics:** `services/insights.py` and `api/insights.py` give a professional adherence, daily trend, follow-up flags, escort gaps and request response times over their own patients. **Insights** screen, CSV export, patient search.
+- **Multi-user:**
+  - Caretaker activity paging is filtered in SQL.
+  - Larger connection pool.
+  - Stable patient order.
+  - `scripts/load_check.py`.
+- **Code:**
+  - `services/population.py`
+  - `seed/population.py`
+  - `services/insights.py`
+  - `api/insights.py`
+  - `frontend/src/Insights.tsx`
+  - `lib/insights.ts`
+  - `ProfessionalPatients.tsx`
+- **Tests:**
+  - `test_population.py`
+  - `lib/insights.test.ts`
+- **Next:**
+  - Per-professional notification digests.
+  - Trend alerts delivered to the professional (SMS hook in `care_status._on_missed`).
+

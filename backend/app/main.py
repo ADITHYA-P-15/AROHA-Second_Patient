@@ -502,6 +502,8 @@ from app.api.coverage_planner import router as coverage_planner_router
 app.include_router(coverage_planner_router)
 from app.api.care_feeds import router as care_feeds_router
 app.include_router(care_feeds_router)
+from app.api.insights import router as insights_router
+app.include_router(insights_router)
 
 
 lookup_attempts: dict[str, deque[float]] = defaultdict(deque)
@@ -521,7 +523,7 @@ def _show_code(user, member) -> bool:
 def list_patients(limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0), user: User = Depends(current_user), db: Session = Depends(get_db)):
     stmt = select(Patient, CareTeamMember).join(CareTeamMember).where(CareTeamMember.user_id == user.id)
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-    rows = db.execute(stmt.order_by(Patient.name, Patient.created_at.desc()).offset(offset).limit(limit)).all()
+    rows = db.execute(stmt.order_by(CareTeamMember.created_at, Patient.name).offset(offset).limit(limit)).all()
     return {"items": [patient_dict(p, can_see_clinical(user, m), _show_code(user, m)) for p, m in rows], "total": total, "limit": limit, "offset": offset}
 
 
@@ -695,7 +697,7 @@ def seed(db=None):
 @app.post("/api/v1/demo/reset")
 def reset_demo(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
     """Demo mode only, for the fictional demo accounts: rebuild the demo care circle from scratch, relative to now."""
-    if not settings.demo_mode or not user.is_synthetic or not user.email.endswith("@secondpatient.demo"): raise HTTPException(403, "Permission denied")
+    if not settings.demo_mode or not user.is_synthetic or not user.email.endswith(("@secondpatient.demo", "@carecircle.demo")): raise HTTPException(403, "Permission denied")
     from app.services import demo
     if not demo.reset(db): raise HTTPException(409, "The demo patients are not present")
     db.commit()

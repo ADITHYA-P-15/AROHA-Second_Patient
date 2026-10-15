@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     app_timezone: str = "Asia/Kolkata"
     demo_mode: bool = True
     seed_demo: bool = True
+    # Build the larger fictional population (more families, caretakers, hospital staff, 30 days of history) with the demo.
+    demo_population: bool = True
     demo_password: str = "Demo@1234"
     escalation_time_scale: float = 1.0
     # Offer cover and rebalance overload automatically; the replacement must still accept.

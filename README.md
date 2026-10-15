@@ -606,3 +606,34 @@ See [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
 `python -m pytest backend/tests -q`; `npm run lint`, `npm run typecheck`, `npm test`, `npm run build` in `frontend/`; `python scripts/smoke.py --base-url http://<LAN-IP>:8000`.
 
+## Scale-up — a practical-size population, analytics for professionals, multi-user checks
+
+### What changed
+
+- **A larger fictional population** (`services/population.py`, seeded with the demo; `DEMO_POPULATION=false` skips it):
+  - 24 more patients, each with a primary contact (some with a second one), 8 with their own login.
+  - 12 caretakers: a main caretaker and one or two backups per patient, one part-time backup.
+  - 5 more hospital professionals; Dr. Arjun and Dr. Divya also get some of the new patients.
+  - 30 days of dose history with different adherence patterns (excellent, good, slipping, improving, poor), past and upcoming appointments, and handled help requests.
+  - People are in [docs/DEMO_PEOPLE.md](docs/DEMO_PEOPLE.md). They use `@carecircle.demo`, so **Reset demo data** and the core story are untouched.
+- **Insights for healthcare professionals** (`GET /api/v1/insights/professional?days=7..90`, new **Insights** screen):
+  - Doses given, missed and late; a daily chart; patients ranked by who needs follow-up.
+  - Each patient has trend, a 14-day sparkline, next appointment, escort gaps and open requests.
+  - The most-missed medicines are listed, and the patient list can be exported to CSV.
+  - Follow-up is suggested at 3+ missed doses in 7 days, or under 75% of doses given. These are coordination rules, not risk scores.
+  - Only the professional's own care-team patients are included; other roles get 403.
+- **Patients page** for professionals: search by name or CareCircle ID, with adherence and next-appointment tags per patient.
+- **Multi-user hardening:**
+  - Caretakers' activity lists are filtered before paging, so they never miss their own work behind other people's.
+  - A larger DB connection pool.
+  - Patient lists keep a stable order.
+  - `scripts/load_check.py` runs dozens of people from all four roles at once and fails on any error or slow tail.
+
+### Demo
+
+Part 2 of [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
+
+### Checks
+
+Same as before, plus `python scripts/load_check.py --base-url http://<LAN-IP>:8000 --users 40 --seconds 20`.
+
