@@ -2,6 +2,11 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def docs_enabled(app_env: str) -> bool:
+    """Publish interactive API docs only in explicitly non-production environments."""
+    return app_env.strip().lower() in {"dev", "development", "test"}
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     app_env: str = "dev"

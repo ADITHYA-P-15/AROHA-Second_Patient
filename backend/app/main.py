@@ -19,7 +19,7 @@ from sqlalchemy import select, text, func
 from sqlalchemy.orm import Session
 
 from app.core.clock import now
-from app.core.config import settings
+from app.core.config import docs_enabled, settings
 from app.core.db import Base, engine, get_db, SessionLocal
 from app.core.security import create_token, hash_password, verify_password
 from app.core.permissions import require_patient_access
@@ -44,7 +44,7 @@ from app.seed.population import build_in_background as build_population_in_backg
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("second_patient")
 # The interactive API docs are for development; a production deployment does not publish its API schema.
-_docs = settings.app_env != "prod"
+_docs = docs_enabled(settings.app_env)
 app = FastAPI(title="CareCircle", version="0.1.0", openapi_url="/api/openapi.json" if _docs else None, docs_url="/docs" if _docs else None, redoc_url=None)
 if settings.app_env == "prod" and settings.secret_key == "change-me-before-production":
     raise RuntimeError("SECRET_KEY must be changed before starting in production")

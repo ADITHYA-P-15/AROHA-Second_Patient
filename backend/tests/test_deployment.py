@@ -3,7 +3,7 @@ import sys
 
 from fastapi.testclient import TestClient
 
-from app.core.config import Settings, settings
+from app.core.config import Settings, docs_enabled, settings
 from app.main import app
 from app.services.leader import scheduler_lease
 from tests.helpers import H, account, primary_contact_with_patient
@@ -51,6 +51,16 @@ def test_production_does_not_publish_the_api_docs():
     assert out.stdout.strip().endswith("None None"), out.stderr[-400:]
     dev = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env={**env, "APP_ENV": "dev"}, cwd=str(__import__("pathlib").Path(__file__).resolve().parents[1]), timeout=120)
     assert dev.stdout.strip() == "/docs /api/openapi.json", dev.stderr[-400:]
+
+
+def test_api_docs_are_enabled_only_for_explicit_development_environments():
+    assert docs_enabled("dev")
+    assert docs_enabled(" Development ")
+    assert docs_enabled("test")
+    assert not docs_enabled("prod")
+    assert not docs_enabled("production")
+    assert not docs_enabled("staging")
+    assert not docs_enabled("")
 
 
 def test_platform_database_urls_are_normalised_for_the_psycopg_driver():
