@@ -303,3 +303,22 @@ def test_filter_options_come_from_listed_caretakers():
     for city in opts["cities"][:3]:
         assert everyone(pc, city=city["city"])
     assert TestClient(app).get("/api/v1/directory/options").status_code == 401
+
+
+def test_sector_summary_counts_listed_caretakers_and_ranks_agencies():
+    from app.seed import reputation as reputation_seed
+    with SessionLocal() as db:
+        reputation_seed.agency_ratings(db); db.commit()
+    pc, *_ = account()
+    items = pc.get("/api/v1/directory/sector-summary").json()["items"]
+    assert [s["code"] for s in items] == ["NORTH", "SOUTH", "EAST", "WEST"]
+    for s in items:
+        listed = everyone(pc, sector=s["code"])
+        assert s["caretakers"] == len(listed) and sum(s["states"].values()) == len(listed)
+        assert len(s["top_agencies"]) <= 3 and s["agency_count"] >= len(s["top_agencies"])
+        ratings = [a["average_rating"] or 0 for a in s["top_agencies"]]
+        assert ratings == sorted(ratings, reverse=True)
+        for a in s["top_agencies"]:
+            assert a["caretakers"] == len([c for c in listed if c["agency"] and c["agency"]["id"] == a["id"]])
+    carer, *_ = account("CARETAKER")
+    assert carer.get("/api/v1/directory/sector-summary").status_code == 403

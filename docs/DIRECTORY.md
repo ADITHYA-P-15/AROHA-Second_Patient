@@ -146,3 +146,15 @@ API:
   - **Reset all filters** clears every filter and the order in one tap. It does not change the patient's must-help skills.
 - **Top 5 only:** the screen shows the five best matches, with no "Show more". Each card shows match points, reputation, one line of place, agency, experience and languages, and the three strongest reasons.
 - Less helper text: other languages, the patient's city, region and minimum reputation are under "More about the patient".
+
+## India sector map on Find & build team
+
+A map of India sits above the filters. Each state or union territory is a tile, coloured by its sector (North, South, East, West) from the configurable state map. Each tile shows how many listed caretakers live there.
+- **Hover or focus** a region to preview it. **Click** a tile or a region button to choose that sector; this sets the Region filter and clears agency, states and cities. Click it again, or use **All India**, to clear.
+- **Right panel** (below the map on phones):
+  - the region's caretaker and agency counts;
+  - its **top 5 caretakers**, using the same ranking as the recommendations (click to open the profile);
+  - its **top 3 agencies**, ranked by the average agency rating of their caretakers, then how many they list (click to filter by that agency).
+- **Keyboard:** the region buttons are focusable and pressable. The drawing itself is decorative and labelled for screen readers.
+- **The drawing:** it is a schematic tile map drawn in-house (`frontend/src/lib/indiamap.ts`), placed roughly by geography. It uses no map data, map tiles or CDN, so it works offline and carries no third-party licence. It shows regions, not borders or distances.
+- **API:** `GET /api/v1/directory/sector-summary` (primary contacts, patients, professionals) returns, per sector, `caretakers`, `states` (state → count), `agency_count` and `top_agencies` (`id`, `name`, `city`, `caretakers`, `average_rating`).

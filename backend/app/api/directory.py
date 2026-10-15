@@ -104,6 +104,12 @@ def multi(values: list[str] | None, max_len: int, allowed: set[str] | None = Non
     return items
 
 
+@router.get("/sector-summary")
+def sector_summary(user=Depends(_browser), db: Session = Depends(get_db)):
+    """For the India map: per sector, listed caretakers (total and per state) and the top three agencies."""
+    return {"items": svc.sector_summary(db)}
+
+
 @router.get("/options")
 def filter_options(user=Depends(_current_user), db: Session = Depends(get_db)):
     """Dropdown values that exist among listed caretakers: states, cities (with state), languages, skills."""

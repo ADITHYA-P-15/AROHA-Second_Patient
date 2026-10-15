@@ -202,3 +202,38 @@ def options(db: Session) -> dict:
     return {"states": sorted(states), "cities": [{"city": c, "state": st} for c, st in sorted(cities, key=lambda x: (x[0].lower(), x[1]))],
             "languages": sorted(languages.values(), key=str.lower), "capabilities": sorted(capabilities)}
 
+
+
+def sector_summary(db: Session) -> list[dict]:
+    """Per sector, for the map: listed caretakers (total and per state) and the top agencies.
+
+    Agencies rank by the average agency rating of their listed caretakers, then by how many they list, then by name.
+    """
+    from app.models import AgencyRating
+    sectors = {s.id: s for s in db.scalars(select(Sector))}
+    agencies = {a.id: a for a in db.scalars(select(Agency).where(Agency.is_active.is_(True)))}
+    stars = dict(db.execute(select(AgencyRating.caregiver_id, AgencyRating.rating)).all())
+    rows = db.execute(select(CaretakerProfile, Caregiver).join(Caregiver, Caregiver.id == CaretakerProfile.caregiver_id).join(User, User.id == Caregiver.user_id)
+                      .where(CaretakerProfile.listed.is_(True), Caregiver.is_active.is_(True), Caregiver.kind == "CARETAKER", User.is_active.is_(True))).all()
+    out = {s.code: {"code": s.code, "name": s.name, "caretakers": 0, "states": {}, "agencies": {}} for s in sectors.values()}
+    for p, cg in rows:
+        sector = sectors.get(p.sector_id)
+        if sector is None: continue
+        entry = out[sector.code]
+        entry["caretakers"] += 1
+        if p.current_state: entry["states"][p.current_state] = entry["states"].get(p.current_state, 0) + 1
+        agency = agencies.get(p.agency_id) if p.agency_id else None
+        if agency:
+            a = entry["agencies"].setdefault(agency.id, {"id": str(agency.id), "name": agency.name, "city": agency.city, "caretakers": 0, "rated": []})
+            a["caretakers"] += 1
+            if cg.id in stars: a["rated"].append(float(stars[cg.id]))
+    result = []
+    for code in ("NORTH", "SOUTH", "EAST", "WEST"):
+        if code not in out: continue
+        entry = out[code]
+        ranked = sorted(({"id": a["id"], "name": a["name"], "city": a["city"], "caretakers": a["caretakers"],
+                          "average_rating": round(sum(a["rated"]) / len(a["rated"]), 1) if a["rated"] else None} for a in entry["agencies"].values()),
+                        key=lambda a: (-(a["average_rating"] or 0), -a["caretakers"], a["name"]))
+        result.append({"code": code, "name": entry["name"], "caretakers": entry["caretakers"], "states": dict(sorted(entry["states"].items())),
+                       "agency_count": len(ranked), "top_agencies": ranked[:3]})
+    return result

@@ -356,3 +356,9 @@ Cumulative record of features built one at a time on top of the phased roadmap i
   - Only the top 5 matches are shown.
   - Labels are shorter, reasons are capped at three per card, and the secondary needs are folded under "More about the patient".
 - **Tests:** `test_the_patients_must_help_skills_filter_the_list` (failed before the fix), and `lib/teambuilder.test.ts` (`must_have` query, reset state, top reasons).
+
+## Follow-up: India sector map
+
+- **Shipped:** an interactive schematic map of India on Find & build team. Sectors are highlighted; a click filters by region. The panel on the right shows the top 5 caretakers (the same ranking as the recommendations) and the top 3 agencies.
+- **Code:** `services/directory.sector_summary`, `GET /api/v1/directory/sector-summary`, `frontend/src/IndiaMap.tsx`, `lib/indiamap.ts`. Map details are in [DIRECTORY.md](DIRECTORY.md).
+- **Tests:** `test_sector_summary_counts_listed_caretakers_and_ranks_agencies`, `lib/indiamap.test.ts`.

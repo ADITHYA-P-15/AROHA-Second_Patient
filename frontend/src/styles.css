@@ -184,3 +184,12 @@ a.cp-btn.amb{background:#b42318;border-color:#b42318;color:#fff;font-weight:700}
 .tb-meta{margin:6px 0;font-size:13px;color:#4c6368}.tb-reasons{display:flex;flex-wrap:wrap;gap:6px}.tb-reason{font-size:12px;padding:3px 9px;border-radius:999px;background:var(--soft);color:#2b6b62}.tb-clean .tb-actions{margin-top:10px}
 @media(max-width:650px){.tb-filters{grid-template-columns:1fr 1fr}.tb-clean .tb-match-head{flex-wrap:wrap}.tb-score{margin-left:0}}
 .tb-picker{display:flex;justify-content:flex-end}
+/* India sector map (schematic tiles; no map data or CDN). */
+.im{display:grid;gap:12px}.im-legend{display:flex;flex-wrap:wrap;gap:8px}.im-key i,.im-dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.im-body{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(220px,1fr);gap:18px;align-items:start}.im-map{width:100%;height:auto;max-height:440px;user-select:none}
+.im-tile{cursor:pointer;transition:opacity .15s ease}.im-tile rect{stroke:#fff;stroke-width:2}.im-tile:hover rect{stroke:var(--ink)}.im-code{font-size:13px;font-weight:700;fill:#fff;pointer-events:none}.im-n{font-size:11px;fill:#ffffffd9;pointer-events:none}
+.im-north rect,.im-key.im-north i,.im-dot.im-north{fill:#4f74c8;background:#4f74c8}.im-south rect,.im-key.im-south i,.im-dot.im-south{fill:#24886a;background:#24886a}.im-east rect,.im-key.im-east i,.im-dot.im-east{fill:#c27a1e;background:#c27a1e}.im-west rect,.im-key.im-west i,.im-dot.im-west{fill:#8a4fb8;background:#8a4fb8}.im-none rect{fill:#c9d3d3}.im-none{cursor:default}
+.im-dim{opacity:.28}.im-active rect{stroke:var(--ink);stroke-width:2.5}
+.im-panel{border-left:1px solid var(--line);padding-left:16px;min-width:0}.im-panel h4{margin:0 0 2px;font-size:16px}.im-panel h5{margin:12px 0 6px;font-size:13px;color:#40585d}.im-list{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.im-link{display:grid;width:100%;text-align:left;gap:1px;border:0;background:transparent;padding:6px 8px;border-radius:8px;font:inherit;color:var(--ink);cursor:pointer}.im-link:hover,.im-link:focus-visible{background:#f2f7f6;outline:none}.im-link small{color:var(--muted);font-size:12px}
+@media(max-width:800px){.im-body{grid-template-columns:1fr}.im-panel{border-left:0;border-top:1px solid var(--line);padding:12px 0 0}}

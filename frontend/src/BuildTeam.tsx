@@ -7,6 +7,7 @@ import { supportLabel } from './lib/plan.ts';
 import { usePatientPick } from './PatientPick.tsx';
 import { AGENCY_STARS, GENDERS, cityOptions, type Agency, type DirectoryFilters, type DirectoryOptions, type Sector } from './lib/directory.ts';
 import { MultiSelect } from './MultiSelect.tsx';
+import { IndiaMap, type SectorSummary } from './IndiaMap.tsx';
 import { ProfileDrawer } from './FindCaretakers.tsx';
 import { MAX_COMPARE, TOP_DEFAULT, buildMatchesQuery, compareRows, hasActiveFilters, preferencesPayload, requestStatusText, roleText, toggleCompare, topReasons, type HireRequest, type Match, type MatchPage, type MatchSort, type Preferences } from './lib/teambuilder.ts';
 
@@ -25,6 +26,7 @@ export function BuildTeam() {
   const [must, setMust] = useState<string[] | null>(null);  // null: the patient's recorded help and saved must-haves
   const query = buildMatchesQuery(filters, sort, TOP_DEFAULT, must);
   const sectors = useQuery({ queryKey: ['directory-sectors'], queryFn: () => api<{ items: Sector[] }>('/api/v1/directory/sectors'), staleTime: 300_000 });
+  const summary = useQuery({ queryKey: ['sector-summary'], queryFn: () => api<{ items: SectorSummary[] }>('/api/v1/directory/sector-summary'), staleTime: 60_000 });
   const options = useQuery({ queryKey: ['directory-options'], queryFn: () => api<DirectoryOptions>('/api/v1/directory/options'), staleTime: 300_000 });
   const agencies = useQuery({ queryKey: ['directory-agencies', filters.sector], staleTime: 300_000,
     queryFn: () => api<{ items: Agency[] }>(`/api/v1/directory/agencies${filters.sector ? `?sector=${filters.sector}` : ''}`) });
@@ -81,6 +83,10 @@ export function BuildTeam() {
         </form>
       </details>
     </section>
+
+    <IndiaMap sectors={sectors.data?.items ?? []} summary={summary.data?.items ?? []} selected={filters.sector ?? ''} top={items}
+      onSelect={code => set({ sector: code, agency: '', state: [], city: [] })} onProfile={setOpenId}
+      onAgency={(agency, sector) => set({ sector, agency, state: [], city: [] })}/>
 
     <section className="card tb-block" aria-label="Filters">
       <div className="tb-filter-head"><h4>Filters</h4>
