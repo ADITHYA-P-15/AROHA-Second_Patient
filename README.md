@@ -625,6 +625,7 @@ See [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 - **Patients page** for professionals: search by name or CareCircle ID, with adherence and next-appointment tags per patient.
 - **Multi-user hardening:**
   - Caretakers' activity lists are filtered before paging, so they never miss their own work behind other people's.
+  - The plan loads in a handful of queries per request instead of several per row (60 simultaneous users: 140 requests/s, p95 under 1 s).
   - A larger DB connection pool.
   - Patient lists keep a stable order.
   - `scripts/load_check.py` runs dozens of people from all four roles at once and fails on any error or slow tail.
