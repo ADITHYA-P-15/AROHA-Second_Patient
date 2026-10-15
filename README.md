@@ -41,7 +41,7 @@ Docker Compose runs separate application and PostgreSQL containers. A named `pgd
 - LAN devices: `http://<laptop-LAN-IP>:8000` on the same Wi-Fi/hotspot. Run `python scripts/lan-info.py` to find the URL.
 - If Windows blocks LAN access, run `.\scripts\open-firewall.ps1` once from Administrator PowerShell in the project folder. Networks with client isolation may still block access.
 
-**Hosted deployment.** For a public or shared deployment with HTTPS (needed for the microphone off `localhost`), use `docker-compose.prod.yml`, which adds Caddy for TLS, a private database network, health checks and restart policies. `scripts/deploy.sh` backs up, builds, switches, verifies and rolls back automatically. Follow the step-by-step guide and release strategy in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+**Hosted deployment.** For a public or shared deployment with HTTPS (needed for the microphone off `localhost`), use `docker-compose.prod.yml`, which adds Caddy for TLS, a private database network, health checks and restart policies. `scripts/deploy.sh` backs up, builds, switches, verifies and rolls back automatically. Follow the step-by-step guide and release strategy in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). For a managed public URL, `render.yaml` and [docs/DEPLOY_RENDER.md](docs/DEPLOY_RENDER.md) cover the platform choice (Render recommended; Vercel is not suitable for the backend) and the exact steps.
 
 ## 6. Environment variables and safe example configuration
 
@@ -57,6 +57,7 @@ Docker Compose runs separate application and PostgreSQL containers. A named `pgd
 | `COOKIE_SECURE`, `SESSION_HOURS` | HTTPS-only cookie setting and session lifetime |
 | `LOG_LEVEL`, `GIT_SHA` | Logging and build identification |
 | `GEMINI_API_KEY`, `GROQ_API_KEY`, `GEMMA_MODEL`, `GEMINI_SPEECH_MODEL`, `GROQ_STT_MODEL`, `GROQ_TEXT_MODEL`, `AI_SPEECH_ORDER`, `AI_TEXT_ORDER` | Optional, advisory AI for voice notes (speech to text, translation, urgency suggestion). Empty keys disable it; see [docs/AI.md](docs/AI.md) |
+| `PORT`, `FORWARDED_ALLOW_IPS` | Listening port (set by hosting platforms) and whether to trust the platform proxy for client IP and scheme |
 | `FEATURES`, `RUN_SCHEDULER` | Staged rollout allow-list of features, and whether this instance runs the scheduler (only one ever does, enforced by a database lock) |
 | `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL` | Unused legacy settings |
 

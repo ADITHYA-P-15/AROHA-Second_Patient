@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 import unicodedata
 import uuid
+import time
+from collections import defaultdict, deque
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -31,6 +33,8 @@ ALLOWED = ("audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav", "a
 LOW_CONFIDENCE = 0.6
 UNHEARD = "Voice note (not transcribed). Please listen to the recording."
 DRAFT_LIFETIME = timedelta(days=1)
+PREVIEW_LIMIT, PREVIEW_WINDOW = 12, 600  # recordings per person per ten minutes: they call paid or quota-limited AI services
+preview_attempts: dict[str, deque[float]] = defaultdict(deque)
 LEVEL_NAMES = ["For information", "Caretakers asked", "Family asked", "Healthcare team asked", "Doctor asked", "Emergency"]
 ROLE_LABEL = {"CARETAKER": "Caretaker", "PRIMARY_CONTACT": "Family", "PROFESSIONAL": "Healthcare team"}
 
@@ -131,6 +135,11 @@ def _preview(note: VoiceNote, routing: dict) -> dict:
 
 def _make_preview(db: Session, request: Request, user, patient_id: uuid.UUID, audio: bytes, mime: str, language_hint: str | None) -> dict:
     patient = _sender_checks(db, user, patient_id)
+    attempts = preview_attempts[str(user.id)]
+    cutoff = time.monotonic() - PREVIEW_WINDOW
+    while attempts and attempts[0] < cutoff: attempts.popleft()
+    if len(attempts) >= PREVIEW_LIMIT: raise HTTPException(429, "Too many voice notes in a short time. Please wait a few minutes, or type your message.", headers={"Retry-After": "60"})
+    attempts.append(time.monotonic())
     db.execute(delete(VoiceNote).where(VoiceNote.is_draft.is_(True), VoiceNote.created_at < now() - DRAFT_LIFETIME))
     heard = ai.transcribe_audio(audio, mime, language_hint)
     text = _clean(heard.text)[:1000] if heard else ""

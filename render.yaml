@@ -1,0 +1,71 @@
+# Render Blueprint for a hosted CareCircle demo: one always-on Docker web service and one managed Postgres.
+# Render > New > Blueprint > pick this repository. Step-by-step: docs/DEPLOY_RENDER.md
+#
+# Why paid plans: a free web service sleeps after 15 minutes without traffic, which stops the scheduler
+# (reminders, missed-dose alerts, automatic cover), and a free Postgres expires after 30 days.
+databases:
+  - name: carecircle-db
+    databaseName: carecircle
+    user: carecircle
+    region: singapore            # near India; the web service must be in the same region
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+    ipAllowList: []              # no public access: only services in this Render region can connect
+
+services:
+  - type: web
+    name: carecircle
+    runtime: docker
+    region: singapore
+    plan: starter                # always on (no sleeping), so the scheduler keeps running
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeployTrigger: checksPass   # deploy only when CI (.github/workflows/ci.yml) is green
+    envVars:
+      - key: APP_ENV
+        value: prod
+      - key: DATABASE_URL
+        fromDatabase:
+          name: carecircle-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true          # random, stored by Render, never in git
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: FORWARDED_ALLOW_IPS     # trust Render's proxy for the client IP (rate limits) and scheme
+        value: "*"
+      - key: APP_TIMEZONE
+        value: Asia/Kolkata
+      - key: LOG_LEVEL
+        value: INFO
+      # A hosted demo: fictional data and the demo accounts. For real patients set the three below to "false" (see docs/DEPLOYMENT.md, section 9).
+      - key: DEMO_MODE
+        value: "true"
+      - key: SEED_DEMO
+        value: "true"
+      - key: DEMO_POPULATION
+        value: "true"
+      - key: AUTO_COORDINATION
+        value: "true"
+      - key: FEATURES
+        value: voice_notes,insights,reminders
+      - key: RUN_SCHEDULER
+        value: "true"
+      # AI is optional. Leave the keys empty and the app works; voice notes are then routed for a person to listen to.
+      - key: GEMINI_API_KEY
+        sync: false                  # Render asks for the value in the dashboard
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMMA_MODEL
+        value: gemma-4-31b-it
+      - key: GEMINI_SPEECH_MODEL
+        value: gemini-flash-lite-latest
+      - key: GROQ_STT_MODEL
+        value: whisper-large-v3
+      - key: GROQ_TEXT_MODEL
+        value: openai/gpt-oss-120b
+      - key: AI_SPEECH_ORDER
+        value: groq,gemini
+      - key: AI_TEXT_ORDER
+        value: groq,gemma

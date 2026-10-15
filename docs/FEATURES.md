@@ -258,3 +258,10 @@ Cumulative record of features built one at a time on top of the phased roadmap i
 - **Docs:** [DEPLOYMENT.md](DEPLOYMENT.md): the step-by-step guide, release strategy, feature-rollout rules, risks and the gates before real patient data.
 - **Open:** Postgres in CI, a registry-based deploy, web push, moving audio to object storage.
 
+## Public-URL readiness (Render)
+
+- `render.yaml` (validated against Render's published schema): Docker web service plus managed Postgres in Singapore, health check, deploy on green CI, generated secret, AI keys entered in the dashboard.
+- Host compatibility: `postgres://` URLs accepted, `$PORT` honoured, forwarded client IPs trusted when configured, commit shown in `/api/health`.
+- Abuse guard for a public demo: per-person rate limit on voice previews.
+- Docs: [DEPLOY_RENDER.md](DEPLOY_RENDER.md): platform comparison (why not Vercel), steps, day-2 operations, public-demo risks.
+

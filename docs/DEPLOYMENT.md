@@ -3,6 +3,8 @@
 This is the plan for taking CareCircle from "runs on my laptop" to a hosted, repeatable deployment, and for shipping new
 features afterwards without breaking what already works. Everything here matches the code in this repository.
 
+> **Want a public URL with the least work?** Use a managed host: see [DEPLOY_RENDER.md](DEPLOY_RENDER.md) (platform comparison and Render steps; `render.yaml` is ready). This document covers the single-server route and the release strategy that applies to every host.
+
 ## 1. Where the project stands
 
 **Ready:** a single container serves the API and the built UI, migrations run on start, the build runs the whole test suite,

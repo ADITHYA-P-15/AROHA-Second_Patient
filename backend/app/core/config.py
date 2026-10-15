@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -44,6 +45,14 @@ class Settings(BaseSettings):
     voice_max_bytes: int = 3_000_000
     git_sha: str = "dev"
 
+
+    @field_validator("database_url")
+    @classmethod
+    def _driver(cls, value: str) -> str:
+        """Hosting platforms hand out postgres:// or postgresql:// URLs; this app uses the psycopg 3 driver."""
+        for prefix in ("postgres://", "postgresql://"):
+            if value.startswith(prefix): return "postgresql+psycopg://" + value[len(prefix):]
+        return value
 
     def feature(self, name: str) -> bool:
         enabled = {f.strip().lower() for f in self.features.split(",") if f.strip()}

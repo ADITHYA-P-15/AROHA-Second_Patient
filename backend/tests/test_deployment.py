@@ -51,3 +51,24 @@ def test_production_does_not_publish_the_api_docs():
     assert out.stdout.strip().endswith("None None"), out.stderr[-400:]
     dev = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env={**env, "APP_ENV": "dev"}, cwd=str(__import__("pathlib").Path(__file__).resolve().parents[1]), timeout=120)
     assert dev.stdout.strip() == "/docs /api/openapi.json", dev.stderr[-400:]
+
+
+def test_platform_database_urls_are_normalised_for_the_psycopg_driver():
+    assert Settings(database_url="postgres://u:p@h:5432/db").database_url == "postgresql+psycopg://u:p@h:5432/db"
+    assert Settings(database_url="postgresql://u:p@h/db?sslmode=require").database_url == "postgresql+psycopg://u:p@h/db?sslmode=require"
+    assert Settings(database_url="postgresql+psycopg://u:p@h/db").database_url == "postgresql+psycopg://u:p@h/db"
+    assert Settings(database_url="sqlite:///./x.db").database_url == "sqlite:///./x.db"
+
+
+def test_voice_previews_are_rate_limited_per_person(monkeypatch):
+    from app.api import voice
+    from app.services import ai
+    monkeypatch.setattr(ai, "transcribe_audio", lambda audio, mime, hint=None: None)
+    monkeypatch.setattr(ai, "translate_to_english", lambda text, language=None: None)
+    monkeypatch.setattr(ai, "urgency_advisor", lambda: None)
+    monkeypatch.setattr(voice, "PREVIEW_LIMIT", 3)
+    coord, pid = primary_contact_with_patient()
+    # a family member may record on the patient's behalf only through a care team role; use the owner's own preview calls
+    audio = b"RIFF" + b"\x00" * 2000
+    codes = [coord.post(f"/api/v1/patients/{pid}/voice-notes/preview", headers={**H, "Content-Type": "audio/webm"}, content=audio).status_code for _ in range(5)]
+    assert codes.count(429) >= 1 and codes[0] in (201, 403)

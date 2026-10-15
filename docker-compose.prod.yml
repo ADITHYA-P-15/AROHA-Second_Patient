@@ -28,6 +28,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-carecircle}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-carecircle}
       GIT_SHA: ${GIT_SHA:-dev}
+      FORWARDED_ALLOW_IPS: "*"   # Caddy is the only thing that can reach the app, so trust its client IP and scheme
     depends_on:
       db: {condition: service_healthy}
     expose: ["8000"]
