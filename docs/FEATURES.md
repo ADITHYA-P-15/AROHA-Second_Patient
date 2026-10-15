@@ -239,3 +239,11 @@ Cumulative record of features built one at a time on top of the phased roadmap i
 - **Call ambulance.** A primary contact sees a **Call ambulance 108** button on requests that reach them. The phone dials; CareCircle records it and tells the rest of the care team.
 - New endpoints are listed in [docs/AI.md](docs/AI.md). Migration `0012_voice_note_preview`.
 
+### Update: alerts and reminders for every decision
+
+- **Real alerts, not just a list.** Pop-up cards, a chime, browser desktop alerts when the tab is hidden, and the unread count in the tab title. Each person can choose "every update" or "important only".
+- **Every decision tells the right people:** prescriptions, appointments, doses done, leave, task assignments, declines, team and main-caretaker changes, patient updates and "someone is on it".
+- **Timely reminders from the scheduler, once per person:** dose in 15 minutes, appointment within a day and two hours, nobody confirmed yet, unanswered cover offers.
+- **Quick requests confirm themselves.** The Request Help page now says what was sent, who was told and the live status, and a repeated tap merges into the open request ("asked again") instead of flooding the care team.
+- Details: [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md). Migration `0013_notification_links`.
+

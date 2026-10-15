@@ -203,7 +203,7 @@ function HelpPage() {
   const patients=useQuery({queryKey:['patients'],queryFn:()=>api<{items:Patient[]}>('/api/v1/patients')});
   // One idempotency key per draft: retrying after a dropped connection reuses it, so no duplicate request is created.
   const draftKey=useRef(newId());
-  const [message,setMessage]=useState('');const [incident,setIncident]=useState<(IncidentRow&{notified?:Told[]})|null>(null);const [said,setSaid]=useState('');
+  const [message,setMessage]=useState('');const [incident,setIncident]=useState<(IncidentRow&{notified?:Told[];merged?:boolean;repeat_count?:number})|null>(null);const [said,setSaid]=useState('');
   const [sending,setSending]=useState('');const [error,setError]=useState('');const [countdown,setCountdown]=useState<number|null>(null);
   const status=useRef<HTMLDivElement|null>(null);
   const tracked=useQuery({queryKey:['patient-incidents'],queryFn:()=>api<{items:IncidentRow[]}>('/api/v1/incidents'),enabled:!!incident,refetchInterval:5000});
@@ -228,12 +228,14 @@ function HelpPage() {
   const chips=['I need water','Help me to the bathroom','I missed my medicine','I feel dizzy','Nobody came',"I'm fine/took my medicine"];
   const told=incident?.notified??[];
   const whoText=told.length?told.map(t=>t.names.length?`${t.label}: ${t.names.join(', ')}`:t.label).join(' · '):'';
+  const people=told.reduce((n,t)=>n+Math.max(1,t.names.length),0);
   const state=liveIncident?.status;
   const progress=!liveIncident?'':liveIncident.current_level===0?'Nothing more is needed. Your family can see your update.':state==='RESOLVED'?'Handled. Thank you.':state==='ACKNOWLEDGED'?'Someone is on it now.':'Waiting for someone to respond…';
   return <section className="card"><p className="eyebrow">PATIENT HELP</p><h2>Tell us what you need</h2><p>CareCircle routes your message to the right people. It is not a medical diagnosis and cannot replace emergency services. In immediate danger call 108 / 112.</p>
     <div ref={status} aria-live="polite">{liveIncident&&<div className={`help-sent${liveIncident.current_level>=5?' help-sent-urgent':''}`} role="status">
-      <strong><Check size={16} aria-hidden="true"/> Sent: “{said}”</strong>
-      {whoText&&<p>{whoText} {told.length>1?'have':'has'} been told.</p>}
+      <strong><Check size={16} aria-hidden="true"/> {incident?.merged?`You already asked: “${said}”`:`Sent: “${said}”`}</strong>
+      {incident?.merged&&<p>We reminded them again ({incident.repeat_count} times). You do not need to tap it more.</p>}
+      {whoText&&<p>{whoText} {people>1?'have':'has'} been told.</p>}
       <p className="help-progress">{progress}</p>
       {liveIncident.current_level>=5&&<p><a href="tel:108">Call 108</a> · <a href="tel:112">Call 112</a> if you are in danger.</p>}
     </div>}</div>

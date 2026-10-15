@@ -244,6 +244,25 @@ def create_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Reque
             return incident_payload(db.get(Incident, prior.incident_id))
     safe_body = "".join(ch for ch in body.body if unicodedata.category(ch)[0] != "C" or ch in "\n\t").strip()
     if not safe_body: raise HTTPException(422, "Message is empty")
+    # The same request tapped again while the first is still open is one request, asked again, not a new emergency each time.
+    if body.channel in ("TEXT", "QUICK_REPLY"):
+        recent = db.scalar(select(Incident).join(PatientMessage, PatientMessage.incident_id == Incident.id)
+                           .where(PatientMessage.patient_id == patient.id, PatientMessage.sender_user_id == user.id, PatientMessage.body == safe_body,
+                                  Incident.status.in_(("OPEN", "ACKNOWLEDGED")), Incident.created_at >= now() - timedelta(minutes=10)).order_by(Incident.created_at.desc()))
+        if recent is not None:
+            recent.repeat_count = (recent.repeat_count or 1) + 1
+            asked = incident_recipients(db, patient.id, recent.current_level)
+            db.add(IncidentEvent(incident_id=recent.id, kind="MERGED_MESSAGE", level=recent.current_level, actor_user_id=user.id, recipient_user_ids=[str(x.id) for x in asked], note=f"Asked again ({recent.repeat_count} times)"))
+            db.add(PatientMessage(patient_id=patient.id, sender_user_id=user.id, on_behalf=body.on_behalf, reported_role=user.role.value, channel=body.channel, body=safe_body,
+                                  language_hint=body.language_hint, idempotency_key=key, incident_id=recent.id))
+            notify(db, [x.id for x in asked if x.id != user.id], patient.id, f"Asked again: {recent.title}", f"{patient.name} has asked {recent.repeat_count} times and is still waiting.",
+                   kind="INCIDENT", severity="MEDIUM", incident_id=recent.id, link="/incidents", dedupe_key=f"repeat:{recent.id}:{recent.repeat_count}", requires_ack=recent.current_level > 0)
+            db.commit(); db.refresh(recent)
+            groups: dict = {}
+            for person in asked: groups.setdefault(person.role.value, []).append(person.name)
+            labels = {"CARETAKER": "Caretaker", "PRIMARY_CONTACT": "Family", "PROFESSIONAL": "Healthcare team"}
+            return {**incident_payload(recent), "merged": True, "repeat_count": recent.repeat_count,
+                    "notified": [{"role": r, "label": labels.get(r, r.title()), "names": sorted(set(n))} for r, n in groups.items()]}
     # `classify_extra` (e.g. the English translation of a voice note) is read by the rules too, so a mis-heard word in one language can still be caught in the other.
     classify_text = safe_body if not classify_extra or classify_extra.strip() == safe_body else f"{safe_body}\n{classify_extra.strip()[:600]}"
     classification = classify_message(classify_text, language_hint=body.language_hint, context={"mobility_level": patient.mobility_level}, sos=body.channel == "SOS_BUTTON", advisor=advisor)

@@ -134,3 +134,19 @@ def test_marking_everything_read_clears_the_unread_count():
     assert coord.get("/api/v1/notifications").json()["unread_count"] >= 1
     assert coord.post("/api/v1/notifications/read-all", headers=H).status_code == 200
     assert coord.get("/api/v1/notifications").json()["unread_count"] == 0
+
+
+def test_tapping_the_same_request_again_is_one_request_asked_again():
+    from tests.test_voice_notes import patient_login
+    coord, _ = primary_contact_with_patient("Impatient patient")
+    patient, pid = patient_login(coord)
+    caretaker(coord, pid, "Water Helper")
+    first = patient.post(f"/api/v1/patients/{pid}/messages", headers=H, json={"body": "I need water", "channel": "TEXT"})
+    second = patient.post(f"/api/v1/patients/{pid}/messages", headers=H, json={"body": "I need water", "channel": "TEXT"})
+    third = patient.post(f"/api/v1/patients/{pid}/messages", headers=H, json={"body": "I need water", "channel": "TEXT"})
+    assert first.status_code == second.status_code == third.status_code == 201
+    assert first.json()["id"] == second.json()["id"] == third.json()["id"] and third.json()["repeat_count"] == 3 and third.json()["merged"] is True
+    assert third.json()["notified"][0]["label"] == "Caretaker"
+    mine = [i for i in coord.get("/api/v1/incidents").json()["items"] if i["patient_id"] == pid]
+    assert len(mine) == 1  # one open request, not three
+    assert patient.post(f"/api/v1/patients/{pid}/messages", headers=H, json={"body": "I feel dizzy", "channel": "TEXT"}).json()["id"] != first.json()["id"]  # a different request is its own
