@@ -183,3 +183,4 @@ a.cp-btn.amb{background:#b42318;border-color:#b42318;color:#fff;font-weight:700}
 .tb-clean .tb-matches{list-style:none;padding:0;margin:0;display:grid;gap:12px}.tb-clean .tb-match{padding:14px 16px;background:var(--surface)}.tb-clean .tb-match-head strong{font-size:16px}.tb-score{margin-left:auto;font-weight:700;color:var(--brand-dark);font-size:14px}
 .tb-meta{margin:6px 0;font-size:13px;color:#4c6368}.tb-reasons{display:flex;flex-wrap:wrap;gap:6px}.tb-reason{font-size:12px;padding:3px 9px;border-radius:999px;background:var(--soft);color:#2b6b62}.tb-clean .tb-actions{margin-top:10px}
 @media(max-width:650px){.tb-filters{grid-template-columns:1fr 1fr}.tb-clean .tb-match-head{flex-wrap:wrap}.tb-score{margin-left:0}}
+.tb-picker{display:flex;justify-content:flex-end}

@@ -63,7 +63,7 @@ export function BuildTeam() {
   const pending = (requests.data?.items ?? []).filter(r => r.status === 'PENDING' || r.status === 'ACCEPTED' || r.status === 'DECLINED');
 
   return <div className="tb tb-clean">
-    <div className="section-head"><h3>Find &amp; build team</h3>{picker}</div>
+    {picker && <div className="tb-picker">{picker}</div>}
     {notice && <p className="md-notice" role="status">{notice}</p>}
 
     <section className="card tb-block">
@@ -108,7 +108,7 @@ export function BuildTeam() {
           <span className="tb-score" title="Match points">{m.score} pts</span>{m.composite !== null && <span className="chip">★ {Math.round(m.composite)}</span>}</div>
         <p className="tb-meta">{[m.city, m.agency_name ? `${m.agency_name}${m.agency_rating ? ` ${m.agency_rating.toFixed(1)}★` : ''}` : 'Independent', m.years_experience ? `${m.years_experience} yrs` : 'New', m.languages.slice(0, 3).join(', ')].filter(Boolean).join(' · ')}</p>
         <div className="tb-reasons">{topReasons(m).map(r => <span key={r} className="tb-reason">{r}</span>)}</div>
-        {m.capacity_note && <p className="tb-warn small">{m.capacity_note}</p>}
+        {m.capacity_note && <p className="tb-warn small" title={m.capacity_note}>Busy this week · fewer free slots</p>}
         <div className="tb-actions"><button className="text-button" onClick={() => setOpenId(m.caregiver_id)}>Profile</button>
           <label className="tb-check"><input type="checkbox" checked={compare.includes(m.caregiver_id)} disabled={!compare.includes(m.caregiver_id) && compare.length >= MAX_COMPARE}
             onChange={() => setCompare(toggleCompare(compare, m.caregiver_id))}/>Compare</label>
