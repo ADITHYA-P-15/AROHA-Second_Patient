@@ -131,7 +131,7 @@ a.cp-btn.amb{background:#b42318;border-color:#b42318;color:#fff;font-weight:700}
 .nc-item.nc-medium{border-left-color:#d79a2b}.nc-item.nc-high{border-left-color:#c0392b;background:#fff8f7}.nc-item.nc-read{opacity:.62}
 .nc-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#eef5f6;color:var(--brand-dark)}.nc-high .nc-icon{background:#fde8e8;color:#9b1c1c}.nc-medium .nc-icon{background:#fff4dc;color:#8a5a00}
 .nc-text{display:grid;gap:2px;min-width:0}.nc-text strong{font-size:13px;overflow-wrap:anywhere}.nc-text small{font-size:12px;color:var(--muted);overflow-wrap:anywhere;white-space:normal}.nc-text em{font-size:11px;color:#8a9ba0;font-style:normal}
-.nc-toasts{position:fixed;top:14px;right:14px;z-index:60;display:grid;gap:8px;width:min(380px,calc(100vw - 28px));pointer-events:none}
+.nc-toasts{position:fixed;top:78px;right:14px;z-index:60;display:grid;gap:8px;width:min(380px,calc(100vw - 28px));pointer-events:none}
 .nc-toast{pointer-events:auto;display:grid;grid-template-columns:1fr 34px;align-items:start;border:1px solid var(--line);border-left:4px solid var(--brand);border-radius:12px;background:#fff;box-shadow:0 10px 34px #18343d33;animation:ncin .22s ease-out}
 .nc-toast.nc-medium{border-left-color:#d79a2b}.nc-toast.nc-high{border-left-color:#c0392b;background:#fff8f7}
 .nc-toast-main{display:grid;grid-template-columns:32px 1fr;gap:10px;text-align:left;border:0;background:transparent;padding:12px;min-height:0;height:auto;cursor:pointer}
@@ -139,4 +139,4 @@ a.cp-btn.amb{background:#b42318;border-color:#b42318;color:#fff;font-weight:700}
 @keyframes ncin{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
 .help-sent{margin:14px 0;padding:14px 16px;border:1px solid #b7e3cf;background:#f1faf5;border-radius:12px}.help-sent strong{display:flex;gap:6px;align-items:center;font-size:17px}.help-sent p{margin:6px 0 0}.help-progress{color:var(--muted);font-size:14px}
 .help-sent-urgent{border-color:#e7a4a4;background:#fff5f5}.help-chips button[aria-busy=true]{background:var(--soft);border-color:var(--brand);color:var(--brand)}.help-chips button:disabled{opacity:.6}
-@media(max-width:650px){.nc-toasts{top:8px;right:8px;left:8px;width:auto}}
+@media(max-width:650px){.nc-toasts{top:68px;right:8px;left:8px;width:auto}}
