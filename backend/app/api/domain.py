@@ -247,30 +247,50 @@ def _caregiver_dict(db, user, cg, pid=None):
     return {"id": cg.id, "user_id": cg.user_id, "name": cg.name, "kind": cg.kind, "phone": cg.phone if show_phone else None, "capabilities": cg.capabilities, "max_activities_per_day": cg.max_activities_per_day, "max_hours_per_week": cg.max_hours_per_week, "is_active": cg.is_active, "notes": cg.notes, "relationship": link.relationship if link else "", "is_designated_backup": link.is_designated_backup if link else False, "is_main_caretaker": link.is_main_caretaker if link else False, "linked_patient_count": len(links), "is_synthetic": cg.is_synthetic}
 
 
-def _activity_dict(db, user, a):
-    assignments = db.scalars(select(CareAssignment).where(CareAssignment.activity_id == a.id)).all()
+def _load_context(db, user, activities):
+    """Everything `_activity_dict` needs for a list of activities, in a handful of queries instead of several per row."""
+    ids = [a.id for a in activities]
+    assignments: dict = {}
+    if ids:
+        for item in db.scalars(select(CareAssignment).where(CareAssignment.activity_id.in_(ids))):
+            assignments.setdefault(item.activity_id, []).append(item)
+    covers: dict = {}
+    if ids:
+        for req in db.scalars(select(CoverRequest).where(CoverRequest.activity_id.in_(ids), CoverRequest.status.in_(("OPEN", "OFFERED")))):
+            covers.setdefault(req.activity_id, req)
+    caregiver_ids = {x.caregiver_id for rows in assignments.values() for x in rows} | {r.offered_caregiver_id for r in covers.values() if r.offered_caregiver_id}
+    caregivers = {c.id: c for c in db.scalars(select(Caregiver).where(Caregiver.id.in_(caregiver_ids)))} if caregiver_ids else {}
+    patient_ids = {a.patient_id for a in activities}
+    members = {m.patient_id: m for m in db.scalars(select(CareTeamMember).where(CareTeamMember.patient_id.in_(patient_ids), CareTeamMember.user_id == user.id))} if patient_ids else {}
+    return {"assignments": assignments, "covers": covers, "caregivers": caregivers, "members": members,
+            "own_caregiver": db.scalar(select(Caregiver.id).where(Caregiver.user_id == user.id))}
+
+
+def _activity_dict(db, user, a, ctx=None):
+    ctx = ctx or _load_context(db, user, [a])
+    assignments = ctx["assignments"].get(a.id, [])
     primary_confirmed = any(x.role == "PRIMARY" and x.status == "CONFIRMED" for x in assignments)
-    member = db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == a.patient_id, CareTeamMember.user_id == user.id))
+    member = ctx["members"].get(a.patient_id)
     permissions = ["plan:read"]
     if (member and member.team_role == TeamRole.PRIMARY_CONTACT): permissions += ["plan:manage", "assignment:manage"]
     if user.role == Role.PROFESSIONAL: permissions += ["clinical_notes:read"]
     if user.role in (Role.PRIMARY_CONTACT, Role.CARETAKER): permissions += ["availability:edit_own"]
-    own_caregiver = db.scalar(select(Caregiver.id).where(Caregiver.user_id == user.id))
+    own_caregiver = ctx["own_caregiver"]
     if own_caregiver and any(x.caregiver_id == own_caregiver and x.status in ACTIVE for x in assignments): permissions.append("assignment:respond_own")
     if user.role == Role.CARETAKER:
-        own_id = db.scalar(select(Caregiver.id).where(Caregiver.user_id == user.id))
-        if not own_id or not db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == a.id, CareAssignment.caregiver_id == own_id, CareAssignment.status.in_(ACTIVE))):
+        if not own_caregiver or not any(x.caregiver_id == own_caregiver and x.status in ACTIVE for x in assignments):
             raise HTTPException(403, "This activity is not assigned to you")
     assignment_rows = []
     for item in assignments:
-        caregiver = db.get(Caregiver, item.caregiver_id)
+        caregiver = ctx["caregivers"].get(item.caregiver_id)
+        if caregiver is None: continue
         if user.role == Role.CARETAKER and caregiver.user_id != user.id: continue
         assignment_rows.append({"id": item.id, "caregiver_id": item.caregiver_id, "caregiver_name": caregiver.name, "role": item.role, "status": item.status, "confirmed_at": item.confirmed_at, "is_mine": caregiver.user_id == user.id})
     # An open cover search, so screens can say a replacement is being asked. Caretakers do not see who else is asked.
     cover = None
-    req = db.scalar(select(CoverRequest).where(CoverRequest.activity_id == a.id, CoverRequest.status.in_(("OPEN", "OFFERED"))))
+    req = ctx["covers"].get(a.id)
     if req:
-        offered = db.get(Caregiver, req.offered_caregiver_id) if req.offered_caregiver_id else None
+        offered = ctx["caregivers"].get(req.offered_caregiver_id) if req.offered_caregiver_id else None
         offered_to_me = bool(offered and offered.user_id == user.id)
         cover = {"status": req.status, "offered_to": offered.name if offered and (user.role != Role.CARETAKER or offered_to_me) else None, "offered_to_me": offered_to_me}
     return {"cover": cover, "id": a.id, "patient_id": a.patient_id, "series_id": a.series_id, "title": a.title, "description": a.description, "category": a.category, "scheduled_start": to_utc(_as_aware(a.scheduled_start)), "scheduled_end": to_utc(_as_aware(a.scheduled_end)), "deadline": to_utc(_as_aware(a.deadline)) if a.deadline else None, "importance": a.importance, "requires_caregiver": a.requires_caregiver, "required_support": a.required_support, "buffer_before_min": a.buffer_before_min, "buffer_after_min": a.buffer_after_min, "location_note": a.location_note, "lifecycle_status": a.lifecycle_status, "care_status": care_status_service.care_status(a), "due_by": to_utc(care_status_service.due_by(a)), "source": a.source, "source_id": a.source_id, "completed_at": to_utc(_as_aware(a.completed_at)) if a.completed_at else None, "completed_late": a.completed_late, "missed_at": to_utc(_as_aware(a.missed_at)) if a.missed_at else None, "coverage_status": a.coverage_status, "is_synthetic": a.is_synthetic, "assignments": assignment_rows, "preliminary_support_status": "Support confirmed" if primary_confirmed else "Not confirmed", "my_permissions": permissions}
@@ -349,7 +369,8 @@ def overview(pid: uuid.UUID, user: User = Depends(__import__("app.main", fromlis
     unconfirmed = 0
     for a in activities:
         if not db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == a.id, CareAssignment.role == "PRIMARY", CareAssignment.status == "CONFIRMED")): unconfirmed += 1
-    return {"upcoming_activities": [_activity_dict(db, user, x) for x in activities], "not_yet_confirmed_count": unconfirmed, "caregivers": [_caregiver_dict(db, user, c, pid) for c in caregivers], "recent_history": [{"event_type": e.event_type, "summary": e.summary, "occurred_at": e.occurred_at} for e in events]}
+    ctx = _load_context(db, user, activities)
+    return {"upcoming_activities": [_activity_dict(db, user, x, ctx) for x in activities], "not_yet_confirmed_count": unconfirmed, "caregivers": [_caregiver_dict(db, user, c, pid) for c in caregivers], "recent_history": [{"event_type": e.event_type, "summary": e.summary, "occurred_at": e.occurred_at} for e in events]}
 
 
 @router.get("/patients/{pid}/caregivers")
@@ -496,7 +517,8 @@ def list_activities(pid: uuid.UUID, start: datetime | None = Query(default=None,
     rows = db.scalars(stmt.order_by(CareActivity.scheduled_start).offset(offset).limit(limit)).all()
     if caregiver_id: rows = [a for a in rows if db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == a.id, CareAssignment.caregiver_id == caregiver_id))]
     if unconfirmed: rows = [a for a in rows if not db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == a.id, CareAssignment.role == "PRIMARY", CareAssignment.status == "CONFIRMED"))]
-    return {"items": [_activity_dict(db, user, x) for x in rows], "total": len(rows), "limit": limit, "offset": offset}
+    ctx = _load_context(db, user, rows)
+    return {"items": [_activity_dict(db, user, x, ctx) for x in rows], "total": len(rows), "limit": limit, "offset": offset}
 
 
 @router.post("/patients/{pid}/activities", status_code=201)

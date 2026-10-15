@@ -71,13 +71,15 @@ def main():
     people = [(f"{e}@carecircle.demo", r) for e, r in ROSTER] + CORE
     people = (people * (args.users // len(people) + 1))[: args.users]
     latencies, failures, lock = [], [], threading.Lock()
+    by_path: dict[str, list[float]] = {}
+    logins: list[float] = []
     deadline = time.time() + args.seconds
 
     def worker(email, role):
         s = Session(args.base_url)
         status, _, took = s.call("POST", "/api/v1/auth/login", {"email": email, "password": PASSWORD})
         with lock:
-            latencies.append(took)
+            logins.append(took); by_path.setdefault('POST /auth/login', []).append(took)
             if status != 200: failures.append(f"login {email}: {status}")
         if status != 200: return
         _, listing, _ = s.call("GET", "/api/v1/patients")
@@ -87,7 +89,7 @@ def main():
             for method, path in calls:
                 status, _, took = s.call(method, path)
                 with lock:
-                    latencies.append(took)
+                    latencies.append(took); by_path.setdefault(path.split('?')[0].split('/patients/')[0] + ('/patients/{id}/' + path.split('?')[0].split('/patients/')[1].split('/', 1)[1] if '/patients/' in path and '/' in path.split('/patients/')[1] else ''), []).append(took)
                     if status != 200: failures.append(f"{role} {path.split('?')[0]}: {status}")
                 if time.time() >= deadline: break
 
@@ -98,7 +100,11 @@ def main():
     elapsed = time.time() - started
     latencies.sort()
     p50, p95 = statistics.median(latencies), latencies[int(0.95 * (len(latencies) - 1))]
+    print(f"sign-in: {len(logins)} people, slowest {max(logins) * 1000:.0f} ms" if logins else "no sign-ins")
     print(f"{len(people)} users · {len(latencies)} requests in {elapsed:.0f}s ({len(latencies) / elapsed:.0f}/s) · p50 {p50 * 1000:.0f} ms · p95 {p95 * 1000:.0f} ms · max {latencies[-1] * 1000:.0f} ms")
+    print('slowest paths (p50 / p95 ms):')
+    for path, values in sorted(by_path.items(), key=lambda kv: -statistics.median(kv[1]))[:6]:
+        v = sorted(values); print(f"  {path:48} {statistics.median(v) * 1000:6.0f} / {v[int(0.95 * (len(v) - 1))] * 1000:6.0f}  (n={len(v)})")
     kinds = {}
     for f in failures: kinds[f] = kinds.get(f, 0) + 1
     for f, n in sorted(kinds.items(), key=lambda x: -x[1])[:10]: print(f"  FAIL x{n}: {f}")
