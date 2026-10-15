@@ -643,8 +643,8 @@ Same as before, plus `python scripts/load_check.py --base-url http://<LAN-IP>:80
 ### What changed
 
 - **Voice notes** on the patient's Request Help page: record up to a minute in any language, listen back, send. The care team sees a player, the transcript with its language, and a note when the transcript may be wrong.
-- **Transcription chain:** Gemma (Gemini API key) first, Groq Whisper as the fallback. A failing provider is skipped for a minute.
-- **Urgency suggestion:** the transcript is routed by the existing rules, then an assistant (Groq, Gemma as fallback) may **raise** the level with a one-sentence reason. It can never lower a level or decide anything.
+- **Transcription chain:** Groq Whisper `large-v3` first, a Gemini model on the Google key as the fallback. Gemma models reject audio on the Gemini API today, so Gemma is used for text. A failing provider is skipped for a minute.
+- **Urgency suggestion:** the transcript is routed by the existing rules, then an assistant (Groq `gpt-oss`, Gemma as fallback) may **raise** the level with a one-sentence reason. It can never lower a level or decide anything.
 - **Works without AI:** with no keys, or when providers fail, the note is stored, routed to the family for a person to listen to, and playable.
 - Everything is documented in [docs/AI.md](docs/AI.md). Check your keys with `python scripts/ai_check.py`.
 

@@ -212,7 +212,7 @@ Cumulative record of features built one at a time on top of the phased roadmap i
 ## AI assist: voice notes
 
 - **Why:** voice notes are always reachable when a call is not, and need no typing. Hospitals and families get a record they can replay.
-- **Flow:** record, upload, transcribe (Gemma, Groq fallback), classify by the rules, optional raise-only suggestion, route as a normal request with `voice_note` attached.
+- **Flow:** record, upload, transcribe (Groq Whisper, Gemini fallback), classify by the rules, optional raise-only suggestion, route as a normal request with `voice_note` attached.
 - **Principles:** AI advises, rules decide, a person confirms. Works without AI. The audio is always kept.
 - **Code:**
   - `services/ai.py`

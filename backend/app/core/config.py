@@ -21,17 +21,22 @@ class Settings(BaseSettings):
     ai_provider: str = "none"
     ai_api_key: str = ""
     ai_model: str = ""
-    # AI is optional and advisory. Speech: Gemma first, Groq fallback. Text tasks: Groq first, Gemma fallback. Keys stay on the server.
+    # AI is optional and advisory; keys stay on the server. Measured on real keys (see docs/AI.md):
+    #   speech: Groq whisper-large-v3 first (best for Hindi/Kannada/Telugu), a Gemini model on the Google key as the fallback;
+    #   text:   Groq gpt-oss first, Gemma 4 (Google key) as the fallback.
+    # Gemma models on the Gemini API reject audio today; list "gemma" in AI_SPEECH_ORDER to try one when that changes.
     gemini_api_key: str = ""
-    gemma_model: str = "gemma-3n-e4b-it"
+    gemma_model: str = "gemma-4-31b-it"
+    gemini_speech_model: str = "gemini-flash-lite-latest"
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
-    groq_base_url: str = "https://api.groq.com/openai/v1"
     groq_api_key: str = ""
-    groq_stt_model: str = "whisper-large-v3-turbo"
-    groq_text_model: str = "llama-3.3-70b-versatile"
-    ai_speech_order: str = "gemma,groq"
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    groq_stt_model: str = "whisper-large-v3"
+    groq_text_model: str = "openai/gpt-oss-120b"
+    ai_speech_order: str = "groq,gemini"
     ai_text_order: str = "groq,gemma"
-    ai_timeout_seconds: float = 20.0
+    ai_timeout_seconds: float = 15.0       # speech: Groq answers in about a second
+    ai_text_timeout_seconds: float = 8.0   # urgency suggestion: never hold up a patient's request for long
     voice_max_bytes: int = 3_000_000
     git_sha: str = "dev"
 

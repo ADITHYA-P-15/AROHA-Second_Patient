@@ -45,21 +45,28 @@ def main() -> int:
     ok = True
     wav = silent_wav()
     if settings.gemini_api_key:
-        print(f"\nGemma via the Gemini API (model '{settings.gemma_model}')")
         def models():
             reply = httpx.get(f"{settings.gemini_base_url.rstrip('/')}/models?pageSize=200", headers={"x-goog-api-key": settings.gemini_api_key}, timeout=20)
             if reply.status_code >= 400: raise ai.AIError(f"HTTP {reply.status_code} (check the key)")
-            names = [m["name"].split("/")[-1] for m in reply.json().get("models", [])]
-            gemma = [n for n in names if "gemma" in n]
-            if settings.gemma_model not in names: raise ai.AIError(f"model not listed. Gemma models on this key: {', '.join(gemma) or 'none'}. Set GEMMA_MODEL to one of them")
-            return f"model available ({len(gemma)} Gemma models listed)"
+            names = {m["name"].split("/")[-1] for m in reply.json().get("models", [])}
+            missing = [m for m in {settings.gemma_model, settings.gemini_speech_model} if m not in names]
+            if missing: raise ai.AIError(f"not available on this key: {', '.join(missing)}. Available: {', '.join(sorted(n for n in names if 'gemma' in n or 'gemini' in n))[:600]}")
+            return "configured models are available"
+        print("\nGoogle key")
         ok &= attempt("model list", models)
-        ok &= attempt("audio in -> text", lambda: ai._gemma_transcribe(wav, "audio/wav", None).__class__.__name__ + " (accepted audio)")
-        ok &= attempt("text -> JSON", lambda: ai._json_object(ai._gemma_generate([{"text": 'Reply with ONLY this JSON: {"ok": true}'}])) or (_ for _ in ()).throw(ai.AIError("reply was not JSON")))
-    if settings.groq_api_key:
-        print(f"\nGroq (speech '{settings.groq_stt_model}', text '{settings.groq_text_model}')")
-        ok &= attempt("audio in -> text", lambda: ai._groq_transcribe(wav, "audio/wav", None).__class__.__name__ + " (accepted audio)")
-        ok &= attempt("text -> JSON", lambda: ai._json_object(ai._groq_chat("Reply with JSON only.", 'Reply with {"ok": true}')) or (_ for _ in ()).throw(ai.AIError("reply was not JSON")))
+    checks = {"gemma": ("Gemma audio", ai._gemma_transcribe, settings.gemma_model), "gemini": ("Gemini audio", ai._gemini_transcribe, settings.gemini_speech_model),
+              "groq": ("Groq Whisper audio", ai._groq_transcribe, settings.groq_stt_model)}
+    print("\nSpeech to text, in your order:", ", ".join(ai.speech_providers()) or "none")
+    for provider in ai.speech_providers():
+        label, fn, model = checks[provider]
+        ok &= attempt(f"{label} ({model})", lambda fn=fn: fn(wav, "audio/wav", None).__class__.__name__ + " (accepted audio)")
+    print("\nText tasks (urgency suggestion), in your order:", ", ".join(ai.text_providers()) or "none")
+    for provider in ai.text_providers():
+        model = settings.groq_text_model if provider == "groq" else settings.gemma_model if provider == "gemma" else settings.gemini_speech_model
+        def ask(provider=provider):
+            raw = ai._groq_chat("Reply with JSON only.", 'Reply with {"ok": true}') if provider == "groq" else ai._gemma_generate([{"text": 'Reply with ONLY this JSON: {"ok": true}'}], None if provider == "gemma" else settings.gemini_speech_model, settings.ai_text_timeout_seconds)
+            return ai._json_object(raw) or (_ for _ in ()).throw(ai.AIError("reply was not JSON"))
+        ok &= attempt(f"{provider} ({model})", ask)
     print("\nAll providers working." if ok else "\nSome checks failed. The app still works: failed providers are skipped and voice notes are routed for a person to listen.")
     return 0 if ok else 2
 

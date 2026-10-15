@@ -89,3 +89,21 @@ def test_advisor_uses_groq_then_gemma_and_rejects_out_of_range_answers(monkeypat
 
 def test_language_names_become_codes():
     assert ai.normalise_language("Kannada") == "kn" and ai.normalise_language("te") == "te" and ai.normalise_language("") is None and ai.normalise_language(5) is None
+
+
+def test_a_verbose_reply_is_read_by_its_last_json_object():
+    verbose = 'Input: "Reply with ONLY JSON {"ok": true}"\n* Level for chest pain is high.\n{"level": 4, "reason": "Chest pain."}'
+    assert ai._json_object(verbose) == {"level": 4, "reason": "Chest pain."}
+    assert ai._json_object("no json here") is None and ai._json_object("") is None
+
+
+def test_default_order_is_groq_then_gemini_for_speech_and_the_gemini_model_is_used(monkeypatch):
+    monkeypatch.setattr(settings, "ai_speech_order", "groq,gemini")
+    seen = []
+    def post_json(url, headers, payload, timeout):
+        seen.append(url); return gemma_reply('{"language": "kn", "text": "ತಲೆ ತಿರುಗುತ್ತಿದೆ", "confidence": 0.8}')
+    monkeypatch.setattr(ai, "_post_json", post_json)
+    monkeypatch.setattr(ai, "_post_multipart", lambda *a, **k: (_ for _ in ()).throw(ai.AIError("HTTP 429")))
+    heard = ai.transcribe_audio(b"audio", "audio/webm")
+    assert heard.provider == "gemini" and heard.model == settings.gemini_speech_model and settings.gemini_speech_model in seen[0]
+    assert ai.speech_providers() == ["groq", "gemini"]

@@ -1,7 +1,7 @@
 """AI providers behind small, replaceable functions: speech to text and a bounded urgency suggestion.
 
-Gemma (Google Gemini API key) is tried first for speech; Groq (hosted Whisper) is the fallback. For text tasks Groq goes
-first and Gemma is the fallback. Everything is optional: with no keys, or when every provider fails, callers get None and the
+Speech: Groq Whisper first, a Gemini model on the Google key as the fallback (Gemma models reject audio on the Gemini API
+today, but "gemma" can be placed in AI_SPEECH_ORDER to try one). Text tasks: Groq first, Gemma (Google key) as the fallback. Everything is optional: with no keys, or when every provider fails, callers get None and the
 app behaves exactly as it did before. AI output is advice: it can only *raise* a routing level, it never lowers one, confirms
 anything or decides who covers a task (see engine/escalation_classifier.py).
 """
@@ -57,10 +57,15 @@ def _post_multipart(url: str, headers: dict, data: dict, files: dict, timeout: f
 # --- helpers --------------------------------------------------------------------------------------------------------
 
 def _json_object(text: str) -> dict | None:
-    """The first JSON object in a model reply (models sometimes wrap it in prose or code fences)."""
+    """The JSON object in a model reply. Verbose models reason first and answer last, so the last flat object wins."""
     if not text: return None
     cleaned = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
-    for candidate in (cleaned, cleaned[cleaned.find("{"): cleaned.rfind("}") + 1] if "{" in cleaned else ""):
+    try:
+        value = json.loads(cleaned)
+        if isinstance(value, dict): return value
+    except ValueError:
+        pass
+    for candidate in reversed(re.findall(r"\{[^{}]*\}", cleaned)):
         try:
             value = json.loads(candidate)
             if isinstance(value, dict): return value
@@ -97,11 +102,11 @@ def reset_breakers() -> None:
 
 
 def configured(provider: str) -> bool:
-    return bool(settings.gemini_api_key) if provider == "gemma" else bool(settings.groq_api_key) if provider == "groq" else False
+    return bool(settings.gemini_api_key) if provider in ("gemma", "gemini") else bool(settings.groq_api_key) if provider == "groq" else False
 
 
 def _order(raw: str) -> list[str]:
-    return [p for p in (x.strip().lower() for x in raw.split(",")) if p in ("gemma", "groq") and configured(p)]
+    return [p for p in (x.strip().lower() for x in raw.split(",")) if p in ("gemma", "gemini", "groq") and configured(p)]
 
 
 def speech_providers() -> list[str]:
@@ -113,15 +118,15 @@ def text_providers() -> list[str]:
 
 
 def status() -> dict:
-    return {"speech": speech_providers(), "text": text_providers(), "models": {"gemma": settings.gemma_model, "groq_speech": settings.groq_stt_model, "groq_text": settings.groq_text_model}}
+    return {"speech": speech_providers(), "text": text_providers(), "models": {"gemma": settings.gemma_model, "gemini_speech": settings.gemini_speech_model, "groq_speech": settings.groq_stt_model, "groq_text": settings.groq_text_model}}
 
 
 # --- Gemma through the Gemini API -----------------------------------------------------------------------------------
 
-def _gemma_generate(parts: list[dict]) -> str:
+def _gemma_generate(parts: list[dict], model: str | None = None, timeout: float | None = None) -> str:
     # Gemma models reject JSON mode and system instructions on this API, so instructions travel in the prompt itself.
-    reply = _post_json(f"{settings.gemini_base_url.rstrip('/')}/models/{settings.gemma_model}:generateContent", {"x-goog-api-key": settings.gemini_api_key},
-                       {"contents": [{"parts": parts}], "generationConfig": {"temperature": 0}}, settings.ai_timeout_seconds)
+    reply = _post_json(f"{settings.gemini_base_url.rstrip('/')}/models/{model or settings.gemma_model}:generateContent", {"x-goog-api-key": settings.gemini_api_key},
+                       {"contents": [{"parts": parts}], "generationConfig": {"temperature": 0}}, timeout or settings.ai_timeout_seconds)
     try:
         return "".join(p.get("text", "") for p in reply["candidates"][0]["content"]["parts"])
     except (KeyError, IndexError, TypeError):
@@ -134,13 +139,21 @@ TRANSCRIBE_PROMPT = ("Transcribe this voice note exactly as spoken, in the origi
                      'If no speech can be made out, use an empty "text".')
 
 
-def _gemma_transcribe(audio: bytes, mime: str, language_hint: str | None) -> Transcript:
+def _google_transcribe(audio: bytes, mime: str, language_hint: str | None, model: str, label: str) -> Transcript:
     hint = f" The speaker is likely using language code {language_hint}." if language_hint else ""
-    raw = _gemma_generate([{"text": TRANSCRIBE_PROMPT + hint}, {"inline_data": {"mime_type": mime.split(";")[0], "data": base64.b64encode(audio).decode()}}])
+    raw = _gemma_generate([{"text": TRANSCRIBE_PROMPT + hint}, {"inline_data": {"mime_type": mime.split(";")[0], "data": base64.b64encode(audio).decode()}}], model)
     data = _json_object(raw)
     if data is None:  # an unstructured reply: take it as the transcript, with no claim about language or confidence
-        return Transcript(raw.strip(), language_hint, None, "gemma", settings.gemma_model)
-    return Transcript(str(data.get("text", "")).strip(), normalise_language(data.get("language")) or language_hint, _clip(data.get("confidence"), 0, 1), "gemma", settings.gemma_model)
+        return Transcript(raw.strip(), language_hint, None, label, model)
+    return Transcript(str(data.get("text", "")).strip(), normalise_language(data.get("language")) or language_hint, _clip(data.get("confidence"), 0, 1), label, model)
+
+
+def _gemma_transcribe(audio: bytes, mime: str, language_hint: str | None) -> Transcript:
+    return _google_transcribe(audio, mime, language_hint, settings.gemma_model, "gemma")
+
+
+def _gemini_transcribe(audio: bytes, mime: str, language_hint: str | None) -> Transcript:
+    return _google_transcribe(audio, mime, language_hint, settings.gemini_speech_model, "gemini")
 
 
 # --- Groq (Whisper and chat models) ---------------------------------------------------------------------------------
@@ -162,7 +175,7 @@ def _groq_transcribe(audio: bytes, mime: str, language_hint: str | None) -> Tran
 def _groq_chat(system: str, user: str) -> str:
     reply = _post_json(f"{settings.groq_base_url.rstrip('/')}/chat/completions", {"Authorization": f"Bearer {settings.groq_api_key}"},
                        {"model": settings.groq_text_model, "temperature": 0, "response_format": {"type": "json_object"},
-                        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}, settings.ai_timeout_seconds)
+                        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}, settings.ai_text_timeout_seconds)
     try:
         return reply["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError):
@@ -174,7 +187,7 @@ def complete_json(system: str, user: str) -> tuple[dict, str] | None:
     for provider in text_providers():
         if not _available(provider): continue
         try:
-            raw = _groq_chat(system, user) if provider == "groq" else _gemma_generate([{"text": f"{system}\n\n{user}"}])
+            raw = _groq_chat(system, user) if provider == "groq" else _gemma_generate([{"text": f"{system}\n\n{user}"}], settings.gemini_speech_model if provider == "gemini" else None, settings.ai_text_timeout_seconds)
             data = _json_object(raw)
             if data is None: raise AIError("reply was not JSON")
             return data, provider
@@ -187,11 +200,11 @@ def complete_json(system: str, user: str) -> tuple[dict, str] | None:
 # --- public API -----------------------------------------------------------------------------------------------------
 
 def transcribe_audio(audio: bytes, mime: str, language_hint: str | None = None) -> Transcript | None:
-    """Gemma first, Groq as the fallback. None when nothing is configured or every provider failed or heard nothing."""
+    """Providers in AI_SPEECH_ORDER (default Groq Whisper, then Gemini). None when none is configured, or every one failed or heard nothing."""
     for provider in speech_providers():
         if not _available(provider): continue
         try:
-            result = (_gemma_transcribe if provider == "gemma" else _groq_transcribe)(audio, mime, language_hint)
+            result = {"gemma": _gemma_transcribe, "gemini": _gemini_transcribe, "groq": _groq_transcribe}[provider](audio, mime, language_hint)
         except Exception as exc:
             _mark_down(provider)
             log.warning("AI speech provider %s failed: %s", provider, type(exc).__name__)

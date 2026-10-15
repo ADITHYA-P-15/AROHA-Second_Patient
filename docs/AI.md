@@ -6,24 +6,40 @@ AI is **optional and advisory**. With no keys the app behaves exactly as before.
 
 | Feature | What happens | AI's role | What it can never do |
 |---|---|---|---|
-| **Voice notes** | The patient (or a caretaker on their behalf) records up to a minute, in any language. | Turns the audio into text and detects the language. | Replace the recording. The audio is always kept and playable. |
+| **Voice notes** | The patient (or a caretaker on their behalf) records up to a minute, in any language. | Turns the audio into text and detects the language (Groq Whisper, Gemini fallback). | Replace the recording. The audio is always kept and playable. |
 | **Urgency suggestion** | The transcript goes through the normal rules first. | May **raise** the routing level, with a one-sentence reason shown to the care team. | Lower a level, close a request, or decide who covers a task. |
 
 If transcription fails or hears nothing, the note is still sent, routed to the family ("Voice note to review"), and shown as "Not transcribed. Please play the recording."
 
-## Providers
+## Providers (measured on real keys, 15 Oct 2026)
 
 | Task | First | Fallback |
 |---|---|---|
-| Speech to text | **Gemma** (Gemini API key) | **Groq** (hosted Whisper) |
-| Urgency suggestion (text) | **Groq** (Llama) | **Gemma** |
+| Speech to text | **Groq** `whisper-large-v3` | **Gemini** `gemini-flash-lite-latest` (same Google key) |
+| Urgency suggestion (text) | **Groq** `openai/gpt-oss-120b` | **Gemma** `gemma-4-31b-it` (same Google key) |
 
-A provider that fails is skipped for 60 seconds, so a quota error never makes a patient wait. Order and models are settings (`.env`):
+What the tests showed (synthesized clips: "I feel dizzy and my chest hurts" in four languages):
+
+| Model | English | Hindi | Kannada | Telugu | Speed |
+|---|---|---|---|---|---|
+| Groq `whisper-large-v3` | correct | correct | correct | correct | 0.4 to 0.7 s |
+| Groq `whisper-large-v3-turbo` | correct | correct | **wrong (labelled Tamil)** | **wrong (labelled Tamil)** | 0.4 to 0.8 s |
+| Gemini `flash-lite` family | correct | correct | not tested | not tested | 2 to 3 s, occasional timeouts |
+| Gemma 4 (`26b`, `31b`) | audio **rejected** by the API ("Audio input modality is not enabled") | | | | text works, 4 to 24 s and sometimes HTTP 500 |
+
+Consequences:
+
+- **Gemma cannot transcribe through the Gemini API today**, so Gemma is used for text only (fallback for the urgency suggestion). If Google enables audio for a Gemma model, put `gemma` into `AI_SPEECH_ORDER`.
+- Use `whisper-large-v3`, **not** the turbo variant, for Indian languages.
+- Text tasks have a short timeout (`AI_TEXT_TIMEOUT_SECONDS`, 8 s) so a slow model never holds up a patient's request. The rules route the note regardless.
+- Clips were machine-generated speech. Real elderly speakers, accents and background noise will be harder. Measure again with real recordings.
+
+A provider that fails is skipped for 60 seconds. All of this is settings in `.env`:
 
 ```
-GEMINI_API_KEY=            GEMMA_MODEL=gemma-3n-e4b-it
-GROQ_API_KEY=              GROQ_STT_MODEL=whisper-large-v3-turbo   GROQ_TEXT_MODEL=llama-3.3-70b-versatile
-AI_SPEECH_ORDER=gemma,groq AI_TEXT_ORDER=groq,gemma
+GEMINI_API_KEY=            GEMMA_MODEL=gemma-4-31b-it      GEMINI_SPEECH_MODEL=gemini-flash-lite-latest
+GROQ_API_KEY=              GROQ_STT_MODEL=whisper-large-v3 GROQ_TEXT_MODEL=openai/gpt-oss-120b
+AI_SPEECH_ORDER=groq,gemini  AI_TEXT_ORDER=groq,gemma
 ```
 
 **Check your keys** (sends one second of silence and one tiny text question; nothing real, nothing stored):
@@ -32,7 +48,7 @@ AI_SPEECH_ORDER=gemma,groq AI_TEXT_ORDER=groq,gemma
 python scripts/ai_check.py
 ```
 
-It also lists the Gemma models your key can use. Gemma audio on the Gemini API is not guaranteed for every model or key. If the check reports it, set `GEMMA_MODEL` to a listed one, or let Groq carry speech.
+It tells you which of your configured models are not available on your key, so you can change them.
 
 ## Safety and privacy
 
