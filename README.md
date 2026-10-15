@@ -41,6 +41,8 @@ Docker Compose runs separate application and PostgreSQL containers. A named `pgd
 - LAN devices: `http://<laptop-LAN-IP>:8000` on the same Wi-Fi/hotspot. Run `python scripts/lan-info.py` to find the URL.
 - If Windows blocks LAN access, run `.\scripts\open-firewall.ps1` once from Administrator PowerShell in the project folder. Networks with client isolation may still block access.
 
+**Hosted deployment.** For a public or shared deployment with HTTPS (needed for the microphone off `localhost`), use `docker-compose.prod.yml`, which adds Caddy for TLS, a private database network, health checks and restart policies. `scripts/deploy.sh` backs up, builds, switches, verifies and rolls back automatically. Follow the step-by-step guide and release strategy in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
 ## 6. Environment variables and safe example configuration
 
 [.env.example](.env.example) contains placeholder/demo values, with no real API keys. Keep the local `.env` untracked. For manual setup, copy `.env.example` to `.env` and replace `SECRET_KEY` with a randomly generated secret before use.
@@ -54,7 +56,9 @@ Docker Compose runs separate application and PostgreSQL containers. A named `pgd
 | `AUTO_COORDINATION`, `ESCALATION_TIME_SCALE` | Automatic cover and demo escalation timing |
 | `COOKIE_SECURE`, `SESSION_HOURS` | HTTPS-only cookie setting and session lifetime |
 | `LOG_LEVEL`, `GIT_SHA` | Logging and build identification |
-| `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL` | Reserved AI configuration; no active provider is implemented |
+| `GEMINI_API_KEY`, `GROQ_API_KEY`, `GEMMA_MODEL`, `GEMINI_SPEECH_MODEL`, `GROQ_STT_MODEL`, `GROQ_TEXT_MODEL`, `AI_SPEECH_ORDER`, `AI_TEXT_ORDER` | Optional, advisory AI for voice notes (speech to text, translation, urgency suggestion). Empty keys disable it; see [docs/AI.md](docs/AI.md) |
+| `FEATURES`, `RUN_SCHEDULER` | Staged rollout allow-list of features, and whether this instance runs the scheduler (only one ever does, enforced by a database lock) |
+| `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL` | Unused legacy settings |
 
 The example database credentials and demo password are for fictional local demonstrations. Production deployment requires separate credentials, HTTPS and appropriate secret management.
 
@@ -90,8 +94,8 @@ The smoke check creates test records; the load check uses seeded demo accounts a
 
 - This is an operational coordination demo, not a diagnostic or emergency service; use fictional data only.
 - Default LAN deployment uses HTTP. HTTPS, professional identity verification, multi-factor authentication and configured encryption at rest are not implemented by this setup.
-- Notifications are in-app; SMS and an active AI provider are not implemented. Screens poll for updates.
-- The scheduler runs in one application process; multi-worker scheduling is not configured. Forecasts cover up to seven days and do not calculate real travel times.
+- Alerts (pop-ups, sound, desktop notifications, reminders) appear while CareCircle is open in a browser; web push and SMS to a closed phone are not implemented. Screens poll for updates. AI is optional and advisory; accuracy for real speakers has not been measured.
+- The scheduler runs in one application process (a database lock keeps a second instance from also running it); multi-worker web serving is not configured. Forecasts cover up to seven days and do not calculate real travel times.
 - Vite/Vitest can encounter module-resolution problems when the project path contains `#`, as in `M#`; use a checkout path without that character for local frontend testing.
 - Earlier documentation below is retained as project history. Some phase sections describe roles or features superseded by the current [Product spec](docs/PRODUCT_SPEC.md).
 

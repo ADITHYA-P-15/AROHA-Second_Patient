@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     app_timezone: str = "Asia/Kolkata"
     demo_mode: bool = True
     seed_demo: bool = True
+    # Staged rollout: a feature that is not listed here is off. New features ship dark and are switched on per environment ("*" = all).
+    features: str = "voice_notes,insights,reminders"
+    # Set to false on web-only instances. The scheduler also takes a database lock, so a second instance never double-runs it.
+    run_scheduler: bool = True
     # Build the larger fictional population (more families, caretakers, hospital staff, 30 days of history) with the demo.
     demo_population: bool = True
     demo_password: str = "Demo@1234"
@@ -39,6 +43,15 @@ class Settings(BaseSettings):
     ai_text_timeout_seconds: float = 8.0   # urgency suggestion: never hold up a patient's request for long
     voice_max_bytes: int = 3_000_000
     git_sha: str = "dev"
+
+
+    def feature(self, name: str) -> bool:
+        enabled = {f.strip().lower() for f in self.features.split(",") if f.strip()}
+        return "*" in enabled or name.lower() in enabled
+
+    @property
+    def feature_list(self) -> list[str]:
+        return sorted({f.strip().lower() for f in self.features.split(",") if f.strip()})
 
 
 settings = Settings()

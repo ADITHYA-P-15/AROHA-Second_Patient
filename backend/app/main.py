@@ -42,7 +42,9 @@ from app.seed import run_seed
 
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("second_patient")
-app = FastAPI(title="CareCircle", version="0.1.0", openapi_url="/api/openapi.json", docs_url="/docs", redoc_url=None)
+# The interactive API docs are for development; a production deployment does not publish its API schema.
+_docs = settings.app_env != "prod"
+app = FastAPI(title="CareCircle", version="0.1.0", openapi_url="/api/openapi.json" if _docs else None, docs_url="/docs" if _docs else None, redoc_url=None)
 if settings.app_env == "prod" and settings.secret_key == "change-me-before-production":
     raise RuntimeError("SECRET_KEY must be changed before starting in production")
 Base.metadata.create_all(bind=engine)
@@ -158,10 +160,13 @@ def can_see_clinical(user, member):
     return (user.role == Role.PATIENT and member is not None and member.team_role == TeamRole.PATIENT_SELF) or (user.role == Role.PRIMARY_CONTACT and member is not None and member.team_role == TeamRole.PRIMARY_CONTACT)
 
 
+scheduler_state: dict = {"last_tick_at": None, "leader": None, "last_error": None}
+
+
 @app.get("/api/health")
 def health(db: Session = Depends(get_db)):
     db.execute(text("SELECT 1"))
-    return {"status": "ok", "database": "ok"}
+    return {"status": "ok", "database": "ok", "git_sha": settings.git_sha, "env": settings.app_env, "scheduler": {"enabled": settings.run_scheduler, **scheduler_state}}
 
 
 @app.get("/api/v1/meta")
@@ -169,7 +174,7 @@ def meta(db: Session = Depends(get_db)):
     from app.services import ai as ai_service
     ai_status = ai_service.status()
     scale = current_escalation_scale(db)
-    return {"app_name": "CareCircle", "version": "0.5.0", "git_sha": settings.git_sha, "phase": 5, "demo_mode": settings.demo_mode, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "server_time": now().isoformat(), "timezone": settings.app_timezone, "ai_enabled": bool(ai_status["speech"] or ai_status["text"]), "ai": ai_status}
+    return {"app_name": "CareCircle", "version": "0.5.0", "git_sha": settings.git_sha, "phase": 5, "demo_mode": settings.demo_mode, "features": settings.feature_list, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "server_time": now().isoformat(), "timezone": settings.app_timezone, "ai_enabled": bool(ai_status["speech"] or ai_status["text"]), "ai": ai_status}
 
 
 def incident_recipients(db, patient_id, level):
@@ -798,6 +803,16 @@ _last_command_center_tick = 0.0
 
 
 def _run_escalation_tick():
+    from app.services.leader import scheduler_lease
+    with scheduler_lease() as leader:
+        scheduler_state["leader"] = leader
+        if not leader: return 0  # another instance owns the scheduler
+        result = _tick_as_leader()
+        scheduler_state["last_tick_at"] = now().isoformat()
+        return result
+
+
+def _tick_as_leader():
     global _last_command_center_tick
     db = SessionLocal()
     try:
@@ -808,7 +823,7 @@ def _run_escalation_tick():
             roll_forward(db)
             run_cover_tick(db, now())
             run_auto_coordination(db, now())
-            run_reminders(db, now())
+            if settings.feature("reminders"): run_reminders(db, now())
             db.commit()  # commit cover/command-center work before the planner so it can never be rolled back by it
             run_planner_tick(db, now())
             db.commit()
@@ -823,14 +838,16 @@ async def _escalation_worker():
         await asyncio.sleep(15)
         try:
             await asyncio.to_thread(_run_escalation_tick)
-        except Exception:
+        except Exception as exc:
+            scheduler_state["last_error"] = type(exc).__name__
             log.exception("escalation tick failed")
 
 
 @app.on_event("startup")
 async def start_escalation_worker():
     ensure_system_escalation_policy()
-    app.state.escalation_task = asyncio.create_task(_escalation_worker())
+    if settings.run_scheduler:
+        app.state.escalation_task = asyncio.create_task(_escalation_worker())
 
 
 @app.on_event("shutdown")

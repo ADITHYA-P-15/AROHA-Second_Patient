@@ -91,13 +91,13 @@ function Login({ onLogin, demoMode }: { onLogin: (u: User) => void; demoMode: bo
 function App() {
   const queryClient = useQueryClient(); const navigate = useNavigate();
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<User>('/api/v1/auth/me'), retry: false });
-const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<{phase:number;version:string;demo_mode:boolean;escalation_scaled:boolean;escalation_time_scale:number}>('/api/v1/meta') });
+const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<{phase:number;version:string;demo_mode:boolean;escalation_scaled:boolean;escalation_time_scale:number;features?:string[]}>('/api/v1/meta') });
   if (me.isLoading) return <div className="loading">Loading your workspace…</div>;
   if (me.isError) return <Login demoMode={meta.data?.demo_mode ?? false} onLogin={u=>{ queryClient.setQueryData(['me'],u); navigate(homeFor(u.role)); }} />;
   return <Workspace user={me.data!} meta={meta.data}/>;
 }
 
-function Workspace({ user, meta }: { user: User; meta?: { phase: number; version: string; demo_mode: boolean; escalation_scaled: boolean; escalation_time_scale: number } }) {
+function Workspace({ user, meta }: { user: User; meta?: { phase: number; version: string; demo_mode: boolean; escalation_scaled: boolean; escalation_time_scale: number; features?: string[] } }) {
   const queryClient = useQueryClient(); const navigate = useNavigate(); const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => { setMenuOpen(false); }, [location.pathname]);
@@ -115,7 +115,9 @@ function Workspace({ user, meta }: { user: User; meta?: { phase: number; version
     finally { setResetting(false); }
   };
   const logout = async () => { try { await api('/api/v1/auth/logout', { method: 'POST' }); } finally { queryClient.clear(); navigate('/', { replace: true }); } };
-  const menu = roleNav[user.role] ?? roleNav.PRIMARY_CONTACT;
+  // A feature that is switched off for this deployment is hidden, not broken. Unknown (meta not loaded yet): show it.
+  const hasFeature = (name: string) => !meta?.features || meta.features.includes(name);
+  const menu = (roleNav[user.role] ?? roleNav.PRIMARY_CONTACT).filter(item => item.path !== '/insights' || hasFeature('insights'));
   const roleLabel = user.role_label ?? roleLabels[user.role] ?? user.role;
   const current = menu.find(item => item.path === location.pathname);
   const page = (path: string) => {
@@ -200,6 +202,8 @@ function IncidentCenter() {
 type Told = { role: string; label: string; names: string[] };
 function HelpPage() {
   const client=useQueryClient();
+  const meta=useQuery({queryKey:['meta'],queryFn:()=>api<{features?:string[]}>('/api/v1/meta')});
+  const voiceOn=!meta.data?.features||meta.data.features.includes('voice_notes');
   const patients=useQuery({queryKey:['patients'],queryFn:()=>api<{items:Patient[]}>('/api/v1/patients')});
   // One idempotency key per draft: retrying after a dropped connection reuses it, so no duplicate request is created.
   const draftKey=useRef(newId());
@@ -240,7 +244,7 @@ function HelpPage() {
       {liveIncident.current_level>=5&&<p><a href="tel:108">Call 108</a> · <a href="tel:112">Call 112</a> if you are in danger.</p>}
     </div>}</div>
     <div className="chips help-chips" role="group" aria-label="Quick requests">{chips.map(chip=><button key={chip} disabled={!!sending||!patientId} aria-busy={sending===chip} onClick={()=>void send(chip)}>{sending===chip?'Sending…':chip}</button>)}</div>
-    <VoiceRecorder patientId={patientId} onSent={item=>{void client.invalidateQueries({queryKey:['incidents']});void client.invalidateQueries({queryKey:['notifications']});setIncident(item as unknown as IncidentRow);setSaid('Voice note');}}/>
+    {voiceOn&&<VoiceRecorder patientId={patientId} onSent={item=>{void client.invalidateQueries({queryKey:['incidents']});void client.invalidateQueries({queryKey:['notifications']});setIncident(item as unknown as IncidentRow);setSaid('Voice note');}}/>}
     <label>Your message<textarea maxLength={1000} value={message} onChange={e=>setMessage(e.target.value)} rows={4}/></label><button className="primary" disabled={!message.trim()||!!sending} onClick={()=>void send()}>{sending&&sending===message.trim()?'Sending…':'Send request'}</button>
     <div className="card" style={{marginTop:20,borderColor:'#b42318'}}><h3>Emergency SOS</h3>{countdown===null?<button className="primary sos" onClick={()=>{setError('');setCountdown(3);}}>Start SOS · 3 second countdown</button>:<><p role="status">SOS will be sent in {countdown}…</p><button onClick={()=>setCountdown(null)}>Cancel SOS</button></>}</div>
     {error&&<p role="alert" className="error">{error}</p>}

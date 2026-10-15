@@ -23,7 +23,9 @@ from app.models import Incident, Role, TeamRole, VoiceNote
 from app.services import ai
 
 log = logging.getLogger("second_patient")
-router = APIRouter(prefix="/api/v1", tags=["voice notes"])
+from app.core.features import feature_required
+
+router = APIRouter(prefix="/api/v1", tags=["voice notes"], dependencies=[Depends(feature_required("voice_notes"))])
 MIN_BYTES = 800
 ALLOWED = ("audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav", "audio/x-wav", "audio/aac", "audio/x-m4a", "video/webm")
 LOW_CONFIDENCE = 0.6

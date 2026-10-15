@@ -2,6 +2,8 @@
 set -eu
 cd /app/backend
 if [ "${APP_ENV:-dev}" = "prod" ] && [ "${SECRET_KEY:-}" = "change-me-before-production" ]; then echo "SECRET_KEY must be changed in production" >&2; exit 1; fi
+if [ "${APP_ENV:-dev}" = "prod" ] && [ "${#SECRET_KEY}" -lt 32 ]; then echo "SECRET_KEY must be at least 32 characters in production" >&2; exit 1; fi
+if [ "${APP_ENV:-dev}" = "prod" ] && [ "${COOKIE_SECURE:-false}" != "true" ]; then echo "COOKIE_SECURE=true is required in production (serve over HTTPS)" >&2; exit 1; fi
 python - <<'PY'
 import os, time
 from sqlalchemy import create_engine, text

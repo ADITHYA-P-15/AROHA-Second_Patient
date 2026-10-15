@@ -15,3 +15,6 @@ frontend/dist/
 .coverage
 *.log
 .DS_Store
+.env.production
+backups/*
+!backups/.gitignore

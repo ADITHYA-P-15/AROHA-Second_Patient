@@ -247,3 +247,14 @@ Cumulative record of features built one at a time on top of the phased roadmap i
 - **Quick requests confirm themselves.** The Request Help page now says what was sent, who was told and the live status, and a repeated tap merges into the open request ("asked again") instead of flooding the care team.
 - Details: [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md). Migration `0013_notification_links`.
 
+## Deployment readiness
+
+- **Why:** to host the project beyond a laptop and keep shipping features without breaking what works.
+- **Added:**
+  - `docker-compose.prod.yml`, `deploy/Caddyfile`, `.env.production.example`: HTTPS, private database network, health checks.
+  - `scripts/deploy.sh`, `backup.sh`, `restore.sh`, `postdeploy_check.py`: a backup-first, health-gated deploy with automatic rollback and a read-only verification.
+  - `.github/workflows/ci.yml`: lint, types, tests and build on every push and pull request.
+  - A database lock so only one instance runs the scheduler, `/api/health` with version and scheduler state, feature flags (`FEATURES`) enforced on the server and respected by the UI, API docs hidden in production, production guards in the entrypoint.
+- **Docs:** [DEPLOYMENT.md](DEPLOYMENT.md): the step-by-step guide, release strategy, feature-rollout rules, risks and the gates before real patient data.
+- **Open:** Postgres in CI, a registry-based deploy, web push, moving audio to object storage.
+

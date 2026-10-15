@@ -8,7 +8,9 @@ from app.core.db import get_db
 from app.models import Role
 from app.services.insights import professional_insights
 
-router = APIRouter(prefix="/api/v1", tags=["insights"])
+from app.core.features import feature_required
+
+router = APIRouter(prefix="/api/v1", tags=["insights"], dependencies=[Depends(feature_required("insights"))])
 
 
 def _current_user(request: Request, db: Session = Depends(get_db)):

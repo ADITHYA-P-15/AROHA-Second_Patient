@@ -1,0 +1,24 @@
+# TLS terminates here. Caddy obtains and renews certificates by itself for a public DOMAIN.
+# For a private network or a laptop, set DOMAIN to the machine's name or IP and add "tls internal" below (a local certificate).
+{$DOMAIN} {
+	encode gzip
+	# voice notes are up to ~3 MB
+	request_body {
+		max_size 6MB
+	}
+	reverse_proxy app:8000 {
+		# AI providers can take a few seconds; keep the proxy patient but bounded
+		transport http {
+			read_timeout 60s
+		}
+		health_uri /api/health
+		health_interval 15s
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "microphone=(self), camera=(), geolocation=()"
+		-Server
+	}
+}
