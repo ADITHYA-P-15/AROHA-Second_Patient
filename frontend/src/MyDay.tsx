@@ -1,13 +1,14 @@
 import { FormEvent, useState } from 'react';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api/client.ts';
-import { PatientRatePrompt } from './Reputation.tsx';
+import { PatientRatePrompt, useFeature } from './Reputation.tsx';
+import { canCheckIn, checkInHint, checkInText, type CheckIn, type CheckInPolicy } from './lib/checkin.ts';
 import { formatAppTime, localInputToIso, nowLocalInput } from './lib/time.ts';
 import { canRecordLate, dayBounds, statusLabel, statusTone } from './lib/care.ts';
 import { coverLine, kindLabel, timeOnly, type CoverState } from './lib/plan.ts';
 
 type Assignment = { id: string; caregiver_id: string; caregiver_name: string; role: string; status: string; is_mine: boolean };
-type Task = { cover?: CoverState; id: string; patient_id: string; title: string; category: string; description?: string; location_note?: string; scheduled_start: string; scheduled_end: string; care_status: string; due_by: string | null; source: string; completed_late: boolean; lifecycle_status: string; assignments: Assignment[] };
+type Task = { cover?: CoverState; importance?: string; requires_caregiver?: boolean; id: string; patient_id: string; title: string; category: string; description?: string; location_note?: string; scheduled_start: string; scheduled_end: string; care_status: string; due_by: string | null; source: string; completed_late: boolean; lifecycle_status: string; assignments: Assignment[] };
 type Offer = { id: string; patient: { name: string }; reason_note: string; activity: { title: string; scheduled_start: string } };
 type Patient = { id: string; name: string };
 type Caregiver = { id: string; user_id?: string | null; name: string };
@@ -29,6 +30,11 @@ export function MyDay() {
   const offers = useQuery({ queryKey: ['cover-offers', 'mine'], queryFn: () => api<{ items: Offer[] }>('/api/v1/cover-offers/mine'), enabled: !readOnly && !!me.data, refetchInterval: 20000 });
   const caregivers = useQuery({ queryKey: ['caregivers', list[0]?.id], queryFn: () => api<{ items: Caregiver[] }>(`/api/v1/patients/${list[0].id}/caregivers`), enabled: !!list[0] && !readOnly });
   const mine = caregivers.data?.items.find(c => c.user_id === me.data?.id);
+  const checkinsOn = useFeature('checkins');
+  const checks = useQueries({ queries: list.map(p => ({ queryKey: ['check-ins', p.id], enabled: checkinsOn && !readOnly, refetchInterval: 30000,
+    queryFn: () => api<{ items: CheckIn[]; policy: CheckInPolicy }>(`/api/v1/check-ins?patient_id=${p.id}`) })) });
+  const checkPolicy = checks.find(q => q.data)?.data?.policy;
+  const checkedIn = new Map(checks.flatMap(q => q.data?.items ?? []).map(c => [c.activity_id, c]));
   const [notice, setNotice] = useState(''); const [busy, setBusy] = useState(false);
   const [from, setFrom] = useState(nowLocalInput()); const [to, setTo] = useState(''); const [reason, setReason] = useState('PERSONAL'); const [note, setNote] = useState('');
 
@@ -41,6 +47,11 @@ export function MyDay() {
       setBusy(false);
     }
   }
+  const checkIn = (t: Task) => void run(async () => {
+    const r = await api<CheckIn>(`/api/v1/activities/${t.id}/check-in`, { method: 'POST', body: '{}' });
+    await client.invalidateQueries({ queryKey: ['check-ins'] });
+    return r.status === 'ON_TIME' ? `Checked in for ${t.title}. Thank you.` : `Checked in for ${t.title} (${r.minutes_late} min late).`;
+  }, 'Could not check in.');
   const done = (t: Task) => void run(async () => {
     const r = await api<{ completed_late: boolean }>(`/api/v1/activities/${t.id}/complete`, { method: 'POST', body: '{}' });
     return r.completed_late ? `${t.title} recorded as done (late).` : `${t.title} marked done. Thank you.`;
@@ -86,7 +97,10 @@ export function MyDay() {
       <div className="md-head"><span className="md-time">{actions ? timeOnly(t.scheduled_start) : formatAppTime(t.scheduled_start, { dateStyle: 'medium', timeStyle: 'short' })}</span><strong>{t.title}</strong><span className="chip">{kindLabel(t)}</span><span className={`md-status md-st-${tone}`}>{statusLabel(t.care_status, t.completed_late)}</span></div>
       {detail && <p className="md-small">{detail}</p>}
       {!readOnly && t.care_status === 'PENDING' && t.cover && <p className="md-small cp-who-waiting">{coverLine(t.cover)}. You keep it until someone accepts.</p>}
+      {!readOnly && checkedIn.get(t.id) && <p className="md-small"><span className="chip">{checkInText(checkedIn.get(t.id)!)}</span></p>}
+      {!readOnly && actions && mineA && checkPolicy && canCheckIn(t, checkPolicy, checkedIn.get(t.id)) && <p className="md-small">{checkInHint(t, checkPolicy)}</p>}
       {!readOnly && actions && mineA && <div className="md-row">
+        {checkPolicy && canCheckIn(t, checkPolicy, checkedIn.get(t.id)) && <button className="primary" disabled={busy} onClick={() => checkIn(t)}>I’m here · check in</button>}
         {canDo && <button className="primary" disabled={busy} onClick={() => done(t)}>Done</button>}
         {canRecordLate(t.care_status, t.due_by) && <button className="primary" disabled={busy} onClick={() => done(t)}>Record as done (late)</button>}
         {t.care_status === 'PENDING' && !t.cover && startMs > Date.now() && <button disabled={busy} onClick={() => cannot(t, mineA)}>I can’t make it</button>}

@@ -812,3 +812,7 @@ The backend computes it with fixed, documented formulas. Small samples are pulle
 - **Rules:** one rating per person per caretaker per 90 days, editable for 7 days. Reviews can be reported for moderation. Daily limits apply.
 - **Flag and settings:** behind the `ratings` flag. Weights and windows live in `backend/app/core/reputation_policy.py` and can be overridden with `REPUTATION_POLICY`, which is validated at start-up. Migration `0017_reputation`.
 - **Details and exact formulas:** [docs/REPUTATION.md](docs/REPUTATION.md).
+
+## Task check-ins (rebuilt during the Phase 3 reconcile)
+
+A caretaker taps **I'm here · check in** in My Day for appointments, transport, lab visits and similar tasks. Check-ins are accepted from an hour before the start and count as on time up to 15 minutes after it. If nobody has checked in 20 minutes after the start, the task gets one cover search (reason **No check-in**) through the same Backup Matcher, and the backup must still accept. If the caretaker checks in after all, that search is cancelled. Check-ins feed the on-time check-in part of the reputation reliability record. The feature is behind the `checkins` flag; the rules are in `core/checkin_policy.py` (`CHECKIN_POLICY`, validated at start-up), and the migration is `0015_task_check_ins`. See [docs/CHECKIN.md](docs/CHECKIN.md).

@@ -221,8 +221,13 @@ def test_reports_go_to_moderation_and_hidden_reviews_never_count():
     assert carer.post(f"/api/v1/reviews/{rid}/report", headers=H, json={"reason": "Not accurate"}).status_code == 201
     assert carer.post(f"/api/v1/reviews/{rid}/report", headers=H, json={"reason": "again"}).status_code == 409
     outsider, *_ = account("CARETAKER")
-    assert outsider.post(f"/api/v1/reviews/{rid}/report", headers=H, json={}).status_code == 403
-    assert coord.get(f"/api/v1/caretakers/{cid}/reviews").json()["total"] == 1  # a report hides nothing
+    pro, *_ = join_as_professional(coord, pid)
+    for other in (outsider, coord, pro):  # not the author, not other readers: only the caretaker it is about
+        assert other.post(f"/api/v1/reviews/{rid}/report", headers=H, json={}).status_code == 403
+    seen = coord.get(f"/api/v1/caretakers/{cid}/reviews").json()
+    assert seen["total"] == 1 and seen["items"][0]["reported"] is True and seen["items"][0]["text"] == "Fictional unfair review"  # still visible, flagged
+    assert seen["can_report"] is False and carer.get(f"/api/v1/caretakers/{cid}/reviews").json()["can_report"] is True
+    assert coord.get(f"/api/v1/caretakers/{cid}/reputation").json()["sources"]["customers"]["count"] == 1  # reported still counts until hidden
     assert carer.delete(f"/api/v1/reviews/{rid}", headers=H).status_code == 405  # nobody deletes another's review
     with SessionLocal() as db:
         db.get(Review, uuid.UUID(rid)).hidden = True; db.commit()  # moderators hide at the database level

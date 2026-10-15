@@ -8,7 +8,7 @@ from alembic import op
 from sqlalchemy import inspect
 
 revision = "0016_directory"
-down_revision = "0014_wellbeing_check_ins"
+down_revision = "0015_task_check_ins"
 branch_labels = None
 depends_on = None
 

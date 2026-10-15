@@ -94,12 +94,12 @@ def _editable(row, user, pol):
         raise HTTPException(409, f"Ratings can be edited for {pol['edit_window_days']} days only")
 
 
-def review_dict(r: Review, *, with_text: bool, mine: bool = False, pol: dict | None = None) -> dict:
+def review_dict(r: Review, *, with_text: bool, mine: bool = False, pol: dict | None = None, reported: bool = False) -> dict:
     pol = pol or current_policy()
     editable = mine and rep._aware(r.created_at) >= now() - timedelta(days=pol["edit_window_days"])
     return {"id": str(r.id), "caregiver_id": str(r.caregiver_id), "rating": r.rating, "text": r.text if with_text else None, "author_role": r.author_role,
             "created_at": rep._aware(r.created_at).isoformat(), "edited": rep._aware(r.updated_at) > rep._aware(r.created_at) + timedelta(seconds=1),
-            "is_mine": mine, "editable": editable, "is_synthetic": r.is_synthetic}
+            "is_mine": mine, "editable": editable, "is_synthetic": r.is_synthetic, "reported": reported}
 
 
 def doctor_dict(r: DoctorRating, mine: bool, pol: dict) -> dict:
@@ -129,7 +129,8 @@ def reviews(cid: uuid.UUID, limit: int = Query(10, ge=1, le=50), offset: int = Q
     total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
     rows = db.scalars(base.order_by(Review.created_at.desc(), Review.id).offset(offset).limit(limit)).all()
     pol = current_policy()
-    return {"items": [review_dict(r, with_text=with_text, mine=r.author_user_id == user.id, pol=pol) for r in rows], "total": total, "limit": limit, "offset": offset,
+    flagged = set(db.scalars(select(ReviewReport.review_id).where(ReviewReport.review_id.in_([r.id for r in rows])))) if rows else set()
+    return {"items": [review_dict(r, with_text=with_text, mine=r.author_user_id == user.id, pol=pol, reported=r.id in flagged) for r in rows], "can_report": cg.user_id == user.id, "total": total, "limit": limit, "offset": offset,
             "text_visible": with_text}
 
 
@@ -208,11 +209,11 @@ def edit_review(rid: uuid.UUID, body: ReviewPatch, request: Request, user=Depend
 
 @router.post("/reviews/{rid}/report", status_code=201)
 def report_review(rid: uuid.UUID, body: ReportIn, request: Request, user=Depends(_current_user), db: Session = Depends(get_db)):
-    """Ask moderators to look at a review: its author, the caretaker it is about, or anyone who can read review text. Nothing is hidden by a report."""
+    """Only the caretaker a review is about may report it. It stays visible, flagged "reported"; only a moderator's hide flag removes it."""
     row = db.get(Review, rid)
     if not row or row.hidden: raise HTTPException(404, "Review not found")
     cg = db.get(Caregiver, row.caregiver_id)
-    if not (row.author_user_id == user.id or (cg and cg.user_id == user.id) or user.role in TEXT_READERS): raise HTTPException(403, "Permission denied")
+    if not (cg and cg.user_id == user.id): raise HTTPException(403, "Only the caretaker a review is about can report it")
     pol = current_policy()
     if db.scalar(select(ReviewReport.id).where(ReviewReport.review_id == row.id, ReviewReport.reporter_user_id == user.id)): raise HTTPException(409, "You already reported this review")
     if (db.scalar(select(func.count()).select_from(ReviewReport).where(ReviewReport.reporter_user_id == user.id, ReviewReport.created_at >= now() - timedelta(days=1))) or 0) >= pol["max_reports_per_day"]:

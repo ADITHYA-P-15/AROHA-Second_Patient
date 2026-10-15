@@ -57,8 +57,9 @@ class MetricCounts:
     on_time: int = 0
     late: int = 0
     missed: int = 0
-    check_ins: int | None = None       # None: check-ins are not recorded in this deployment
+    check_ins: int | None = None       # tasks that needed a check-in; None: this caretaker has no such task on record
     check_ins_on_time: int | None = None
+    check_ins_late: int | None = None
     offers_accepted: int = 0
     offers_declined: int = 0
 
@@ -74,7 +75,8 @@ def metric_score(c: MetricCounts, pol: dict) -> dict:
     details = {
         "on_time_completion": f"{c.on_time} of {c.decided} on time" + (f", {c.late} late" if c.late else ""),
         "no_missed": f"{c.missed} missed of {c.decided}",
-        "on_time_check_in": ("Check-ins are not recorded yet" if c.check_ins is None else f"{c.check_ins_on_time} of {c.check_ins} on time, {c.check_ins - (c.check_ins_on_time or 0)} late"),
+        "on_time_check_in": ("Check-ins are not recorded yet" if not c.check_ins else
+                             f"{c.check_ins_on_time} of {c.check_ins} on time, {c.check_ins_late or 0} late, {c.check_ins - (c.check_ins_on_time or 0) - (c.check_ins_late or 0)} missing"),
         "cover_acceptance": f"{c.offers_accepted} accepted, {c.offers_declined} declined" if (c.offers_accepted + c.offers_declined) else "No cover offers yet",
     }
     weights = pol["metric_components"]
@@ -85,7 +87,7 @@ def metric_score(c: MetricCounts, pol: dict) -> dict:
     score = round(100 * sum(w * v for w, v in used) / sum(w for w, _ in used), 1) if enough and used else None
     return {"score": score, "enough_history": enough, "tasks": c.decided, "components": components,
             "counts": {"decided": c.decided, "on_time": c.on_time, "late": c.late, "missed": c.missed, "offers_accepted": c.offers_accepted, "offers_declined": c.offers_declined,
-                       "check_ins": c.check_ins, "check_ins_on_time": c.check_ins_on_time}}
+                       "check_ins": c.check_ins, "check_ins_on_time": c.check_ins_on_time, "check_ins_late": c.check_ins_late}}
 
 
 def combine(scores: dict[str, float | None], weights: dict[str, float]) -> dict:
@@ -167,8 +169,10 @@ def metric_counts(db: Session, caregiver_ids: list, at: datetime, pol: dict) -> 
     for cid, kind, n in events:
         if kind == "ACCEPTED": counts[cid].offers_accepted += n
         else: counts[cid].offers_declined += n
-    # On-time check-ins: this deployment has no task check-in records, so the component stays out (counts None) and the
-    # remaining components are renormalised. When check-ins are added, fill check_ins / check_ins_on_time here.
+    # On-time check-ins (tasks that needed one, past the missing point). A caretaker with none keeps None: "not recorded yet".
+    from app.services import checkins
+    for cid, ci in checkins.counts(db, caregiver_ids, since, at).items():
+        if ci: counts[cid].check_ins, counts[cid].check_ins_on_time, counts[cid].check_ins_late = ci["expected"], ci["on_time"], ci["late"]
     return counts
 
 
@@ -327,11 +331,10 @@ def local_day(at: datetime):
 
 
 def run_snapshots(db: Session, at: datetime | None = None, pol: dict | None = None) -> int:
-    """One snapshot per listed-or-rated caretaker per local day. Idempotent: a caretaker that already has today's row is skipped."""
+    """One snapshot per active caretaker per local day. Idempotent: a caretaker that already has today's row is skipped."""
     at, pol = at or now(), pol or current_policy()
     day = local_day(at)
-    wanted = set(db.scalars(select(CaretakerProfile.caregiver_id))) | set(db.scalars(select(AgencyRating.caregiver_id))) | \
-        set(db.scalars(select(Review.caregiver_id))) | set(db.scalars(select(DoctorRating.caregiver_id)))
+    wanted = set(db.scalars(select(Caregiver.id).where(Caregiver.kind == "CARETAKER", Caregiver.is_active.is_(True))))
     done = set(db.scalars(select(ReputationSnapshot.caregiver_id).where(ReputationSnapshot.day == day)))
     todo = sorted(wanted - done, key=str)
     if not todo: return 0

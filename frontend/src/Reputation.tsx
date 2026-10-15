@@ -22,7 +22,7 @@ export function StarPicker({ value, onPick, label, disabled }: { value: number; 
 export function ReputationBlock({ caregiverId, canReport = false }: { caregiverId: string; canReport?: boolean }) {
   const on = useFeature('ratings');
   const rep = useQuery({ queryKey: ['reputation', caregiverId], queryFn: () => api<Reputation>(`/api/v1/caretakers/${caregiverId}/reputation`), enabled: on });
-  const reviews = useQuery({ queryKey: ['reviews', caregiverId], queryFn: () => api<{ items: ReviewItem[]; total: number; text_visible: boolean }>(`/api/v1/caretakers/${caregiverId}/reviews?limit=5`), enabled: on });
+  const reviews = useQuery({ queryKey: ['reviews', caregiverId], queryFn: () => api<{ items: ReviewItem[]; total: number; text_visible: boolean; can_report?: boolean }>(`/api/v1/caretakers/${caregiverId}/reviews?limit=5`), enabled: on });
   const [reported, setReported] = useState<Record<string, string>>({});
   if (!on) return null;
   if (rep.isError) return <p className="muted small">Reputation is not available.</p>;
@@ -49,9 +49,9 @@ export function ReputationBlock({ caregiverId, canReport = false }: { caregiverI
     </details>
     <details className="rp-how"><summary>How this is calculated</summary><ul>{explanation(r).map(line => <li key={line}>{line}</li>)}</ul></details>
     {reviews.data && reviews.data.items.length > 0 && <div className="rp-reviews"><h5>Recent reviews <small className="muted">({reviews.data.total})</small></h5>
-      <ul>{reviews.data.items.map(v => <li key={v.id}><span className="rp-star-text" aria-label={starsLabel(v.rating)}>{stars(v.rating)}</span> <small className="muted">{authorLabel(v.author_role)} · {formatAppTime(v.created_at, { dateStyle: 'medium', timeStyle: undefined })}{v.edited ? ' · edited' : ''}</small>
+      <ul>{reviews.data.items.map(v => <li key={v.id}><span className="rp-star-text" aria-label={starsLabel(v.rating)}>{stars(v.rating)}</span> <small className="muted">{authorLabel(v.author_role)} · {formatAppTime(v.created_at, { dateStyle: 'medium', timeStyle: undefined })}{v.edited ? ' · edited' : ''}{v.reported ? ' · reported' : ''}</small>
         {v.text && <p>{v.text}</p>}
-        {canReport && reviews.data!.text_visible && (reported[v.id] ? <small className="muted" role="status">{reported[v.id]}</small> : <button className="text-button rp-report" onClick={() => void report(v.id)}>Report</button>)}</li>)}</ul>
+        {canReport && reviews.data!.can_report && !v.reported && (reported[v.id] ? <small className="muted" role="status">{reported[v.id]}</small> : <button className="text-button rp-report" onClick={() => void report(v.id)}>Report</button>)}</li>)}</ul>
       {!reviews.data.text_visible && <p className="muted small">Review text is shared with families and healthcare professionals.</p>}
     </div>}
   </section>;

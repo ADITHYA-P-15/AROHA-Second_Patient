@@ -302,3 +302,18 @@ Cumulative record of features built one at a time on top of the phased roadmap i
 - **Docs:** [REPUTATION.md](REPUTATION.md) and the README section "Directory phase 2".
 - **Schema:** migration `0017_reputation` (additive, guarded).
 - **Open:** task check-ins are not recorded in this repository, so the on-time check-in component is left out until they are (hook in `services/reputation.metric_counts`). There is no moderator screen; hiding is a database flag.
+
+## Task check-ins (rebuilt in the Phase 3 reconcile)
+
+- **Why:** the original check-in commit (`cd70fad`) was not available, so it was rebuilt here to give the reliability metric and NO_CHECKIN cover real data.
+- **Shipped:**
+  - Check-in by the confirmed caretaker, on time or late with minutes recorded.
+  - One NO_CHECKIN cover search per task with a missing check-in, cancelled if they check in.
+  - The policy module `CHECKIN_POLICY`, validated at start-up.
+  - The `checkins` flag (on by default).
+  - Demo check-in history.
+  - Reputation's on-time check-in component now uses real data.
+- **Code:** `core/checkin_policy.py`, `services/checkins.py`, `api/checkins.py`, `seed/checkins.py`, `models.TaskCheckIn`, `alembic/versions/0015_task_check_ins.py`, `frontend/src/lib/checkin.ts` and the My Day button.
+- **Migrations:** the chain is now 0014 → 0015_task_check_ins → 0016_directory → 0017_reputation, with one head.
+- **Tests:** `backend/tests/test_checkins.py` (policy, permissions and window, on time vs late, NO_CHECKIN once and cancelled, metric with on-time, late and missing check-ins and with no data, snapshot idempotency, migration chain on SQLite and Postgres), `frontend/src/lib/checkin.test.ts`.
+- **Docs:** [CHECKIN.md](CHECKIN.md).

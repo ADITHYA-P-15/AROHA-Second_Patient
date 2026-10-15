@@ -21,7 +21,7 @@ The reliability record describes the caretaker. It is not the per-task score the
 - **Eligibility for doctor ratings:** the professional must be on the team of a patient this caretaker served. Otherwise **403**.
 - **One per window:** one review, or one doctor rating, per author per caretaker per `rating_window_days` (default **90**). A second one inside the window is **409**.
 - **Editing:** the author can edit for `edit_window_days` (default **7**). After that, **409**. Nobody else can edit, and nobody can delete anyone's review.
-- **Reporting:** the review's author, the caretaker it is about, or anyone who can read review text (primary contacts, professionals) can report it for moderation, once per review (**409** on a repeat). A report never hides anything. Only a moderator's `hidden` flag, set at the database or seed level, hides a review. Hidden reviews never count.
+- **Reporting:** only the caretaker a review is about can report it for moderation, once per review (**409** on a repeat; anyone else gets **403**). A reported review stays visible to everyone who could already read it, flagged "reported", and still counts. Only a moderator's `hidden` flag, set at the database or seed level, hides a review and removes it from the composite. There is no moderator screen.
 - **Abuse limits:** at most `max_ratings_per_day` (default **10**) new reviews plus doctor ratings, and `max_reports_per_day` (default **10**) reports, per person per rolling day. Beyond that the API answers **429**.
 - **Notifications:** the caretaker gets one in-app notification per new review or doctor rating, containing the stars only. It never says who wrote it. The notification is filed under the patient it concerns, because every notification belongs to a care circle.
 
@@ -75,13 +75,17 @@ Over the last `metric_window_days` (default **90**), take the tasks the caretake
 |---|---|---|
 | Tasks completed on time | on-time completed / decided | 45 |
 | Tasks not missed | 1 − missed / decided | 30 |
-| On-time check-ins | on-time check-ins / check-ins | 15 |
+| On-time check-ins | on-time check-ins / expected check-ins | 15 |
 | Cover offers accepted | accepted / (accepted + declined) cover offers in the window | 10 |
 
 - **metric = 100 × Σ(wᵢ·valueᵢ) / Σwᵢ** over the components that have data.
 - With fewer than `metric_min_tasks` (default **5**) decided tasks there is no metric score, and the profile says so.
 - Late completions count as completed but not on time. Missed tasks are a separate component.
-- **Check-ins:** this deployment does not record task check-ins yet (there is no `task_check_ins` table). The component shows "not recorded yet" and is left out, so the other three weights are renormalised. When check-ins are recorded, they are counted in `services/reputation.metric_counts`, and a check-in later than the task start plus `check_in_grace_minutes` (15) counts as late.
+- **Check-ins** come from `task_check_ins` (see [CHECKIN.md](CHECKIN.md)).
+  - **expected** counts the tasks the caretaker held that needed a check-in and are past the missing point (start + `missing_after_min`). A task they lost to a NO_CHECKIN cover search still counts.
+  - **On-time check-ins = on time / expected.** Late and missing check-ins both lower it. The late and missing counts are shown in the component detail ("2 of 4 on time, 1 late, 1 missing").
+  - Whether a check-in is late is decided when it is recorded, using `CHECKIN_POLICY.grace_min` (15).
+  - "Check-ins are not recorded yet" (component left out, weights renormalised) is shown only when the caretaker has no expected check-ins at all.
 
 ### Composite
 
@@ -129,7 +133,7 @@ The policy is validated when the app starts. An invalid value stops start-up wit
 | `GET /caretakers/{id}/reviews?limit=&offset=` | As above. Text rules in "Who sees what" |
 | `POST /caretakers/{id}/reviews` `{rating, text?, patient_id?}` | Primary contact, patient (eligible) |
 | `PATCH /reviews/{id}` `{rating?, text?}` | Author, within 7 days |
-| `POST /reviews/{id}/report` `{reason?}` | Author, the caretaker, primary contacts, professionals |
+| `POST /reviews/{id}/report` `{reason?}` | Only the caretaker the review is about |
 | `POST /caretakers/{id}/doctor-ratings` `{rating, note?, patient_id?}` | Professional (eligible) |
 | `PATCH /doctor-ratings/{id}` | Author, within 7 days |
 | `GET /patients/{id}/rateable-caretakers` | The patient's primary contacts, the patient, professionals |

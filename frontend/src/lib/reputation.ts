@@ -11,7 +11,7 @@ export type Reputation = {
   policy: { patient_review_weight: number; shrinkage_k: number; metric_window_days: number; metric_min_tasks: number; min_ratings_for_history: number };
 };
 export type ReputationSummary = { composite: number | null; enough_history: boolean; rating_count: number; included: SourceKey[] };
-export type ReviewItem = { id: string; rating: number; text: string | null; author_role: 'PRIMARY_CONTACT' | 'PATIENT'; created_at: string; edited: boolean; is_mine: boolean; editable: boolean; is_synthetic: boolean };
+export type ReviewItem = { id: string; rating: number; text: string | null; author_role: 'PRIMARY_CONTACT' | 'PATIENT'; created_at: string; edited: boolean; is_mine: boolean; editable: boolean; is_synthetic: boolean; reported?: boolean };
 export type Rateable = {
   caregiver_id: string; name: string; completed_tasks: number; kind: 'review' | 'doctor'; eligible: boolean; needed_tasks?: number; optional?: boolean;
   mine: { id: string; rating: number; text?: string | null; note?: string; editable: boolean } | null;

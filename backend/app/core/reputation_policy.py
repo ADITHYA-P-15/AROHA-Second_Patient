@@ -30,13 +30,12 @@ DEFAULT_POLICY: dict = {
     "metric_window_days": 90,
     "metric_min_tasks": 5,          # fewer decided tasks than this: no metric score yet
     "metric_components": {"on_time_completion": 45, "no_missed": 30, "on_time_check_in": 15, "cover_acceptance": 10},
-    "check_in_grace_minutes": 15,   # a check-in later than the task start plus this is late
 }
 
 SOURCES = ("metric", "doctors", "customers", "agency")
 COMPONENTS = ("on_time_completion", "no_missed", "on_time_check_in", "cover_acceptance")
 _INTS = ("shrinkage_k", "min_ratings_for_history", "min_completed_tasks", "rating_window_days", "edit_window_days", "prompt_repeat_days",
-         "max_ratings_per_day", "max_reports_per_day", "metric_window_days", "metric_min_tasks", "check_in_grace_minutes")
+         "max_ratings_per_day", "max_reports_per_day", "metric_window_days", "metric_min_tasks")
 
 
 class PolicyError(ValueError):
@@ -63,7 +62,7 @@ def validate(policy: dict) -> dict:
         raise PolicyError("patient_review_weight must be between 0 and 1")
     for key in _INTS:
         value = policy[key]
-        if isinstance(value, bool) or not isinstance(value, int) or value < (0 if key in ("shrinkage_k", "check_in_grace_minutes") else 1) or value > 3650:
+        if isinstance(value, bool) or not isinstance(value, int) or value < (0 if key == "shrinkage_k" else 1) or value > 3650:
             raise PolicyError(f"{key} must be a whole number in range")
     if policy["edit_window_days"] > policy["rating_window_days"]:
         raise PolicyError("edit_window_days cannot exceed rating_window_days")

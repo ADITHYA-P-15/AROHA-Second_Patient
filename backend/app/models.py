@@ -368,7 +368,7 @@ class CoverRequest(Base):
     """A task that lost (or never had) dependable cover; the Backup Matcher ranks and offers replacements."""
     __tablename__ = "cover_requests"
     __table_args__ = (
-        CheckConstraint("reason IN ('DECLINED','ABSENCE','MANUAL','UNASSIGNED')", name="ck_cover_request_reason"),
+        CheckConstraint("reason IN ('DECLINED','ABSENCE','MANUAL','UNASSIGNED','NO_CHECKIN')", name="ck_cover_request_reason"),
         CheckConstraint("status IN ('OPEN','OFFERED','COVERED','CANCELLED','EXPIRED')", name="ck_cover_request_status"),
         CheckConstraint("resolution IS NULL OR resolution IN ('MATCHER','MANUAL')", name="ck_cover_request_resolution"),
         Index("uq_open_cover_request_activity", "activity_id", unique=True,
@@ -630,3 +630,19 @@ class ReputationSnapshot(Base):
     composite: Mapped[float | None] = mapped_column(Float, nullable=True)
     breakdown: Mapped[dict] = mapped_column(JSON, default=dict)
     computed_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class TaskCheckIn(Base):
+    """A caretaker said "I'm here" for a task they hold. On time up to the check-in grace after the start, late after that."""
+    __tablename__ = "task_check_ins"
+    __table_args__ = (UniqueConstraint("activity_id", name="uq_task_check_in_activity"), CheckConstraint("status IN ('ON_TIME','LATE')", name="ck_task_check_in_status"),
+                      Index("ix_task_check_in_caregiver_at", "caregiver_id", "checked_in_at"))
+    id: Mapped[uuid.UUID] = uuid_pk()
+    activity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("care_activities.id", ondelete="CASCADE"))
+    caregiver_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("caregivers.id", ondelete="CASCADE"))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    checked_in_at: Mapped[object] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(8))
+    minutes_late: Mapped[int] = mapped_column(Integer, default=0)
+    is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)

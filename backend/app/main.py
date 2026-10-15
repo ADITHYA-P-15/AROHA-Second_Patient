@@ -53,6 +53,9 @@ Base.metadata.create_all(bind=engine)
 from app.core.reputation_policy import PolicyError, policy as _reputation_policy
 try: _reputation_policy()
 except PolicyError as exc: raise RuntimeError(f"Invalid REPUTATION_POLICY: {exc}") from None
+from app.core import checkin_policy as _checkin_policy
+try: _checkin_policy.policy()
+except _checkin_policy.PolicyError as exc: raise RuntimeError(f"Invalid CHECKIN_POLICY: {exc}") from None
 CSRF = "second-patient"
 COOKIE = "sp_session"
 login_attempts: dict[str, deque[float]] = defaultdict(deque)
@@ -584,6 +587,8 @@ from app.api.directory import router as directory_router
 app.include_router(directory_router)
 from app.api.reputation import router as reputation_router
 app.include_router(reputation_router)
+from app.api.checkins import router as checkins_router
+app.include_router(checkins_router)
 
 
 lookup_attempts: dict[str, deque[float]] = defaultdict(deque)
@@ -782,7 +787,8 @@ def seed(db=None):
     from app.seed import directory as directory_seed
     directory_seed.ensure(db)
     db.commit()
-    from app.seed import reputation as reputation_seed
+    from app.seed import checkins as checkins_seed, reputation as reputation_seed
+    checkins_seed.ensure(db)
     reputation_seed.ensure(db)
     db.commit()
     if own: db.close()
@@ -852,6 +858,8 @@ def _tick_as_leader():
             run_cover_tick(db, now())
             run_auto_coordination(db, now())
             if settings.feature("reminders"): run_reminders(db, now())
+            from app.services.checkins import run_checkin_tick
+            run_checkin_tick(db, now())  # one NO_CHECKIN cover search per task whose holder has not checked in
             from app.services.reputation import run_reputation_tick
             run_reputation_tick(db, now())  # one rating prompt per caretaker threshold; one reputation snapshot per caretaker per day
             db.commit()  # commit cover/command-center work before the planner so it can never be rolled back by it
