@@ -1,0 +1,20 @@
+{
+  "_comment": "Configuration: which directory sector each Indian state or union territory belongs to. Edit here, not in code; seeded by migration 0016 and at start-up.",
+  "sectors": [
+    {"code": "NORTH", "name": "North"},
+    {"code": "SOUTH", "name": "South"},
+    {"code": "EAST", "name": "East"},
+    {"code": "WEST", "name": "West"}
+  ],
+  "states": {
+    "Delhi": "NORTH", "Haryana": "NORTH", "Punjab": "NORTH", "Himachal Pradesh": "NORTH", "Jammu and Kashmir": "NORTH",
+    "Ladakh": "NORTH", "Uttarakhand": "NORTH", "Uttar Pradesh": "NORTH", "Chandigarh": "NORTH", "Rajasthan": "NORTH",
+    "Karnataka": "SOUTH", "Kerala": "SOUTH", "Tamil Nadu": "SOUTH", "Andhra Pradesh": "SOUTH", "Telangana": "SOUTH",
+    "Puducherry": "SOUTH", "Lakshadweep": "SOUTH",
+    "West Bengal": "EAST", "Odisha": "EAST", "Bihar": "EAST", "Jharkhand": "EAST", "Assam": "EAST", "Sikkim": "EAST",
+    "Meghalaya": "EAST", "Tripura": "EAST", "Manipur": "EAST", "Mizoram": "EAST", "Nagaland": "EAST", "Arunachal Pradesh": "EAST",
+    "Andaman and Nicobar Islands": "EAST",
+    "Maharashtra": "WEST", "Gujarat": "WEST", "Goa": "WEST", "Madhya Pradesh": "WEST", "Chhattisgarh": "WEST",
+    "Dadra and Nagar Haveli and Daman and Diu": "WEST"
+  }
+}

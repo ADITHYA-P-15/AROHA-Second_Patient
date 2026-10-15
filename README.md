@@ -784,3 +784,14 @@ Same as before, plus `python scripts/load_check.py --base-url http://<LAN-IP>:80
 ## AI assist — progress report for professionals
 
 A professional can open a **Progress report** from Insights: course of treatment, adherence trend, missed and late doses, appointments kept or missed, help requests and response times, optional wellbeing check-ins, and what is being monitored. Every number is computed by the backend; the AI only turns the numbered facts into sentences, each citing the facts it used, and anything it cannot trace to a figure (or that sounds clinical) is dropped. It is a draft for the professional to review and is never sent automatically. Patients and family can add an optional check-in (pain, mood, a note). See [docs/AI.md](docs/AI.md).
+
+## Directory phase 1 — Sector, agency and caretaker directory
+
+A primary contact can open **Find caretakers** to browse caretakers grouped by sector (North, South, East, West) and agency. Filters cover agency, state, city, gender, language, what they can help with, minimum experience and availability on a date, sorted by name or experience. A profile drawer shows the full listing. Phone numbers, notes and the exact area stay hidden until that caretaker is on the viewer's care team. Caretakers get **My profile** to edit their own listing and choose whether to be listed; skills and hours are still set in My Availability.
+
+- Behind the `directory` flag (on by default; listed in `FEATURES`, `render.yaml` and `.env.production.example`).
+- Migration `0016_directory` adds `sectors`, `sector_states` (the state map lives in `backend/app/seed/sector_states.json`), `agencies` and `caretaker_profiles`. Capabilities, limits and availability are reused from the existing caregiver records.
+- API under `/api/v1/directory`: `sectors`, `agencies?sector=`, `caretakers` (filters, pages of up to 50), `caretakers/{id}`, and `me` for caretakers. Only primary contacts, patients and professionals may browse.
+- Demo data: 12 fictional agencies, 60 fictional caretakers, and listings for the 12 population caretakers. Everything is marked synthetic.
+- Invite-by-email care teams are unchanged. Adding a directory caretaker to a team comes in a later phase.
+- Details: [docs/DIRECTORY.md](docs/DIRECTORY.md).

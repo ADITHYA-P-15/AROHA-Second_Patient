@@ -98,6 +98,11 @@ def main():
         login_status,_,_=demo.request('POST','/api/v1/auth/login',{'email':'anita.iyer@secondpatient.demo','password':pw})
         demo_status,demo_patients,_=demo.request('GET','/api/v1/patients')
         check('seeded demo patients exist (read-only)',login_status==200 and demo_status==200 and len(demo_patients.get('items',[]))>=1)
+    if 'directory' in (m.get('features') or []):
+        status,page,_=c2.request('GET','/api/v1/directory/caretakers?limit=5'); check('directory browse (primary contact)',status==200 and isinstance(page,dict) and len(page.get('items',[]))<=5 and all('phone' not in x for x in page.get('items',[])))
+        status,_,_=c2.request('GET','/api/v1/directory/caretakers?limit=51'); check('directory page size bounded',status==422)
+        status,_,_=ct.request('GET','/api/v1/directory/caretakers'); check('caretaker cannot browse directory',status==403)
+        status,mine,_=ct.request('PATCH','/api/v1/directory/me',{'bio':'Fictional smoke-test caretaker.','listed':False}); check('caretaker edits own directory profile',status==200 and mine.get('bio')=='Fictional smoke-test caretaker.')
     for name,ok in checks: print(f"{'PASS' if ok else 'FAIL'}  {name}")
     print(f"\n{sum(ok for _,ok in checks)}/{len(checks)} checks passed"); return 0 if all(ok for _,ok in checks) else 1
 if __name__=='__main__': raise SystemExit(main())

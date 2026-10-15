@@ -102,3 +102,15 @@ def test_background_build_respects_its_switches_and_is_idempotent(monkeypatch):
     with SessionLocal() as db:
         assert db.get(AppSetting, "demo_population") is not None
         assert db.scalar(select(func.count()).select_from(Patient).where(Patient.name == "Lalitha Krishnan")) == 1
+
+
+def test_population_caretakers_are_listed_in_the_directory_once_the_population_exists():
+    from app.seed import directory as directory_seed
+    build_population()
+    with SessionLocal() as db:
+        directory_seed.ensure(db); db.commit()
+        assert directory_seed.attach_population(db) == 0  # already attached, never twice
+    pc, *_ = account()
+    found = pc.get("/api/v1/directory/caretakers", params={"city": "Bengaluru", "limit": 50}).json()["items"]
+    anjali = next(c for c in found if c["name"] == "Anjali Verma")
+    assert anjali["agency"]["name"] in directory_seed.POPULATION_AGENCIES and "MEDICATION_ASSIST" in anjali["capabilities"]

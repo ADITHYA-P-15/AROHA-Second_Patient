@@ -1,0 +1,48 @@
+import { describe, expect, it } from 'vitest';
+import { buildDirectoryQuery, cardText, experienceText, pageLabel, splitLanguages, type CaretakerCard } from './directory.ts';
+
+const card: CaretakerCard = {
+  id: 'c1', name: 'Asha Nair', gender: 'FEMALE', gender_label: 'Female', origin_state: 'Kerala', origin_city: 'Thrissur', current_state: 'Maharashtra', current_city: 'Pune',
+  sector: 'WEST', agency: { id: 'a1', name: 'Sahyadri Caregivers' }, languages: ['Malayalam', 'English'], capabilities: ['MEDICATION_ASSIST', 'TRANSPORT'], years_experience: 6, is_synthetic: true,
+};
+
+describe('directory query building', () => {
+  it('drops blanks and defaults, trims text and keeps each filter', () => {
+    expect(buildDirectoryQuery({})).toBe('');
+    expect(buildDirectoryQuery({ sector: 'NORTH', city: '  Pune ', gender: '', language: 'Tamil', sort: 'name', offset: 0 })).toBe('?sector=NORTH&city=Pune&language=Tamil');
+    expect(buildDirectoryQuery({ agency: 'a1', state: 'Kerala', capability: 'LAB_ESCORT', available_on: '2026-10-17', sort: 'experience' }))
+      .toBe('?agency=a1&state=Kerala&capability=LAB_ESCORT&available_on=2026-10-17&sort=experience');
+  });
+  it('combines filters in a stable order and encodes text', () => {
+    expect(buildDirectoryQuery({ language: 'Konkani', sector: 'WEST', city: 'Navi Mumbai', min_experience: '5' })).toBe('?sector=WEST&city=Navi+Mumbai&language=Konkani&min_experience=5');
+  });
+  it('keeps paging and experience inside the server bounds', () => {
+    expect(buildDirectoryQuery({ limit: 500 })).toBe('?limit=50');
+    expect(buildDirectoryQuery({ limit: 0, offset: -10 })).toBe('?limit=12');
+    expect(buildDirectoryQuery({ offset: 24.7 })).toBe('?offset=24');
+    expect(buildDirectoryQuery({ min_experience: 0 })).toBe('');
+    expect(buildDirectoryQuery({ min_experience: 'abc' })).toBe('');
+    expect(buildDirectoryQuery({ min_experience: 99 })).toBe('?min_experience=60');
+  });
+});
+
+describe('directory card text', () => {
+  it('reads as a short profile without contact details', () => {
+    const text = cardText(card);
+    expect(text.title).toBe('Asha Nair');
+    expect(text.lines).toEqual(['Female · from Thrissur, Kerala', 'Lives in Pune, Maharashtra', 'Agency: Sahyadri Caregivers', 'Speaks Malayalam, English', '6 years of experience']);
+    expect(text.skills).toEqual(['Medicines', 'Transport']);
+    expect(JSON.stringify(text)).not.toMatch(/phone|\+91/i);
+  });
+  it('handles a local, independent, new caretaker', () => {
+    const text = cardText({ ...card, origin_city: 'Pune', origin_state: 'Maharashtra', agency: null, languages: [], years_experience: 0 });
+    expect(text.lines).toEqual(['Female', 'Lives in Pune, Maharashtra', 'Independent caretaker', 'New to caretaking']);
+    expect(cardText({ ...card, current_city: '', current_state: '' }).lines[1]).toBe('Location not given');
+  });
+  it('labels experience, pages and language lists', () => {
+    expect(experienceText(1)).toBe('1 year of experience');
+    expect(pageLabel({ total: 30, limit: 12, offset: 12 }, 12)).toBe('13–24 of 30');
+    expect(pageLabel({ total: 0, limit: 12, offset: 0 }, 0)).toBe('No caretakers match');
+    expect(splitLanguages('Tamil, english , ,Hindi')).toEqual(['Tamil', 'english', 'Hindi']);
+  });
+});

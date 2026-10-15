@@ -576,6 +576,8 @@ from app.api.emergency import router as emergency_router
 app.include_router(emergency_router)
 from app.api.progress_report import router as progress_report_router
 app.include_router(progress_report_router)
+from app.api.directory import router as directory_router
+app.include_router(directory_router)
 
 
 lookup_attempts: dict[str, deque[float]] = defaultdict(deque)
@@ -771,6 +773,9 @@ def seed(db=None):
     from app.seed.phase2 import seed_phase2
     seed_phase2(db)
     db.commit()
+    from app.seed import directory as directory_seed
+    directory_seed.ensure(db)
+    db.commit()
     if own: db.close()
 
 
@@ -788,6 +793,17 @@ def reset_demo(request: Request, user: User = Depends(current_user), db: Session
     return {"status": "reset"}
 
 
+def ensure_directory_reference():
+    """Sectors and the state map are configuration every database needs, demo or not (migration 0016 also writes them)."""
+    from app.services.directory import ensure_reference
+    db = SessionLocal()
+    try:
+        ensure_reference(db); db.commit()
+    finally:
+        db.close()
+
+
+ensure_directory_reference()
 if settings.seed_demo:
     run_seed()
 

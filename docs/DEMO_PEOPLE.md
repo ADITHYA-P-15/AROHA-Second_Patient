@@ -80,3 +80,7 @@ Both groups are created automatically with `SEED_DEMO=true` (set `DEMO_POPULATIO
 | Mohan Das | `mohan.das.patient@carecircle.demo` | Mohan Das |
 | Ramakrishna Hegde | `ramakrishna.hegde.patient@carecircle.demo` | Ramakrishna Hegde |
 | Sarojini Devi | `sarojini.devi.patient@carecircle.demo` | Sarojini Devi |
+
+## Caretaker directory
+
+60 more fictional caretakers live in the caretaker directory (`@directory.carecircle.demo`, same demo password), spread over 12 fictional agencies in the four sectors. Two of them are unlisted. The 12 caretakers above are listed under the southern agencies. See [DIRECTORY.md](DIRECTORY.md).

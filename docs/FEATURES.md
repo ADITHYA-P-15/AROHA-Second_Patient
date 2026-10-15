@@ -270,3 +270,19 @@ Cumulative record of features built one at a time on top of the phased roadmap i
 - Draft report per patient from recorded facts only (treatment course, adherence and its change, missed/late doses, appointments, help requests and response time, check-ins, monitoring); the model phrases and every sentence is verified against cited facts; falls back to plain fact sentences; never sent automatically.
 - Optional wellbeing check-in (pain 0-10, mood 1-5, note) by the patient or family/caretaker; migration 0014; behind the `progress_report` flag; included in demo reset.
 - Docs: [AI.md](AI.md).
+
+## Directory phase 1 — sector, agency and caretaker directory
+
+- **Goal:** let a family find a suitable caretaker by region, agency, language, skills and availability, without exposing anyone's contact details.
+- **Shipped:**
+  - Sectors (with a configurable state map), agencies and caretaker listings.
+  - **Find caretakers** for primary contacts: sector tabs, a filter bar, result cards and a profile drawer.
+  - **My profile** for caretakers. A caretaker is unlisted until they opt in.
+  - Privacy: phone, notes and district are shown only to care teams that already include the caretaker. Unlisted caretakers are hidden. Caretakers cannot browse.
+  - Flag `directory`, default on.
+- **Code:** `models.Sector` / `SectorState` / `Agency` / `CaretakerProfile`, `alembic/versions/0016_directory.py`, `services/directory.py`, `api/directory.py`, `seed/directory.py`, `seed/sector_states.json`, `frontend/src/FindCaretakers.tsx`, `MyDirectoryProfile.tsx`, `lib/directory.ts`.
+- **Tests:** `backend/tests/test_directory.py` (migration up/down on SQLite and, with `TEST_POSTGRES_URL`, Postgres; each filter and combined; privacy; roles; pagination; seed idempotency), the population listing test in `test_population.py`, `frontend/src/lib/directory.test.ts`. `scripts/smoke.py` checks the directory when the flag is on.
+- **Docs:** [DIRECTORY.md](DIRECTORY.md) and the README section "Directory phase 1".
+- **Schema:** migration `0016_directory` (additive, guarded).
+- **Reuse later:** the caregiver id on each listing for adding someone to a care team (Phase 3); `services.directory.search` for matching across agencies.
+- **Not yet:** adding from the directory, agency administration, listing verification.

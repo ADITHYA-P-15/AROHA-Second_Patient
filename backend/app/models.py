@@ -505,3 +505,56 @@ class WellbeingCheckIn(Base):
     mood: Mapped[int | None] = mapped_column(Integer, nullable=True)
     note: Mapped[str] = mapped_column(String(300), default="")
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, index=True)
+
+
+class Sector(Base):
+    """A broad region of the country (NORTH/SOUTH/EAST/WEST) used to group the caretaker directory."""
+    __tablename__ = "sectors"
+    __table_args__ = (CheckConstraint("code IN ('NORTH','SOUTH','EAST','WEST')", name="ck_sector_code"),)
+    id: Mapped[uuid.UUID] = uuid_pk()
+    code: Mapped[str] = mapped_column(String(8), unique=True)
+    name: Mapped[str] = mapped_column(String(60))
+
+
+class SectorState(Base):
+    """Which sector a state belongs to. Configuration data (seeded from seed/sector_states.json), not code."""
+    __tablename__ = "sector_states"
+    state: Mapped[str] = mapped_column(String(60), primary_key=True)
+    sector_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sectors.id", ondelete="CASCADE"), index=True)
+
+
+class Agency(Base):
+    """A care agency caretakers can belong to. Directory grouping only; it grants no access."""
+    __tablename__ = "agencies"
+    __table_args__ = (UniqueConstraint("name", "city", name="uq_agency_name_city"),)
+    id: Mapped[uuid.UUID] = uuid_pk()
+    name: Mapped[str] = mapped_column(String(160))
+    sector_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sectors.id"), index=True)
+    city: Mapped[str] = mapped_column(String(80), default="")
+    is_synthetic: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+
+
+class CaretakerProfile(Base):
+    """A caretaker's directory listing. Capabilities, limits and availability stay on the Caregiver row."""
+    __tablename__ = "caretaker_profiles"
+    __table_args__ = (CheckConstraint("gender IN ('FEMALE','MALE','NON_BINARY','UNDISCLOSED')", name="ck_caretaker_profile_gender"),
+                      CheckConstraint("years_experience >= 0 AND years_experience <= 60", name="ck_caretaker_profile_experience"),
+                      CheckConstraint("length(bio) <= 500", name="ck_caretaker_profile_bio"))
+    id: Mapped[uuid.UUID] = uuid_pk()
+    caregiver_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("caregivers.id", ondelete="CASCADE"), unique=True)
+    agency_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("agencies.id", ondelete="SET NULL"), nullable=True, index=True)
+    gender: Mapped[str] = mapped_column(String(16), default="UNDISCLOSED")
+    origin_state: Mapped[str] = mapped_column(String(60), default="")
+    origin_city: Mapped[str] = mapped_column(String(80), default="")
+    current_state: Mapped[str] = mapped_column(String(60), default="")
+    current_city: Mapped[str] = mapped_column(String(80), default="", index=True)
+    current_district: Mapped[str] = mapped_column(String(80), default="")  # finer than the city: shown only to the caretaker's own care teams
+    sector_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sectors.id", ondelete="SET NULL"), nullable=True, index=True)  # derived from current_state
+    languages: Mapped[list] = mapped_column(JSON, default=list)
+    years_experience: Mapped[int] = mapped_column(Integer, default=0)
+    bio: Mapped[str] = mapped_column(String(500), default="")
+    listed: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    is_synthetic: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
