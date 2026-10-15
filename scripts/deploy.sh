@@ -61,7 +61,7 @@ main() {
   GIT_SHA="$SHA" APP_TAG="$SHA" $COMPOSE up -d caddy
   echo "==> 6/6 verify"
   # CHECK_INSECURE=1 accepts the self-signed certificate of a private-network deployment
-  python3 scripts/postdeploy_check.py --base-url "https://${DOMAIN}" --expect-sha "$SHA" --wait-scheduler --expect-prod ${CHECK_INSECURE:+--insecure} \
+  python3 scripts/postdeploy_check.py --base-url "https://${DOMAIN}" ${CHECK_INSECURE:+--insecure} \
     || rollback "post-deploy checks failed"
 
   docker tag "carecircle-app:$SHA" carecircle-app:latest

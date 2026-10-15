@@ -92,13 +92,13 @@ function Login({ onLogin, demoMode }: { onLogin: (u: User) => void; demoMode: bo
 function App() {
   const queryClient = useQueryClient(); const navigate = useNavigate();
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<User>('/api/v1/auth/me'), retry: false });
-  const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<{phase:number;version:string;demo_mode:boolean;demo_reset_enabled:boolean;escalation_scaled:boolean;escalation_time_scale:number;features?:string[]}>('/api/v1/meta') });
+  const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<{demo_mode:boolean;demo_reset_enabled:boolean;escalation_scaled:boolean;escalation_time_scale:number;features?:string[]}>('/api/v1/meta') });
   if (me.isLoading) return <div className="loading">Loading your workspace…</div>;
   if (me.isError) return <Login demoMode={meta.data?.demo_mode ?? false} onLogin={u=>{ queryClient.setQueryData(['me'],u); navigate(homeFor(u.role)); }} />;
   return <Workspace user={me.data!} meta={meta.data}/>;
 }
 
-function Workspace({ user, meta }: { user: User; meta?: { phase: number; version: string; demo_mode: boolean; demo_reset_enabled: boolean; escalation_scaled: boolean; escalation_time_scale: number; features?: string[] } }) {
+function Workspace({ user, meta }: { user: User; meta?: { demo_mode: boolean; demo_reset_enabled: boolean; escalation_scaled: boolean; escalation_time_scale: number; features?: string[] } }) {
   const queryClient = useQueryClient(); const navigate = useNavigate(); const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => { setMenuOpen(false); }, [location.pathname]);
@@ -160,7 +160,7 @@ function Workspace({ user, meta }: { user: User; meta?: { phase: number; version
       <div className="page" key={location.pathname}>
         <Routes>{menu.map(item => <Route key={item.path} path={item.path} element={page(item.path)}/>)}<Route path="*" element={<Navigate to={homeFor(user.role)} replace/>}/></Routes>
       </div>
-      <footer>Operational care-coordination tool — not a diagnostic or emergency service. Demo data is fictional.<span>Phase {meta?.phase ?? 4} · v{meta?.version ?? '0.4.0'}</span></footer>
+      <footer>Operational care-coordination tool — not a diagnostic or emergency service. Demo data is fictional.</footer>
     </main>
   </div>;
 }

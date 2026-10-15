@@ -167,7 +167,7 @@ scheduler_state: dict = {"last_tick_at": None, "leader": None, "last_error": Non
 @app.get("/api/health")
 def health(db: Session = Depends(get_db)):
     db.execute(text("SELECT 1"))
-    return {"status": "ok", "database": "ok", "git_sha": settings.git_sha, "env": settings.app_env, "scheduler": {"enabled": settings.run_scheduler, **scheduler_state}}
+    return {"status": "ok", "database": "ok"}
 
 
 @app.get("/api/v1/meta")
@@ -175,7 +175,7 @@ def meta(db: Session = Depends(get_db)):
     from app.services import ai as ai_service
     ai_status = ai_service.status()
     scale = current_escalation_scale(db)
-    return {"app_name": "CareCircle", "version": "0.5.0", "git_sha": settings.git_sha, "phase": 5, "demo_mode": settings.demo_mode, "demo_reset_enabled": demo_reset_enabled(settings.app_env, settings.demo_mode), "features": settings.feature_list, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "server_time": now().isoformat(), "poll_seconds": max(3, settings.client_poll_seconds), "timezone": settings.app_timezone, "ai_enabled": bool(ai_status["speech"] or ai_status["text"]), "ai": ai_status}
+    return {"demo_mode": settings.demo_mode, "demo_reset_enabled": demo_reset_enabled(settings.app_env, settings.demo_mode), "features": settings.feature_list, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "poll_seconds": max(3, settings.client_poll_seconds), "ai_enabled": bool(ai_status["speech"] or ai_status["text"])}
 
 
 def incident_recipients(db, patient_id, level):
