@@ -215,7 +215,7 @@ def sector_summary(db: Session) -> list[dict]:
     stars = dict(db.execute(select(AgencyRating.caregiver_id, AgencyRating.rating)).all())
     rows = db.execute(select(CaretakerProfile, Caregiver).join(Caregiver, Caregiver.id == CaretakerProfile.caregiver_id).join(User, User.id == Caregiver.user_id)
                       .where(CaretakerProfile.listed.is_(True), Caregiver.is_active.is_(True), Caregiver.kind == "CARETAKER", User.is_active.is_(True))).all()
-    out = {s.code: {"code": s.code, "name": s.name, "caretakers": 0, "states": {}, "agencies": {}} for s in sectors.values()}
+    out = {s.code: {"code": s.code, "name": s.name, "caretakers": 0, "states": {}, "agencies": {}, "state_agencies": {}} for s in sectors.values()}
     for p, cg in rows:
         sector = sectors.get(p.sector_id)
         if sector is None: continue
@@ -227,6 +227,9 @@ def sector_summary(db: Session) -> list[dict]:
             a = entry["agencies"].setdefault(agency.id, {"id": str(agency.id), "name": agency.name, "city": agency.city, "caretakers": 0, "rated": []})
             a["caretakers"] += 1
             if cg.id in stars: a["rated"].append(float(stars[cg.id]))
+            if p.current_state:
+                per_state = entry["state_agencies"].setdefault(p.current_state, {})
+                per_state[agency.name] = per_state.get(agency.name, 0) + 1
     result = []
     for code in ("NORTH", "SOUTH", "EAST", "WEST"):
         if code not in out: continue
@@ -234,6 +237,8 @@ def sector_summary(db: Session) -> list[dict]:
         ranked = sorted(({"id": a["id"], "name": a["name"], "city": a["city"], "caretakers": a["caretakers"],
                           "average_rating": round(sum(a["rated"]) / len(a["rated"]), 1) if a["rated"] else None} for a in entry["agencies"].values()),
                         key=lambda a: (-(a["average_rating"] or 0), -a["caretakers"], a["name"]))
-        result.append({"code": code, "name": entry["name"], "caretakers": entry["caretakers"], "states": dict(sorted(entry["states"].items())),
+        # Per state: the agency listing the most caretakers there (name order breaks ties), for the map tooltip.
+        state_top = {st: sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0][0] for st, counts in sorted(entry["state_agencies"].items())}
+        result.append({"code": code, "name": entry["name"], "caretakers": entry["caretakers"], "states": dict(sorted(entry["states"].items())), "state_top_agency": state_top,
                        "agency_count": len(ranked), "top_agencies": ranked[:3]})
     return result

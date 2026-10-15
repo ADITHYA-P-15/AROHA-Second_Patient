@@ -8,6 +8,7 @@ import { usePatientPick } from './PatientPick.tsx';
 import { AGENCY_STARS, GENDERS, cityOptions, type Agency, type DirectoryFilters, type DirectoryOptions, type Sector } from './lib/directory.ts';
 import { MultiSelect } from './MultiSelect.tsx';
 import { IndiaMap, type SectorSummary } from './IndiaMap.tsx';
+import { toggleMapState } from './lib/indiamap.ts';
 import { ProfileDrawer } from './FindCaretakers.tsx';
 import { MAX_COMPARE, TOP_DEFAULT, buildMatchesQuery, compareRows, hasActiveFilters, preferencesPayload, requestStatusText, roleText, toggleCompare, topReasons, type HireRequest, type Match, type MatchPage, type MatchSort, type Preferences } from './lib/teambuilder.ts';
 
@@ -84,8 +85,9 @@ export function BuildTeam() {
       </details>
     </section>
 
-    <IndiaMap sectors={sectors.data?.items ?? []} summary={summary.data?.items ?? []} selected={filters.sector ?? ''} top={items}
+    <IndiaMap sectors={sectors.data?.items ?? []} summary={summary.data?.items ?? []} selected={filters.sector ?? ''} selectedStates={filters.state} top={items}
       onSelect={code => set({ sector: code, agency: '', state: [], city: [] })} onProfile={setOpenId}
+      onState={(state, sector) => { const next = toggleMapState({ sector: filters.sector ?? '', state: filters.state }, state, sector); set({ ...next, agency: sector === filters.sector ? filters.agency : '', city: [] }); }}
       onAgency={(agency, sector) => set({ sector, agency, state: [], city: [] })}/>
 
     <section className="card tb-block" aria-label="Filters">

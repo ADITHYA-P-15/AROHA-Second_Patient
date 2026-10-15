@@ -158,3 +158,24 @@ A map of India sits above the filters. Each state or union territory is a tile, 
 - **Keyboard:** the region buttons are focusable and pressable. The drawing itself is decorative and labelled for screen readers.
 - **The drawing:** it is a schematic tile map drawn in-house (`frontend/src/lib/indiamap.ts`), placed roughly by geography. It uses no map data, map tiles or CDN, so it works offline and carries no third-party licence. It shows regions, not borders or distances.
 - **API:** `GET /api/v1/directory/sector-summary` (primary contacts, patients, professionals) returns, per sector, `caretakers`, `states` (state → count), `agency_count` and `top_agencies` (`id`, `name`, `city`, `caretakers`, `average_rating`).
+
+### Map, version 2: outline, states and interactions
+
+The tile map was replaced by a recognisable outline of India with a shape for every state. It is still drawn entirely in-house (`frontend/src/lib/indiamap.ts`), with no map data, tiles or CDN, so it works offline and has no licence:
+- **Outline:** about 80 hand-traced longitude/latitude points.
+- **States:** each state is the part of the outline nearer to its own centre point than to any other (a Voronoi split, computed in the browser). Neighbours and rough sizes look familiar, but the lines are **not real borders**; the map says so.
+- **Islands:** Andaman and Nicobar, and Lakshadweep, are small separate shapes.
+
+Interactions:
+- **Hover or focus** a state: its region glows, other regions fade, and a tooltip shows the state, region, caretaker count and the agency with the most caretakers there (`state_top_agency` in `/directory/sector-summary`).
+- **Click or press Enter on a state:** it is added to the **States** filter and its region is chosen. Clicking it again removes it, and choosing a state in another region starts over there.
+- **Choose a region** (a region button, which also shows its caretaker count, or a state): the map **zooms** smoothly into that region. **All India** zooms back out.
+- **Bubbles** on each state are sized by its number of listed caretakers.
+- **Right panel:** a large animated count, the region's top 5 caretakers (the same ranking as the recommendations) and its top 3 agencies. Clicking them opens the profile or filters by agency.
+
+Visual choices:
+- A calm palette with one colour per region: blue (North), teal (South), amber (East) and violet (West), on a soft sea-blue background.
+- White state outlines; a dark outline for hovered or picked states.
+- A soft drop-shadow glow on the active region.
+
+Every animation and transition is switched off when the viewer asks for reduced motion. On phones the panel sits below the map.

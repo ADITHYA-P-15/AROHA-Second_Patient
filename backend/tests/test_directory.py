@@ -320,5 +320,10 @@ def test_sector_summary_counts_listed_caretakers_and_ranks_agencies():
         assert ratings == sorted(ratings, reverse=True)
         for a in s["top_agencies"]:
             assert a["caretakers"] == len([c for c in listed if c["agency"] and c["agency"]["id"] == a["id"]])
+        for state, agency in s["state_top_agency"].items():
+            here = [c for c in listed if c["current_state"] == state and c["agency"]]
+            counts = {}
+            for c in here: counts[c["agency"]["name"]] = counts.get(c["agency"]["name"], 0) + 1
+            assert counts[agency] == max(counts.values())
     carer, *_ = account("CARETAKER")
     assert carer.get("/api/v1/directory/sector-summary").status_code == 403

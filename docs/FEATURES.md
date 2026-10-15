@@ -362,3 +362,14 @@ Cumulative record of features built one at a time on top of the phased roadmap i
 - **Shipped:** an interactive schematic map of India on Find & build team. Sectors are highlighted; a click filters by region. The panel on the right shows the top 5 caretakers (the same ranking as the recommendations) and the top 3 agencies.
 - **Code:** `services/directory.sector_summary`, `GET /api/v1/directory/sector-summary`, `frontend/src/IndiaMap.tsx`, `lib/indiamap.ts`. Map details are in [DIRECTORY.md](DIRECTORY.md).
 - **Tests:** `test_sector_summary_counts_listed_caretakers_and_ranks_agencies`, `lib/indiamap.test.ts`.
+
+## Follow-up: India map, version 2
+
+- **Shipped:**
+  - A recognisable, in-house drawn outline of India with state regions (a Voronoi split of the outline; not real borders).
+  - Hover tooltips showing count and top agency, and a glow on the hovered region.
+  - Click a state to filter by it; choosing a region zooms in smoothly.
+  - Caretaker bubbles per state, an animated count in the panel, and keyboard access to states and regions.
+  - Reduced motion is respected.
+  - `sector-summary` adds `state_top_agency`.
+- **Tests:** `lib/indiamap.test.ts` (every state has a shape, each centre is inside its own region and the outline, clipping, zoom interpolation, bubbles, tooltip text, state toggling), and `test_sector_summary_counts_listed_caretakers_and_ranks_agencies` (top agency per state).
