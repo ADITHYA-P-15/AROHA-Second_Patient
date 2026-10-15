@@ -45,8 +45,13 @@ database): health, version, production flags, hidden schema, scheduler running, 
 ## 3. Step by step on Render
 
 1. **Get the code on GitHub** with `render.yaml` at the repository root (it is on `main` once this is merged).
-2. **Make CI a gate.** In GitHub: Settings, Branches, add a rule for `main` that requires the `backend` and `frontend` checks.
-   `render.yaml` uses `autoDeployTrigger: checksPass`, so Render deploys a commit only after those checks are green.
+2. **Optional: make CI a gate.** `render.yaml` deploys on every commit to `main` (`autoDeployTrigger: commit`). That is safe,
+   because the image build runs the whole test suite and a failing build leaves the running version in place. When GitHub
+   Actions is working for the repository, change it to `checksPass` so Render also waits for CI, and require the `backend` and
+   `frontend` checks in GitHub: Settings, Branches.
+   **If CI shows "The job was not started because recent account payments have failed or your spending limit needs to be
+   increased"**, that is a GitHub billing or spending-limit setting on the account or organization that owns the repository
+   (Settings, Billing and plans). It is not a code problem. Deploys still work because the build tests the code itself.
 3. **Create the services.** In Render: New, Blueprint, connect the GitHub repository, branch `main`. Render reads
    `render.yaml` and lists a web service `carecircle` and a database `carecircle-db`. Click Apply.
 4. **Enter the two secrets it asks for**: `GEMINI_API_KEY` and `GROQ_API_KEY`. Leave them empty to run without AI (voice notes

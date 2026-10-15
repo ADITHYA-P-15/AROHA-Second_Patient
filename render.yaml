@@ -21,7 +21,9 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /api/health
-    autoDeployTrigger: checksPass   # deploy only when CI (.github/workflows/ci.yml) is green
+    # The image build runs the whole backend and frontend test suites, so a failing commit never replaces the running version.
+    # Once GitHub Actions is running for this repository (billing), change this to checksPass to also wait for CI.
+    autoDeployTrigger: commit
     envVars:
       - key: APP_ENV
         value: prod
