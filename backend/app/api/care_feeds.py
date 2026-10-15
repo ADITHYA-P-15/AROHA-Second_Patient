@@ -154,7 +154,7 @@ def create_prescription(patient_id: uuid.UUID, body: PrescriptionIn, user=Depend
     db.add(p); db.flush()
     created = feeds.generate_doses(db, p, actor_id=user.id)
     notify(db, _circle(db, patient.id, user), patient.id, f"New medicine: {p.medicine} {p.dose}".strip(),
-           f"{user.name} prescribed it at {', '.join(p.times)}. {created} doses were added to the plan.", kind="DECISION", severity="MEDIUM", link=f"/care-plan?patient={patient.id}")
+           f"{user.name} prescribed it at {', '.join(p.times)}. {created} dose{'s' if created != 1 else ''} added to the plan.", kind="DECISION", severity="MEDIUM", link=f"/care-plan?patient={patient.id}")
     _history(db, user, patient.id, "prescription.created", "prescription", p.id, f"{user.name} prescribed {p.medicine} {p.dose} at {', '.join(p.times)}")
     reassess(db, [patient.id], TriggerEvent.ACTIVITY_ADDED, {"prescription_id": str(p.id)}); db.commit()
     return {**_prescription_dict(db, p), "doses_created": created}

@@ -150,3 +150,14 @@ def test_tapping_the_same_request_again_is_one_request_asked_again():
     mine = [i for i in coord.get("/api/v1/incidents").json()["items"] if i["patient_id"] == pid]
     assert len(mine) == 1  # one open request, not three
     assert patient.post(f"/api/v1/patients/{pid}/messages", headers=H, json={"body": "I feel dizzy", "channel": "TEXT"}).json()["id"] != first.json()["id"]  # a different request is its own
+
+
+def test_an_information_only_update_tells_the_family_and_leaves_nothing_open():
+    from tests.test_voice_notes import patient_login
+    coord, _ = primary_contact_with_patient("Cheerful patient")
+    patient, pid = patient_login(coord)
+    sent = patient.post(f"/api/v1/patients/{pid}/messages", headers=H, json={"body": "I'm fine/took my medicine", "channel": "TEXT"})
+    assert sent.status_code == 201 and sent.json()["current_level"] == 0 and sent.json()["status"] == "RESOLVED"
+    assert any(t.startswith("Update from") for t in titles(coord))
+    open_ones = [i for i in coord.get("/api/v1/incidents").json()["items"] if i["patient_id"] == pid and i["status"] in ("OPEN", "ACKNOWLEDGED")]
+    assert open_ones == []

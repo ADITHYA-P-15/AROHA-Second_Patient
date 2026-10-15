@@ -298,8 +298,12 @@ def create_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Reque
     db.add(IncidentEvent(incident_id=inc.id, kind="CLASSIFIED", level=level, actor_user_id=None, meta={"reasons": list(classification.reasons), "classifier_version": classification.classifier_version}))
     for no_recipient_level in no_recipients_levels: db.add(IncidentEvent(incident_id=inc.id, kind="NO_RECIPIENTS", level=no_recipient_level, meta={"advanced_to": level}))
     audit(db, user, patient.id, "INCIDENT_CREATED", "incident", inc.id, "Care request routed", request.state.request_id)
-    if level == 0:  # nothing needed, but the family likes to know ("I'm fine", "took my medicine")
-        notify(db, [u for u in family_user_ids(db, patient.id) if u != user.id], patient.id, f"Update from {patient.name}", safe_summary + ". Nothing is needed.", kind="STATUS", severity="LOW", incident_id=inc.id, link="/incidents")
+    if level == 0:  # information only ("I'm fine", "took my medicine"): the family is told, and nothing is left open for anyone
+        inc.status, inc.resolved_at, inc.resolution_code, inc.resolution_note = "RESOLVED", now(), "HANDLED", "Information only"
+        db.add(IncidentEvent(incident_id=inc.id, kind="RESOLVED", level=0, actor_user_id=None, note="Information only; no action needed"))
+        sent_at = now().astimezone(ZoneInfo(settings.app_timezone)).strftime("%H:%M")
+        notify(db, [u for u in family_user_ids(db, patient.id) if u != user.id], patient.id, f"Update from {patient.name}", f"{patient.name} sent an update at {sent_at}. Nothing is needed.",
+               kind="STATUS", severity="LOW", incident_id=inc.id, link="/incidents")
     told: dict = {}
     for person in recipients: told.setdefault(person.role.value, []).append(person.name)
     if level == 0:
