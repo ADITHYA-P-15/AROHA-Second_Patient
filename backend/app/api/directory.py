@@ -106,7 +106,18 @@ def caretakers(sector: Literal["NORTH", "SOUTH", "EAST", "WEST"] | None = None, 
                     min_experience=min_experience, available_on=available_on, sort=sort, limit=limit, offset=offset)
     rows, total = svc.search(db, f)
     sectors_by_id, agencies_by_id = svc.lookups(db)
-    return {"items": [svc.card(p, cg, sectors_by_id, agencies_by_id) for p, cg, _ in rows], "total": total, "limit": limit, "offset": offset}
+    items = [svc.card(p, cg, sectors_by_id, agencies_by_id) for p, cg, _ in rows]
+    _with_reputation(db, items)
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+def _with_reputation(db: Session, items: list[dict]) -> None:
+    """With the `ratings` flag on, each card carries its composite reputation (computed now, same as the profile)."""
+    from app.core.config import settings
+    if not settings.feature("ratings") or not items: return
+    from app.services import reputation
+    found = reputation.breakdowns(db, [uuid.UUID(i["id"]) for i in items])
+    for i in items: i["reputation"] = reputation.summary(found[uuid.UUID(i["id"])])
 
 
 @router.get("/caretakers/{cid}")
@@ -118,7 +129,9 @@ def caretaker(cid: uuid.UUID, user=Depends(_browser), db: Session = Depends(get_
     # Unlisted caretakers are hidden from everyone except care teams they already work with.
     if not profile.listed and not on_team: raise HTTPException(404, "Caretaker not found")
     sectors_by_id, agencies_by_id = svc.lookups(db)
-    return svc.detail(profile, cg, sectors_by_id, agencies_by_id, on_team=on_team)
+    out = svc.detail(profile, cg, sectors_by_id, agencies_by_id, on_team=on_team)
+    _with_reputation(db, [out])
+    return out
 
 
 @router.get("/me")

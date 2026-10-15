@@ -3,6 +3,8 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { api } from './api/client.ts';
 import { supportLabel } from './lib/plan.ts';
+import { compositeText } from './lib/reputation.ts';
+import { ReputationBlock } from './Reputation.tsx';
 import { GENDERS, PAGE_SIZE, buildDirectoryQuery, cardText, experienceText, pageLabel, place, type Agency, type CaretakerDetail, type DirectoryFilters, type DirectoryPage, type Sector } from './lib/directory.ts';
 
 const CAPABILITIES = ['MEDICATION_ASSIST', 'APPOINTMENT_ESCORT', 'TRANSPORT', 'DAILY_ASSIST', 'MOBILITY_ASSIST', 'PRESCRIPTION_PICKUP', 'LAB_ESCORT', 'SUPPLIES'];
@@ -49,6 +51,7 @@ export function FindCaretakers() {
       {page.items.length ? <ul className="dir-grid">{page.items.map(c => { const t = cardText(c); return <li key={c.id} className="dir-card">
         <button className="dir-open" onClick={() => setOpenId(c.id)} aria-label={`Open profile of ${t.title}`}>
           <span className="dir-name">{t.title}</span>
+          {c.reputation && <span className={`dir-rep${c.reputation.composite === null ? ' none' : ''}`}>{compositeText(c.reputation)}</span>}
           {t.lines.map(line => <span key={line} className="dir-line">{line}</span>)}
           <span className="dir-skills">{t.skills.map(s => <span key={s} className="chip">{s}</span>)}</span>
         </button></li>; })}</ul>
@@ -85,6 +88,7 @@ function ProfileDrawer({ id, onClose }: { id: string; onClose: () => void }) {
         {p.private
           ? <div className="md-notice"><strong>On your care team.</strong> Phone: {p.private.phone || 'not given'}{p.private.notes ? <><br/>{p.private.notes}</> : null}</div>
           : <p className="muted small">Contact details are shared once this caretaker is on your care team.</p>}
+        <ReputationBlock caregiverId={p.id} canReport/>
       </>}
     </aside></>;
 }

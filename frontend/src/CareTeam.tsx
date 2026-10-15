@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Check, Copy, UserPlus } from 'lucide-react';
 import { api } from './api/client.ts';
+import { RateCaretakers } from './Reputation.tsx';
 
 type PatientItem = { id: string; name: string; birth_year?: number; care_code?: string | null };
 type Member = { id: string; user_id: string; name: string; email?: string | null; role: string; role_label: string; team_role: string; is_primary_coordinator: boolean };
@@ -130,6 +131,7 @@ export function CareTeam() {
       <p className="muted">They need a CareCircle account first (Sign up → choose their role).</p>
       <button className="primary">Add to care team</button>
     </form>
+    <RateCaretakers patientId={patient.id}/>
     <section className="card"><h3>Connect the hospital</h3><p>Healthcare professionals join the care team themselves. They search with the CareCircle ID and the patient’s birth year{patient.birth_year ? ` (${patient.birth_year})` : ''}.</p>
       {patient.care_code ? <CareCodeCard name={patient.name} code={patient.care_code} patientId={patient.id}/> : <p className="muted">The CareCircle ID is shown on the Patient Profile page.</p>}
       <Link to={`/patient-profile?patient=${patient.id}`}>Open patient profile</Link></section>

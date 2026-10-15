@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api/client.ts';
+import { PatientRatePrompt } from './Reputation.tsx';
 import { formatAppTime, localInputToIso, nowLocalInput } from './lib/time.ts';
 import { canRecordLate, dayBounds, statusLabel, statusTone } from './lib/care.ts';
 import { coverLine, kindLabel, timeOnly, type CoverState } from './lib/plan.ts';
@@ -94,6 +95,7 @@ export function MyDay() {
   };
 
   return <div className="md">
+    {readOnly && <PatientRatePrompt/>}
     <div className="section-head"><div><p className="eyebrow">{readOnly ? 'TODAY' : 'MY DAY'}</p><h3>{readOnly ? 'Your day' : open ? `${open} task${open === 1 ? '' : 's'} to do today` : 'All done for today'}</h3></div></div>
     {notice && <p className="md-notice" role="status">{notice}</p>}
 

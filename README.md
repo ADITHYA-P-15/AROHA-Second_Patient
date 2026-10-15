@@ -795,3 +795,20 @@ A primary contact can open **Find caretakers** to browse caretakers grouped by s
 - Demo data: 12 fictional agencies, 60 fictional caretakers, and listings for the 12 population caretakers. Everything is marked synthetic.
 - Invite-by-email care teams are unchanged. Adding a directory caretaker to a team comes in a later phase.
 - Details: [docs/DIRECTORY.md](docs/DIRECTORY.md).
+
+## Directory phase 2 — Ratings and reputation
+
+Every directory caretaker shows a composite **reputation** from four sources, each shown and explained on their profile:
+
+- the agency's rating;
+- doctor ratings from professionals whose patients they served;
+- family reviews (the patient's own optional review counts half);
+- a **reliability record** computed from our own records over 90 days: on-time completion, missed tasks and cover offers accepted.
+
+The backend computes it with fixed, documented formulas. Small samples are pulled toward the regional average, missing sources are left out, and the profile says which sources are included. AI is not involved. It is labelled as a coordination summary, never a medical one, and it is different from the Backup Matcher's per-task **Fit for this task** score.
+
+- **Rating prompt:** a primary contact gets one **Rate &lt;caretaker&gt;** item in the Command Center (one tap per star, text optional) and one notification once a caretaker has completed 5 tasks for their patient. It returns at most once in 90 days. Patients get a quiet, optional prompt in their Today view.
+- **Where to rate:** professionals rate caretakers from their patient list. Families can also rate from Care Team.
+- **Rules:** one rating per person per caretaker per 90 days, editable for 7 days. Reviews can be reported for moderation. Daily limits apply.
+- **Flag and settings:** behind the `ratings` flag. Weights and windows live in `backend/app/core/reputation_policy.py` and can be overridden with `REPUTATION_POLICY`, which is validated at start-up. Migration `0017_reputation`.
+- **Details and exact formulas:** [docs/REPUTATION.md](docs/REPUTATION.md).

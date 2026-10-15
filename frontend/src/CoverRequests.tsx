@@ -93,7 +93,7 @@ export function CoverRequests() {
       </div>
       {(c.reasons.length > 1 || c.score_breakdown.length > 0) && <details><summary>Why</summary>
         {c.reasons.length > 1 && <ul>{c.reasons.slice(1).map(x => <li key={x}>{x}</li>)}</ul>}
-        {c.score_breakdown.length > 0 && <><p className="wb-small">Operational ranking {c.score} (not a medical measure)</p><ul>{c.score_breakdown.map(b => <li key={b.label}>{b.label}: {signedPoints(b.points)}</li>)}</ul></>}
+        {c.score_breakdown.length > 0 && <><p className="wb-small">Fit for this task {c.score} (operational, not a medical measure or the caretaker’s reputation)</p><ul>{c.score_breakdown.map(b => <li key={b.label}>{b.label}: {signedPoints(b.points)}</li>)}</ul></>}
       </details>}
       {canManage && c.eligible && <div className="wb-actions">
         <button className="wb-btn wb-primary" disabled={busy || !!r.offered} onClick={() => void act(r.id, 'offer', { caregiver_id: c.caregiver_id, auto_advance: auto }, `Asked ${c.name}.`)}>{isOffered ? `Asked ${c.name}` : `Ask ${c.name}`}</button>

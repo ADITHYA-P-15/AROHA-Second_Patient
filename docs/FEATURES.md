@@ -286,3 +286,19 @@ Cumulative record of features built one at a time on top of the phased roadmap i
 - **Schema:** migration `0016_directory` (additive, guarded).
 - **Reuse later:** the caregiver id on each listing for adding someone to a care team (Phase 3); `services.directory.search` for matching across agencies.
 - **Not yet:** adding from the directory, agency administration, listing verification.
+
+## Directory phase 2 — ratings and reputation
+
+- **Goal:** let families choose caretakers on evidence: four visible, explained sources combined deterministically, with management-by-exception prompting.
+- **Shipped:**
+  - Agency ratings (seeded data), doctor ratings, family and patient reviews (the patient's review counts half), and a reliability metric from our own records.
+  - A composite with sector-mean shrinkage and renormalised weights, plus "not enough history yet".
+  - One rating prompt per caretaker threshold (Command Center item and notification). A quiet prompt for patients.
+  - Reports for moderation, edit window, daily limits, and review-text privacy.
+  - Daily snapshots written in the scheduler heavy pass.
+  - The Backup Matcher score is relabelled **Fit for this task**.
+- **Code:** `core/reputation_policy.py`, `services/reputation.py`, `api/reputation.py`, `seed/reputation.py`, `models.AgencyRating` / `DoctorRating` / `Review` / `ReviewReport` / `ReputationSnapshot`, `alembic/versions/0017_reputation.py`, `frontend/src/Reputation.tsx`, `lib/reputation.ts`, and wiring in `FindCaretakers.tsx`, `MyDirectoryProfile.tsx`, `CareTeam.tsx`, `ProfessionalPatients.tsx`, `CommandCenter.tsx`, `MyDay.tsx`.
+- **Tests:** `backend/tests/test_reputation.py` covers formulas, shrinkage, missing sources, policy validation (including start-up), eligibility (403/409, edit window), the lower patient weight, privacy, reports and hiding, abuse limits, prompts (once, dismissed, 90-day return), snapshot idempotency and migration up/down. Frontend: `frontend/src/lib/reputation.test.ts`.
+- **Docs:** [REPUTATION.md](REPUTATION.md) and the README section "Directory phase 2".
+- **Schema:** migration `0017_reputation` (additive, guarded).
+- **Open:** task check-ins are not recorded in this repository, so the on-time check-in component is left out until they are (hook in `services/reputation.metric_counts`). There is no moderator screen; hiding is a database flag.

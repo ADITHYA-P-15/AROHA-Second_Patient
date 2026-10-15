@@ -49,6 +49,10 @@ app = FastAPI(title="CareCircle", version="0.1.0", openapi_url="/api/openapi.jso
 if settings.app_env == "prod" and settings.secret_key == "change-me-before-production":
     raise RuntimeError("SECRET_KEY must be changed before starting in production")
 Base.metadata.create_all(bind=engine)
+# A bad REPUTATION_POLICY stops start-up rather than silently changing how caretakers are ranked.
+from app.core.reputation_policy import PolicyError, policy as _reputation_policy
+try: _reputation_policy()
+except PolicyError as exc: raise RuntimeError(f"Invalid REPUTATION_POLICY: {exc}") from None
 CSRF = "second-patient"
 COOKIE = "sp_session"
 login_attempts: dict[str, deque[float]] = defaultdict(deque)
@@ -578,6 +582,8 @@ from app.api.progress_report import router as progress_report_router
 app.include_router(progress_report_router)
 from app.api.directory import router as directory_router
 app.include_router(directory_router)
+from app.api.reputation import router as reputation_router
+app.include_router(reputation_router)
 
 
 lookup_attempts: dict[str, deque[float]] = defaultdict(deque)
@@ -776,6 +782,9 @@ def seed(db=None):
     from app.seed import directory as directory_seed
     directory_seed.ensure(db)
     db.commit()
+    from app.seed import reputation as reputation_seed
+    reputation_seed.ensure(db)
+    db.commit()
     if own: db.close()
 
 
@@ -843,6 +852,8 @@ def _tick_as_leader():
             run_cover_tick(db, now())
             run_auto_coordination(db, now())
             if settings.feature("reminders"): run_reminders(db, now())
+            from app.services.reputation import run_reputation_tick
+            run_reputation_tick(db, now())  # one rating prompt per caretaker threshold; one reputation snapshot per caretaker per day
             db.commit()  # commit cover/command-center work before the planner so it can never be rolled back by it
             run_planner_tick(db, now())
             db.commit()

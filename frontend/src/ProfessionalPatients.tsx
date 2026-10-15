@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api, ApiError } from './api/client.ts';
 import { bandOf, pctText, type Insights } from './lib/insights.ts';
+import { RateCaretakers, useFeature } from './Reputation.tsx';
 
 type PatientItem = { id: string; name: string; birth_year?: number; care_code?: string | null };
 type Found = { id: string; name: string; birth_year: number; care_code: string; already_on_team: boolean };
@@ -24,6 +25,8 @@ export function ProfessionalPatients() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [rating, setRating] = useState<string | null>(null);
+  const ratingsOn = useFeature('ratings');
   const payload = () => JSON.stringify({ care_code: code.trim().toUpperCase(), birth_year: Number(year) });
   async function lookup(e: FormEvent) {
     e.preventDefault(); setError(''); setNotice(''); setFound(null); setBusy(true);
@@ -45,7 +48,7 @@ export function ProfessionalPatients() {
   return <div className="ct">
     <section className="card"><p className="eyebrow">MY PATIENTS</p><h2>Patients on your list</h2>
       {all.length > 6 && <div className="pp-search"><input type="search" aria-label="Search your patients" placeholder="Search name or CareCircle ID" value={filter} onChange={e => setFilter(e.target.value)}/><Link className="cp-btn" to="/insights">Insights</Link></div>}
-      {patients.isLoading ? <div className="skeleton"/> : items.length ? <ul className="team-list">{items.map(p => { const st = stats.get(p.id); const band = st ? bandOf(st) : null; return <li key={p.id}><span><strong>{p.name}</strong><small>{p.birth_year ? `Born ${p.birth_year}` : ''}{p.care_code ? ` · ${p.care_code}` : ''}</small>{st && st.decided > 0 && <span className="pp-tags"><span className={`pp-tag ${band === 'follow_up' ? 'bad' : band === 'watch' ? 'watch' : 'ok'}`}>{pctText(st.taken_pct)} of doses given</span>{st.needs_follow_up && <span className="pp-tag bad">Follow-up suggested</span>}{st.next_appointment && <span className="pp-tag">Next: {st.next_appointment.title}</span>}</span>}</span><span className="pp-links"><Link className="cp-btn" to={`/medicines?patient=${p.id}`}>Medicines</Link><Link className="cp-btn" to={`/care-plan?patient=${p.id}`}>Care plan</Link></span></li>; })}</ul> : filter.trim() ? <p className="muted">No patients match “{filter.trim()}”.</p> : <p className="muted">No patients yet. Find a patient below with their CareCircle ID and birth year.</p>}
+      {patients.isLoading ? <div className="skeleton"/> : items.length ? <ul className="team-list">{items.map(p => { const st = stats.get(p.id); const band = st ? bandOf(st) : null; return <li key={p.id}><span><strong>{p.name}</strong><small>{p.birth_year ? `Born ${p.birth_year}` : ''}{p.care_code ? ` · ${p.care_code}` : ''}</small>{st && st.decided > 0 && <span className="pp-tags"><span className={`pp-tag ${band === 'follow_up' ? 'bad' : band === 'watch' ? 'watch' : 'ok'}`}>{pctText(st.taken_pct)} of doses given</span>{st.needs_follow_up && <span className="pp-tag bad">Follow-up suggested</span>}{st.next_appointment && <span className="pp-tag">Next: {st.next_appointment.title}</span>}</span>}</span><span className="pp-links"><Link className="cp-btn" to={`/medicines?patient=${p.id}`}>Medicines</Link><Link className="cp-btn" to={`/care-plan?patient=${p.id}`}>Care plan</Link>{ratingsOn && <button className="cp-btn" aria-expanded={rating === p.id} onClick={() => setRating(rating === p.id ? null : p.id)}>Rate caretakers</button>}</span>{rating === p.id && <RateCaretakers patientId={p.id} title={`Rate ${p.name}'s caretakers`}/>}</li>; })}</ul> : filter.trim() ? <p className="muted">No patients match “{filter.trim()}”.</p> : <p className="muted">No patients yet. Find a patient below with their CareCircle ID and birth year.</p>}
     </section>
     <form className="card" onSubmit={e => void lookup(e)}>
       <p className="eyebrow">FIND A PATIENT</p><h3>Find a patient</h3>

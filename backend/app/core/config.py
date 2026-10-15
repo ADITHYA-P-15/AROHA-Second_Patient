@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     demo_mode: bool = True
     seed_demo: bool = True
     # Staged rollout: a feature that is not listed here is off. New features ship dark and are switched on per environment ("*" = all).
-    features: str = "voice_notes,insights,reminders,progress_report,directory"
+    features: str = "voice_notes,insights,reminders,progress_report,directory,ratings"
     # Set to false on web-only instances. The scheduler also takes a database lock, so a second instance never double-runs it.
     run_scheduler: bool = True
     # Background cadence. Small hosts (shared CPU, remote database) do better with longer gaps; reminders are minutes-grained anyway.
@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     ai_text_timeout_seconds: float = 8.0   # urgency suggestion: never hold up a patient's request for long
     voice_max_bytes: int = 3_000_000
     git_sha: str = "dev"
+    # JSON merged over core/reputation_policy.DEFAULT_POLICY (weights, windows, limits); validated at start-up.
+    reputation_policy: str = ""
 
 
     @field_validator("database_url")

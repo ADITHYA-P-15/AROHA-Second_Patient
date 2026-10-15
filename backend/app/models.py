@@ -558,3 +558,75 @@ class CaretakerProfile(Base):
     is_synthetic: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class AgencyRating(Base):
+    """The agency's own 1-5 rating of a caretaker. Seeded data, not a feed: there is no agency login or import."""
+    __tablename__ = "agency_ratings"
+    __table_args__ = (CheckConstraint("rating >= 1 AND rating <= 5", name="ck_agency_rating_range"),)
+    id: Mapped[uuid.UUID] = uuid_pk()
+    caregiver_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("caregivers.id", ondelete="CASCADE"), unique=True)
+    agency_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("agencies.id", ondelete="SET NULL"), nullable=True)
+    rating: Mapped[float] = mapped_column(Float)
+    is_synthetic: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class DoctorRating(Base):
+    """A healthcare professional's 1-5 rating of a caretaker who served one of their patients."""
+    __tablename__ = "doctor_ratings"
+    __table_args__ = (CheckConstraint("rating >= 1 AND rating <= 5", name="ck_doctor_rating_range"), CheckConstraint("length(note) <= 300", name="ck_doctor_rating_note"),
+                      Index("ix_doctor_rating_author_caregiver", "author_user_id", "caregiver_id", "created_at"))
+    id: Mapped[uuid.UUID] = uuid_pk()
+    caregiver_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("caregivers.id", ondelete="CASCADE"), index=True)
+    author_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    patient_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("patients.id", ondelete="SET NULL"), nullable=True)
+    rating: Mapped[int] = mapped_column(Integer)
+    note: Mapped[str] = mapped_column(String(300), default="")
+    is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, index=True)
+    updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class Review(Base):
+    """A customer review: by a primary contact (the main input) or, optionally, the patient (weighted lower)."""
+    __tablename__ = "reviews"
+    __table_args__ = (CheckConstraint("rating >= 1 AND rating <= 5", name="ck_review_rating_range"), CheckConstraint("length(text) <= 500", name="ck_review_text"),
+                      CheckConstraint("author_role IN ('PRIMARY_CONTACT','PATIENT')", name="ck_review_author_role"),
+                      Index("ix_review_author_caregiver", "author_user_id", "caregiver_id", "created_at"))
+    id: Mapped[uuid.UUID] = uuid_pk()
+    caregiver_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("caregivers.id", ondelete="CASCADE"), index=True)
+    author_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    author_role: Mapped[str] = mapped_column(String(16))
+    patient_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("patients.id", ondelete="SET NULL"), nullable=True)
+    rating: Mapped[int] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(String(500), default="")
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False)  # set by moderators only (seed/database level); hidden reviews never count
+    is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, index=True)
+    updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
+class ReviewReport(Base):
+    """Someone asked moderators to look at a review. Reporting never hides or deletes it by itself."""
+    __tablename__ = "review_reports"
+    __table_args__ = (UniqueConstraint("review_id", "reporter_user_id", name="uq_review_report_once"), CheckConstraint("status IN ('OPEN','CLOSED')", name="ck_review_report_status"))
+    id: Mapped[uuid.UUID] = uuid_pk()
+    review_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("reviews.id", ondelete="CASCADE"), index=True)
+    reporter_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    reason: Mapped[str] = mapped_column(String(300), default="")
+    status: Mapped[str] = mapped_column(String(8), default="OPEN")
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class ReputationSnapshot(Base):
+    """One caretaker's reputation as computed on one day: the metric components, each source and the composite."""
+    __tablename__ = "reputation_snapshots"
+    __table_args__ = (UniqueConstraint("caregiver_id", "day", name="uq_reputation_snapshot_day"),)
+    id: Mapped[uuid.UUID] = uuid_pk()
+    caregiver_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("caregivers.id", ondelete="CASCADE"), index=True)
+    day: Mapped[object] = mapped_column(Date, index=True)
+    metric_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    composite: Mapped[float | None] = mapped_column(Float, nullable=True)
+    breakdown: Mapped[dict] = mapped_column(JSON, default=dict)
+    computed_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)

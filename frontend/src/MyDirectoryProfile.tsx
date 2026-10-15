@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api/client.ts';
 import { supportLabel } from './lib/plan.ts';
+import { ReputationBlock } from './Reputation.tsx';
 import { GENDERS, splitLanguages, type MyDirectoryProfile as Profile, type Sector } from './lib/directory.ts';
 
 const BIO_MAX = 500;
@@ -50,5 +51,6 @@ export function MyDirectoryProfile() {
       <p className="muted small">Can help with: {p.capabilities.length ? p.capabilities.map(supportLabel).join(', ') : 'not set yet'}. Change skills and hours in My Availability.</p>
       <button className="primary" disabled={saving}>{saving ? 'Saving…' : 'Save profile'}</button>
     </form>
+    {p.id && <section className="card"><h3>My reputation</h3><p className="muted small">Families and professionals see this on your profile. You see review text and stars, never who wrote them.</p><ReputationBlock caregiverId={p.id} canReport/></section>}
   </div>;
 }

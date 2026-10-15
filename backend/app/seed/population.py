@@ -23,6 +23,8 @@ def build_in_background() -> None:
         # The directory lists the population caretakers once they exist (idempotent).
         from app.seed.directory import attach_population
         if attach_population(db): db.commit()
+        from app.seed import reputation as reputation_seed
+        if reputation_seed.ensure(db): db.commit()
     except Exception:
         db.rollback()
         log.exception("demo population failed; the core demo story is unaffected")

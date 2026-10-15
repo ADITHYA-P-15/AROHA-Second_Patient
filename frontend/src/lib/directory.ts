@@ -1,10 +1,12 @@
 import { supportLabel } from './plan.ts';
+import type { ReputationSummary } from './reputation.ts';
 
 export type Sector = { id: string; code: 'NORTH' | 'SOUTH' | 'EAST' | 'WEST'; name: string; states: string[] };
 export type Agency = { id: string; name: string; city: string; sector: string; is_synthetic: boolean };
 export type CaretakerCard = {
   id: string; name: string; gender: string; gender_label: string; origin_state: string; origin_city: string; current_state: string; current_city: string;
   sector: string | null; agency: { id: string; name: string } | null; languages: string[]; capabilities: string[]; years_experience: number; is_synthetic: boolean;
+  reputation?: ReputationSummary;
 };
 export type CaretakerDetail = CaretakerCard & {
   bio: string; max_activities_per_day: number; max_hours_per_week: number; on_my_team: boolean;

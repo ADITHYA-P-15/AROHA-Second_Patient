@@ -103,6 +103,10 @@ def main():
         status,_,_=c2.request('GET','/api/v1/directory/caretakers?limit=51'); check('directory page size bounded',status==422)
         status,_,_=ct.request('GET','/api/v1/directory/caretakers'); check('caretaker cannot browse directory',status==403)
         status,mine,_=ct.request('PATCH','/api/v1/directory/me',{'bio':'Fictional smoke-test caretaker.','listed':False}); check('caretaker edits own directory profile',status==200 and mine.get('bio')=='Fictional smoke-test caretaker.')
+    if 'ratings' in (m.get('features') or []) and 'directory' in (m.get('features') or []):
+        status,page,_=c2.request('GET','/api/v1/directory/caretakers?limit=1'); first=(page.get('items') or [{}])[0] if isinstance(page,dict) else {}
+        status,r,_=c2.request('GET',f"/api/v1/caretakers/{first.get('id')}/reputation"); check('reputation breakdown readable',status==200 and set((r or {}).get('sources',{}))=={'metric','doctors','customers','agency'})
+        status,_,_=c2.request('POST',f"/api/v1/caretakers/{first.get('id')}/reviews",{'rating':5}); check('review needs a care relationship',status==403)
     for name,ok in checks: print(f"{'PASS' if ok else 'FAIL'}  {name}")
     print(f"\n{sum(ok for _,ok in checks)}/{len(checks)} checks passed"); return 0 if all(ok for _,ok in checks) else 1
 if __name__=='__main__': raise SystemExit(main())
