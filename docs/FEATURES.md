@@ -156,3 +156,31 @@ Cumulative record of features built one at a time on top of the phased roadmap i
   - SMS on a miss through `_on_missed`.
   - Verifying professionals.
   - Per-patient switch for automatic coordination.
+
+## Stabilisation (after the pivot)
+
+- **Why:** the demo data had drifted. Evening doses had no caretaker, so cover offers, alerts and "needs now" items fired constantly, and the screens showed raw states. The app felt random.
+- **Demo story:** `services/demo.py` builds one coherent, clock-relative scenario. **Reset demo data** and `POST /api/v1/demo/reset` rebuild it (demo accounts only). It is rebuilt automatically once per scenario version.
+- **Screens:**
+  - New `CarePlan.tsx`, grouped by day, with a one-line "who is doing it" and only the relevant actions.
+  - My Day across all of a caretaker's patients.
+  - Help Requests rewritten.
+  - Grouped navigation.
+  - The patient choice persists between pages.
+  - Human labels for hours and skills.
+- **Quieter attention:** no "no backup" items. Confirmed doses and appointments are not flagged until they are late or missed. "On track" counts covered tasks.
+- **Routing:** "I missed my medicine" goes to the caretaker (L1); twice goes to L4. Request titles are in words.
+- **Code:**
+  - `services/demo.py`
+  - `seed/phase2.py` (now a thin wrapper)
+  - `engine/attention.py`
+  - `api/domain.py` (`cover` on activities)
+  - `api/command_center.py`
+  - `frontend/src/CarePlan.tsx`, `MyDay.tsx`, `PatientPick.tsx`, `lib/plan.ts`
+- **Tests:**
+  - `test_demo.py`
+  - The updated attention test (quiet when on track)
+  - The missed-medicine routing test
+  - `lib/plan.test.ts`
+- **Walkthrough:** [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
+

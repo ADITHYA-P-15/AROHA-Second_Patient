@@ -19,6 +19,7 @@ RULES = [
     {"id":"medication_side_effect", "level":4,"category":"MEDICATION","languages":["en"],"patterns":["rash after tablet","vomiting after tablet","dizzy after tablet","side effect"]},
     {"id":"health_concern", "level":3,"category":"HEALTH_CONCERN","languages":["en","hi","kn","te"],"patterns":["pain","dizzy","dizziness","vomiting","fever","cough","swelling","wound","poor sleep","not feeling well","uncomfortable","very tired","चक्कर","बुखार","ನೋವು","ತಲೆ ಸುತ್ತು","జ్వరం","నొప్పి"]},
     {"id":"logistics", "level":2,"category":"LOGISTICS","languages":["en"],"patterns":["nobody came","caretaker didn't come","need transport","no one to take me","medicines finished","medicine ran out","missed my appointment","can't reach anyone"]},
+    {"id":"medication_missed_once", "level":1,"category":"MEDICATION","languages":["en"],"patterns":["missed my medicine","missed my medication","missed my tablet","forgot my medicine","forgot my tablet","didn't get my medicine","did not get my medicine"]},
     {"id":"daily_help", "level":1,"category":"DAILY_HELP","languages":["en","hi"],"patterns":["need water","need food","help me stand","help me walk","help me to the bathroom","help me bathe","help with tv","help with phone","i need something","पानी चाहिए","paani chahiye"]},
     {"id":"positive_update", "level":0,"category":"INFO","languages":["en"],"patterns":["took my medicine","ate lunch","slept well","feeling better","thank you"]},
 ]

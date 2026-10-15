@@ -39,7 +39,7 @@ export function ProfessionalPatients() {
   const thisYear = new Date().getFullYear();
   return <div className="ct">
     <section className="card"><p className="eyebrow">MY PATIENTS</p><h2>Patients on your list</h2>
-      {patients.isLoading ? <div className="skeleton"/> : items.length ? <ul className="team-list">{items.map(p => <li key={p.id}><span><strong>{p.name}</strong><small>{p.birth_year ? `Born ${p.birth_year}` : ''}{p.care_code ? ` · ${p.care_code}` : ''}</small></span><Link to={`/care-plan?patient=${p.id}`}>Care plan</Link></li>)}</ul> : <p className="muted">No patients yet. Find a patient below with their CareCircle ID and birth year.</p>}
+      {patients.isLoading ? <div className="skeleton"/> : items.length ? <ul className="team-list">{items.map(p => <li key={p.id}><span><strong>{p.name}</strong><small>{p.birth_year ? `Born ${p.birth_year}` : ''}{p.care_code ? ` · ${p.care_code}` : ''}</small></span><span className="pp-links"><Link className="cp-btn" to={`/medicines?patient=${p.id}`}>Medicines</Link><Link className="cp-btn" to={`/care-plan?patient=${p.id}`}>Care plan</Link></span></li>)}</ul> : <p className="muted">No patients yet. Find a patient below with their CareCircle ID and birth year.</p>}
     </section>
     <form className="card" onSubmit={e => void lookup(e)}>
       <p className="eyebrow">FIND A PATIENT</p><h3>Find a patient</h3>

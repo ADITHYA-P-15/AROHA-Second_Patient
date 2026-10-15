@@ -15,7 +15,7 @@ from app.core.db import get_db
 from app.core.permissions import require_patient_access
 from app.engine.availability import Window, effective_windows, is_available_for
 from app.engine.workload import buffered_window, overlaps_for, workload
-from app.models import (ActivityDependency, ActivityHistory, AvailabilityOverride, CareActivity, CareAssignment, Caregiver, CaregiverPatientLink, CaregiverWeeklySchedule, CareTeamMember, Patient, PatientSupportNeed, Role, TeamRole, User, Incident, IncidentEvent)
+from app.models import (ActivityDependency, ActivityHistory, AvailabilityOverride, CareActivity, CareAssignment, Caregiver, CaregiverPatientLink, CaregiverWeeklySchedule, CareTeamMember, Patient, PatientSupportNeed, Role, TeamRole, User, Incident, IncidentEvent, CoverRequest)
 from app.services import care_status as care_status_service
 from app.services.reassess import TriggerEvent, reassess
 
@@ -266,7 +266,14 @@ def _activity_dict(db, user, a):
         caregiver = db.get(Caregiver, item.caregiver_id)
         if user.role == Role.CARETAKER and caregiver.user_id != user.id: continue
         assignment_rows.append({"id": item.id, "caregiver_id": item.caregiver_id, "caregiver_name": caregiver.name, "role": item.role, "status": item.status, "confirmed_at": item.confirmed_at, "is_mine": caregiver.user_id == user.id})
-    return {"id": a.id, "patient_id": a.patient_id, "series_id": a.series_id, "title": a.title, "description": a.description, "category": a.category, "scheduled_start": to_utc(_as_aware(a.scheduled_start)), "scheduled_end": to_utc(_as_aware(a.scheduled_end)), "deadline": to_utc(_as_aware(a.deadline)) if a.deadline else None, "importance": a.importance, "requires_caregiver": a.requires_caregiver, "required_support": a.required_support, "buffer_before_min": a.buffer_before_min, "buffer_after_min": a.buffer_after_min, "location_note": a.location_note, "lifecycle_status": a.lifecycle_status, "care_status": care_status_service.care_status(a), "due_by": to_utc(care_status_service.due_by(a)), "source": a.source, "source_id": a.source_id, "completed_at": to_utc(_as_aware(a.completed_at)) if a.completed_at else None, "completed_late": a.completed_late, "missed_at": to_utc(_as_aware(a.missed_at)) if a.missed_at else None, "coverage_status": a.coverage_status, "is_synthetic": a.is_synthetic, "assignments": assignment_rows, "preliminary_support_status": "Support confirmed" if primary_confirmed else "Not confirmed", "preliminary_label": "Preliminary — full coverage analysis arrives with the care-gap engine", "my_permissions": permissions}
+    # An open cover search, so screens can say a replacement is being asked. Caretakers do not see who else is asked.
+    cover = None
+    req = db.scalar(select(CoverRequest).where(CoverRequest.activity_id == a.id, CoverRequest.status.in_(("OPEN", "OFFERED"))))
+    if req:
+        offered = db.get(Caregiver, req.offered_caregiver_id) if req.offered_caregiver_id else None
+        offered_to_me = bool(offered and offered.user_id == user.id)
+        cover = {"status": req.status, "offered_to": offered.name if offered and (user.role != Role.CARETAKER or offered_to_me) else None, "offered_to_me": offered_to_me}
+    return {"cover": cover, "id": a.id, "patient_id": a.patient_id, "series_id": a.series_id, "title": a.title, "description": a.description, "category": a.category, "scheduled_start": to_utc(_as_aware(a.scheduled_start)), "scheduled_end": to_utc(_as_aware(a.scheduled_end)), "deadline": to_utc(_as_aware(a.deadline)) if a.deadline else None, "importance": a.importance, "requires_caregiver": a.requires_caregiver, "required_support": a.required_support, "buffer_before_min": a.buffer_before_min, "buffer_after_min": a.buffer_after_min, "location_note": a.location_note, "lifecycle_status": a.lifecycle_status, "care_status": care_status_service.care_status(a), "due_by": to_utc(care_status_service.due_by(a)), "source": a.source, "source_id": a.source_id, "completed_at": to_utc(_as_aware(a.completed_at)) if a.completed_at else None, "completed_late": a.completed_late, "missed_at": to_utc(_as_aware(a.missed_at)) if a.missed_at else None, "coverage_status": a.coverage_status, "is_synthetic": a.is_synthetic, "assignments": assignment_rows, "preliminary_support_status": "Support confirmed" if primary_confirmed else "Not confirmed", "my_permissions": permissions}
 
 
 def _history(db, user, request, pid, event, entity, entity_id, summary, payload=None):

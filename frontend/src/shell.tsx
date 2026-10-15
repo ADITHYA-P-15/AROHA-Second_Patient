@@ -1,7 +1,7 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
-import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { FormEvent, Fragment, useEffect, useRef, useState } from 'react';
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bell, CalendarClock, CalendarDays, HandHelping, HeartHandshake, History, LifeBuoy, ListChecks, LogOut, Menu, Network, Pill, Scale, Siren, Stethoscope, Sun, UserRound, Users, X, type LucideIcon } from 'lucide-react';
+import { Bell, CalendarClock, CalendarDays, HandHelping, HeartHandshake, History, LifeBuoy, ListChecks, LogOut, Menu, Network, RotateCcw, Pill, Scale, Siren, Stethoscope, Sun, UserRound, Users, X, type LucideIcon } from 'lucide-react';
 import { CommandCenter } from './CommandCenter.tsx';
 import { WorkloadBalancer } from './WorkloadBalancer.tsx';
 import { CoverRequests } from './CoverRequests.tsx';
@@ -10,7 +10,9 @@ import { CareTeam, CareCodeCard } from './CareTeam.tsx';
 import { ProfessionalPatients } from './ProfessionalPatients.tsx';
 import { MedicinesAppointments } from './MedicinesAppointments.tsx';
 import { MyDay } from './MyDay.tsx';
-import { sourceLabel, statusLabel, statusTone } from './lib/care.ts';
+import { CarePlan } from './CarePlan.tsx';
+import { usePatientPick } from './PatientPick.tsx';
+import { scheduleSummary, supportLabel, type WeeklyWindow } from './lib/plan.ts';
 import { api } from './api/client.ts';
 import { formatAppTime, localInputToIso, nowLocalInput } from './lib/time.ts';
 import { newId } from './lib/id.ts';
@@ -24,20 +26,20 @@ const signUpRoles: { role: string; blurb: string }[] = [
   { role: 'CARETAKER', blurb: 'carries out medication doses and appointments' },
   { role: 'PROFESSIONAL', blurb: 'hospital staff who prescribe and schedule' },
 ];
-type NavItem = { title: string; path: string; icon: LucideIcon };
-// Only screens that work today are listed; later-phase screens join the menu when they ship.
+type NavItem = { title: string; path: string; icon: LucideIcon; group?: string };
+// Grouped so each role sees its daily screens first; only screens that work today are listed.
 const roleNav: Record<string, NavItem[]> = {
   PRIMARY_CONTACT: [
-    { title: 'Command Center', path: '/command-center', icon: ListChecks },
+    { title: 'Command Center', path: '/command-center', icon: ListChecks, group: 'Today' },
     { title: 'Care Plan', path: '/care-plan', icon: CalendarDays },
     { title: 'Medicines & Appointments', path: '/medicines', icon: Pill },
-    { title: 'Cover Requests', path: '/cover', icon: LifeBuoy },
+    { title: 'Cover Requests', path: '/cover', icon: LifeBuoy, group: 'Planning' },
     { title: 'Coverage Forecast', path: '/forecast', icon: CalendarClock },
     { title: 'Workload Balancer', path: '/workload', icon: Scale },
-    { title: 'Care Team', path: '/care-team', icon: Network },
+    { title: 'Care Team', path: '/care-team', icon: Network, group: 'People' },
     { title: 'Caretakers', path: '/care-network', icon: Users },
     { title: 'Patient Profile', path: '/patient-profile', icon: UserRound },
-    { title: 'Incident Center', path: '/incidents', icon: Siren },
+    { title: 'Help Requests', path: '/incidents', icon: Siren, group: 'Records' },
     { title: 'History', path: '/history', icon: History },
   ],
   CARETAKER: [
@@ -45,20 +47,19 @@ const roleNav: Record<string, NavItem[]> = {
     { title: 'Cover Requests', path: '/cover', icon: LifeBuoy },
     { title: 'Care Plan', path: '/care-plan', icon: CalendarDays },
     { title: 'My Availability', path: '/care-network', icon: Users },
-    { title: 'Incident Center', path: '/incidents', icon: Siren },
+    { title: 'Help Requests', path: '/incidents', icon: Siren },
   ],
   PROFESSIONAL: [
     { title: 'Patients', path: '/patients', icon: Stethoscope },
     { title: 'Medicines & Appointments', path: '/medicines', icon: Pill },
     { title: 'Care Plan', path: '/care-plan', icon: CalendarDays },
-    { title: 'Incident Center', path: '/incidents', icon: Siren },
+    { title: 'Help Requests', path: '/incidents', icon: Siren },
     { title: 'History', path: '/history', icon: History },
   ],
   PATIENT: [
     { title: 'Today', path: '/my-day', icon: Sun },
     { title: 'Request Help', path: '/request-help', icon: HandHelping },
     { title: 'Care Plan', path: '/care-plan', icon: CalendarDays },
-    { title: 'Incident Center', path: '/incidents', icon: Siren },
   ],
 };
 const homeFor = (role: string) => (roleNav[role] ?? roleNav.PRIMARY_CONTACT)[0].path;
@@ -94,6 +95,14 @@ function Workspace({ user, meta }: { user: User; meta?: { phase: number; version
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
   }, [menuOpen]);
+  const [resetting, setResetting] = useState(false);
+  const resetDemo = async () => {
+    if (!window.confirm('Reset the demo? Every demo patient goes back to the starting story (doses, appointments, caretakers). Your demo logins stay the same.')) return;
+    setResetting(true);
+    try { await api('/api/v1/demo/reset', { method: 'POST' }); try { sessionStorage.clear(); } catch { /* ignore */ } await queryClient.invalidateQueries(); navigate(homeFor(user.role)); }
+    catch (err) { window.alert(err instanceof Error ? err.message : 'Could not reset the demo.'); }
+    finally { setResetting(false); }
+  };
   const logout = async () => { try { await api('/api/v1/auth/logout', { method: 'POST' }); } finally { queryClient.clear(); navigate('/', { replace: true }); } };
   const menu = roleNav[user.role] ?? roleNav.PRIMARY_CONTACT;
   const roleLabel = user.role_label ?? roleLabels[user.role] ?? user.role;
@@ -121,7 +130,8 @@ function Workspace({ user, meta }: { user: User; meta?: { phase: number; version
     <aside className="sidebar" data-open={menuOpen} aria-label="Main menu">
       <div className="sidebar-top"><div className="brand"><span className="brand-icon"><HeartHandshake/></span><span>CareCircle</span></div><button className="icon-button menu-close" aria-label="Close menu" onClick={() => setMenuOpen(false)}><X size={20}/></button></div>
       {meta?.demo_mode && <div className="demo-tag">DEMO · SYNTHETIC DATA</div>}
-      <nav className="side-nav">{menu.map(({ title, path, icon: Icon }) => <NavLink key={path} to={path} end className={({ isActive }) => isActive ? 'active' : undefined}><Icon size={18} aria-hidden="true"/>{title}</NavLink>)}</nav>
+      <nav className="side-nav">{menu.map(({ title, path, icon: Icon, group }) => <Fragment key={path}>{group && <p className="nav-group">{group}</p>}<NavLink to={path} end className={({ isActive }) => isActive ? 'active' : undefined}><Icon size={18} aria-hidden="true"/>{title}</NavLink></Fragment>)}</nav>
+      {meta?.demo_mode && user.email.endsWith('@secondpatient.demo') && <button className="reset-demo" disabled={resetting} onClick={() => void resetDemo()}><RotateCcw size={15} aria-hidden="true"/>{resetting ? 'Resetting…' : 'Reset demo data'}</button>}
       <div className="side-bottom"><span className="avatar">{user.name[0]}</span><div className="identity"><strong>{user.name}</strong><small>{roleLabel}</small></div><button className="icon-button" aria-label="Log out" title="Log out" onClick={() => void logout()}><LogOut size={18}/></button></div>
     </aside>
     {menuOpen && <div className="scrim" aria-hidden="true" onClick={() => setMenuOpen(false)}/>}
@@ -146,14 +156,35 @@ function NotificationBell(){
   async function choose(item:{id:string;incident_id?:string|null}){await api(`/api/v1/notifications/${item.id}/read`,{method:'POST'});await client.invalidateQueries({queryKey:['notifications']});setOpen(false);if(item.incident_id)navigate('/incidents');}
   return <div className="notification-menu"><button className="icon-button" aria-label={`Notifications, ${query.data?.unread_count ?? 0} unread`} aria-expanded={open} onClick={()=>setOpen(!open)}><Bell/>{Boolean(query.data?.unread_count)&&<span>{query.data?.unread_count}</span>}</button>{open&&<section className="card" aria-label="Notifications"><h3>Notifications</h3>{query.data?.items.length?query.data.items.slice(0,8).map(item=><button key={item.id} onClick={()=>void choose(item).catch(()=>undefined)}><strong>{item.title}</strong><small>{item.body}</small></button>):<p>No notifications.</p>}</section>}</div>;
 }
-type IncidentRow = { id:string; patient_id:string; current_level:number; category:string; severity:string; status:string; title:string; safe_summary:string; current_deadline_at?:string|null; deadline_kind?:string|null; emergency_unacknowledged?:boolean; acknowledged_at?:string|null; resolved_at?:string|null };
-const levelNames = ['L0 · Information','L1 · Daily help','L2 · Coordination decision','L3 · Healthcare review','L4 · Doctor review','L5 · Emergency report'];
+type IncidentRow = { id:string; patient_id:string; current_level:number; category:string; severity:string; status:string; title:string; safe_summary:string; created_at?:string; current_deadline_at?:string|null; deadline_kind?:string|null; emergency_unacknowledged?:boolean; acknowledged_at?:string|null; resolved_at?:string|null };
+// Routing levels describe who is asked to respond, not a medical judgement.
+const levelNames = ['For information','Caretakers asked','Family asked','Healthcare team asked','Doctor asked','Emergency'];
+const incidentStatus = (s:string) => s==='OPEN'?'Waiting for someone':s==='ACKNOWLEDGED'?'Being handled':s==='RESOLVED'?'Handled':s==='CANCELLED'?'Cancelled':s.toLowerCase();
 function IncidentCenter() {
-  const client=useQueryClient();
+  const client=useQueryClient(); const [notice,setNotice]=useState(''); const [showClosed,setShowClosed]=useState(false);
   const incidents=useQuery({queryKey:['incidents'],queryFn:()=>api<{items:IncidentRow[]}>('/api/v1/incidents'),refetchInterval:5000});
-  async function acknowledge(id:string){await api(`/api/v1/incidents/${id}/acknowledge`,{method:'POST'});await client.invalidateQueries({queryKey:['incidents']});}
-  const emergency=incidents.data?.items.find(item=>item.emergency_unacknowledged&&item.status!=='RESOLVED'&&item.status!=='CANCELLED');
-  return <section className="card"><div className="card-head"><div><p className="eyebrow">CARE COORDINATION</p><h2>Incident Center</h2></div><button onClick={()=>void incidents.refetch()}>Refresh</button></div><p className="muted">Routing levels describe coordination routes. They are not medical diagnoses.</p>{emergency&&<section className="card" role="alert" aria-live="assertive"><h2>UNACKNOWLEDGED EMERGENCY</h2><p>{emergency.safe_summary}</p><p>No one has acknowledged yet — call 108/112 now if there is immediate danger.</p><a href="tel:108">Call 108</a> · <a href="tel:112">Call 112</a></section>}{incidents.isLoading?<div className="skeleton"/>:incidents.data?.items.length?<ul className="history-list">{incidents.data.items.map(item=><li key={item.id}><i className="timeline-dot"/><span><strong>{levelNames[item.current_level] ?? `L${item.current_level}`}</strong> · {item.title}<small>{item.safe_summary} · {item.status.toLowerCase()}{item.current_deadline_at&&item.status==='OPEN'?` · next review ${new Date(item.current_deadline_at).toLocaleTimeString()}`:''}</small>{item.status==='OPEN'&&<button onClick={()=>void acknowledge(item.id).catch(()=>undefined)}>I've got this</button>}</span></li>)}</ul>:<p>No incidents are visible to your role.</p>}</section>;
+  async function act(item:IncidentRow,verb:'acknowledge'|'resolve'){
+    let body:Record<string,string>={};
+    if(verb==='resolve'){const note=item.current_level===5?window.prompt('What happened? (required for an emergency)',''):'';if(note===null||(item.current_level===5&&!note.trim()))return;body={code:'HANDLED',note:note.trim()};}
+    try{await api(`/api/v1/incidents/${item.id}/${verb}`,{method:'POST',body:JSON.stringify(body)});setNotice(verb==='acknowledge'?'Thanks — the others can see you are handling it.':'Marked as handled. The patient has been told.');}
+    catch(err){setNotice(err instanceof Error?err.message:'Could not update this request.');}
+    await client.invalidateQueries({queryKey:['incidents']});await client.invalidateQueries({queryKey:['notifications']});
+  }
+  const items=incidents.data?.items??[];
+  const open=items.filter(i=>i.status==='OPEN'||i.status==='ACKNOWLEDGED');const closed=items.filter(i=>!open.includes(i));
+  const emergency=open.find(item=>item.emergency_unacknowledged);
+  const row=(item:IncidentRow)=><li key={item.id} className={`hr-item hr-l${item.current_level}`}>
+    <div className="cp-title"><strong>{item.title}</strong><span className="chip">{levelNames[item.current_level]??`Level ${item.current_level}`}</span><span className={`md-status ${item.status==='OPEN'?'md-st-bad':item.status==='ACKNOWLEDGED'?'md-st-pending':'md-st-muted'}`}>{incidentStatus(item.status)}</span></div>
+    <p className="cp-detail">{item.safe_summary}{item.status==='OPEN'&&item.current_deadline_at?` · goes to the next person at ${formatAppTime(item.current_deadline_at,{dateStyle:undefined,timeStyle:'short'})}`:''}</p>
+    {(item.status==='OPEN'||item.status==='ACKNOWLEDGED')&&<div className="cp-actions">{item.status==='OPEN'&&<button className="cp-btn cp-primary" onClick={()=>void act(item,'acknowledge')}>I’ve got this</button>}{item.status==='ACKNOWLEDGED'&&<button className="cp-btn cp-primary" onClick={()=>void act(item,'resolve')}>Mark handled</button>}</div>}
+  </li>;
+  return <div className="cp"><div className="section-head"><div><p className="eyebrow">HELP REQUESTS</p><h3>{open.length?`${open.length} open request${open.length===1?'':'s'}`:'No open requests'}</h3></div><button className="cp-filter" onClick={()=>setShowClosed(!showClosed)}>{showClosed?'Hide handled':'Show handled'}</button></div>
+    <p className="muted small">Messages and SOS from the patient, and alerts the care team needs to answer. Levels say who is asked to respond; they are not a medical diagnosis.</p>
+    {notice&&<p className="md-notice" role="status">{notice}</p>}
+    {emergency&&<section className="card hr-emergency" role="alert" aria-live="assertive"><h3>Emergency — nobody has responded yet</h3><p>{emergency.safe_summary}</p><p>If there is immediate danger, call now: <a href="tel:108">108</a> · <a href="tel:112">112</a></p></section>}
+    {incidents.isLoading?<div className="skeleton"/>:open.length?<ul className="hr-list">{open.map(row)}</ul>:<section className="card cp-empty"><p>Nothing needs an answer right now.</p></section>}
+    {showClosed&&closed.length>0&&<><h4 className="hr-sub">Handled</h4><ul className="hr-list">{closed.slice(0,20).map(row)}</ul></>}
+  </div>;
 }
 
 function HelpPage() {
@@ -171,34 +202,28 @@ function HelpPage() {
   },[countdown,patientId]);
   async function send(text=message){if(!patientId||!text.trim())return;setError('');try{const item=await api<IncidentRow>(`/api/v1/patients/${patientId}/messages`,{method:'POST',headers:{'Idempotency-Key':draftKey.current},body:JSON.stringify({body:text.trim(),channel:'TEXT'})});setIncident(item);setMessage('');draftKey.current=newId();}catch{setError('Could not reach CareCircle — call 108/112 or your family directly.');}}
   const chips=['I need water','Help me to the bathroom','I missed my medicine','I feel dizzy','Nobody came',"I'm fine/took my medicine"];
-  return <section className="card"><p className="eyebrow">PATIENT HELP</p><h2>Tell us what you need</h2><p>CareCircle routes your message to the right people. It is not a medical diagnosis and cannot replace emergency services. In immediate danger call 108 / 112.</p><div className="chips">{chips.map(chip=><button key={chip} onClick={()=>void send(chip)}>{chip}</button>)}</div><label>Your message<textarea maxLength={1000} value={message} onChange={e=>setMessage(e.target.value)} rows={4}/></label><button className="primary" disabled={!message.trim()} onClick={()=>void send()}>Send request</button><div className="card" style={{marginTop:20,borderColor:'#b42318'}}><h3>Emergency SOS</h3>{countdown===null?<button className="primary" onClick={()=>{setError('');setCountdown(3);}}>Start SOS · 3 second countdown</button>:<><p role="status">SOS will be sent in {countdown}…</p><button onClick={()=>setCountdown(null)}>Cancel SOS</button></>}</div>{error&&<p role="alert" className="error">{error}</p>}{liveIncident&&<div className="system" role="status"><div><strong>{levelNames[liveIncident.current_level]}</strong><small>{liveIncident.status==='ACKNOWLEDGED'?'Being handled':liveIncident.status==='RESOLVED'?'Resolved':'Sent — waiting for a care team response'}</small></div></div>}{liveIncident?.current_level===5&&<section className="card" aria-label="Emergency contacts"><strong>In immediate danger, call now.</strong><p>{liveIncident.acknowledged_at?'A care team member has acknowledged.':'No one has acknowledged yet — please call 108/112 now.'}</p><a href="tel:108">Call 108</a> · <a href="tel:112">Call 112</a></section>}</section>;
+  return <section className="card"><p className="eyebrow">PATIENT HELP</p><h2>Tell us what you need</h2><p>CareCircle routes your message to the right people. It is not a medical diagnosis and cannot replace emergency services. In immediate danger call 108 / 112.</p><div className="chips help-chips">{chips.map(chip=><button key={chip} onClick={()=>void send(chip)}>{chip}</button>)}</div><label>Your message<textarea maxLength={1000} value={message} onChange={e=>setMessage(e.target.value)} rows={4}/></label><button className="primary" disabled={!message.trim()} onClick={()=>void send()}>Send request</button><div className="card" style={{marginTop:20,borderColor:'#b42318'}}><h3>Emergency SOS</h3>{countdown===null?<button className="primary sos" onClick={()=>{setError('');setCountdown(3);}}>Start SOS · 3 second countdown</button>:<><p role="status">SOS will be sent in {countdown}…</p><button onClick={()=>setCountdown(null)}>Cancel SOS</button></>}</div>{error&&<p role="alert" className="error">{error}</p>}{liveIncident&&<div className="system" role="status"><div><strong>{levelNames[liveIncident.current_level]}</strong><small>{liveIncident.status==='ACKNOWLEDGED'?'Being handled':liveIncident.status==='RESOLVED'?'Resolved':'Sent — waiting for a care team response'}</small></div></div>}{liveIncident?.current_level===5&&<section className="card" aria-label="Emergency contacts"><strong>In immediate danger, call now.</strong><p>{liveIncident.acknowledged_at?'A care team member has acknowledged.':'No one has acknowledged yet — please call 108/112 now.'}</p><a href="tel:108">Call 108</a> · <a href="tel:112">Call 112</a></section>}</section>;
 }
 
 function Placeholder({role,title}:{role:string;title:string}){return <section className="card placeholder"><p className="eyebrow">{role} WORKSPACE</p><h2>{title}</h2><p>This part of the care continuity workspace is planned for a later phase.</p></section>}
 
-type PatientRow = { id: string; name: string };
 type SupportNeed = { support_code: string; notes: string };
-type PatientDetails = PatientRow & { care_code?: string | null; care_notes: string; clinical_notes?: string | null; mobility_level: string; my_permissions: string[]; support_needs: SupportNeed[] };
+type PatientDetails = { id: string; name: string; care_code?: string | null; care_notes: string; clinical_notes?: string | null; mobility_level: string; my_permissions: string[]; support_needs: SupportNeed[] };
 type Caregiver = { id: string; user_id?: string | null; is_main_caretaker?: boolean; name: string; kind: string; relationship: string; is_active: boolean; capabilities: string[]; max_activities_per_day: number; max_hours_per_week: number; phone?: string | null };
-type WeeklyWindow = { weekday: number; start_min: number; end_min: number };
-type Warning = { code: string; message: string; details: unknown };
-type Assignment = { id: string; caregiver_id: string; caregiver_name: string; role: string; status: string; is_mine: boolean };
-type Activity = { id: string; title: string; category: string; requires_caregiver?: boolean; importance: string; scheduled_start: string; scheduled_end: string; lifecycle_status: string; care_status?: string; source?: string; completed_late?: boolean; preliminary_support_status: string; my_permissions: string[]; assignments: Assignment[]; warnings?: Warning[] };
 type HistoryEvent = { id: string; summary: string; event_type: string; occurred_at: string };
-type Overview = { upcoming_activities: Activity[]; not_yet_confirmed_count: number; caregivers: Caregiver[]; recent_history: HistoryEvent[] };
-// Matches DETECTION_DAYS in services/backup_matcher.py: absences further out are not picked up yet.
-const COVER_WINDOW_DAYS = 60;
-const withinCoverWindow = (start: string) => { const t = new Date(start).getTime() - Date.now(); return t > 0 && t < COVER_WINDOW_DAYS * 86_400_000; };
-function usePatient() {
-  const patients = useQuery({ queryKey: ['patients'], queryFn: () => api<{items:PatientRow[]}>('/api/v1/patients') });
-  const [params] = useSearchParams();
-  const [selected, setSelected] = useState(params.get('patient') ?? '');
-  const id = selected || patients.data?.items?.[0]?.id || '';
-  const picker = <label>Patient<select value={id} onChange={e=>setSelected(e.target.value)}>{patients.data?.items.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>;
-  return { patients, id, picker };
-}
+type Overview = { upcoming_activities: { id: string }[]; not_yet_confirmed_count: number; caregivers: Caregiver[]; recent_history: HistoryEvent[] };
+const MOBILITY: [string, string][] = [['INDEPENDENT', 'Walks independently'], ['NEEDS_AID', 'Needs a walking aid'], ['WHEELCHAIR', 'Uses a wheelchair'], ['BEDBOUND', 'Bed-bound']];
+const SUPPORT_CODES = ['MEDICATION_ASSIST', 'APPOINTMENT_ESCORT', 'TRANSPORT', 'DAILY_ASSIST', 'MOBILITY_ASSIST', 'PRESCRIPTION_PICKUP', 'LAB_ESCORT', 'SUPPLIES'];
+const PRESETS: [string, WeeklyWindow[]][] = [
+  ['Every day 08:00–20:00', Array.from({ length: 7 }, (_, weekday) => ({ weekday, start_min: 480, end_min: 1200 }))],
+  ['Weekdays 09:00–18:00', Array.from({ length: 5 }, (_, weekday) => ({ weekday, start_min: 540, end_min: 1080 }))],
+  ['Mornings 06:00–12:00', Array.from({ length: 7 }, (_, weekday) => ({ weekday, start_min: 360, end_min: 720 }))],
+  ['Evenings 17:00–21:00', Array.from({ length: 7 }, (_, weekday) => ({ weekday, start_min: 1020, end_min: 1260 }))],
+  ['Weekends only', [5, 6].map(weekday => ({ weekday, start_min: 0, end_min: 1440 }))],
+  ['Any time', Array.from({ length: 7 }, (_, weekday) => ({ weekday, start_min: 0, end_min: 1440 }))],
+];
 function PatientProfile() {
-  const {id,picker}=usePatient(); const client=useQueryClient();
+  const {id,picker}=usePatientPick(); const client=useQueryClient();
   const patient=useQuery({queryKey:['patient',id],queryFn:()=>api<PatientDetails>(`/api/v1/patients/${id}`),enabled:!!id});
   const overview=useQuery({queryKey:['overview',id],queryFn:()=>api<Overview>(`/api/v1/patients/${id}/overview`),enabled:!!id});
   const [name,setName]=useState(''); const [notes,setNotes]=useState(''); const [mobility,setMobility]=useState('INDEPENDENT'); const [needs,setNeeds]=useState<string[]>([]); const [message,setMessage]=useState('');
@@ -206,10 +231,16 @@ function PatientProfile() {
   const canEdit=patient.data?.my_permissions?.includes('plan:manage');
   async function save(e:FormEvent){e.preventDefault();setMessage('');try{await api(`/api/v1/patients/${id}`,{method:'PATCH',body:JSON.stringify({name,care_notes:notes,mobility_level:mobility})});await api(`/api/v1/patients/${id}/support-needs`,{method:'PUT',body:JSON.stringify(needs.map(support_code=>({support_code,notes:''})))});await client.invalidateQueries({queryKey:['patient',id]});setMessage('Patient profile saved.');}catch(err){setMessage(err instanceof Error?err.message:'Could not save profile.');}}
   if(!id)return <section className="card">No patient is linked to this account yet.</section>;
-  return <><div className="section-head"><div><p className="eyebrow">PATIENT PROFILE</p><h3>Patient and support needs</h3></div>{picker}</div>{message&&<p role="status" className="muted">{message}</p>}{patient.data?.care_code&&<CareCodeCard name={patient.data.name} code={patient.data.care_code} patientId={patient.data.my_permissions?.includes('plan:manage')?id:undefined}/>}<div className="grid"><section className="card"><div className="card-head"><div><p className="eyebrow">PROFILE</p><h3>{patient.data?.name??'Loading…'}</h3></div></div>{patient.data?.clinical_notes&&<p><strong>Clinical notes</strong><br/>{patient.data.clinical_notes}</p>}{canEdit?<form onSubmit={save}><label>Name<input value={name} onChange={e=>setName(e.target.value)} required/></label><label>Mobility<select value={mobility} onChange={e=>setMobility(e.target.value)}><option>INDEPENDENT</option><option>NEEDS_AID</option><option>WHEELCHAIR</option><option>BEDBOUND</option></select></label><label>Shared care notes<textarea value={notes} onChange={e=>setNotes(e.target.value)}/></label><fieldset><legend>Support needs</legend>{['TRANSPORT','MEDICATION_ASSIST','PRESCRIPTION_PICKUP','DAILY_ASSIST','MOBILITY_ASSIST','LAB_ESCORT','SUPPLIES','APPOINTMENT_ESCORT'].map(code=><label key={code}><input type="checkbox" checked={needs.includes(code)} onChange={e=>setNeeds(e.target.checked?[...needs,code]:needs.filter(n=>n!==code))}/>{code.replace(/_/g,' ').toLowerCase()}</label>)}</fieldset><button className="primary">Save profile</button></form>:<p>{patient.data?.care_notes}</p>}</section><section className="card"><p className="eyebrow">NEXT 7 DAYS</p><h3>{overview.data?.upcoming_activities?.length??0} upcoming activities</h3><p>{overview.data?.not_yet_confirmed_count??0} not yet confirmed</p><h4>Caregivers</h4><ul>{overview.data?.caregivers?.map((c:Caregiver)=><li key={c.id}>{c.name} · {c.kind}</li>)}</ul><h4>Recent changes</h4><ul>{overview.data?.recent_history?.slice(0,5).map((h,i)=><li key={i}>{h.summary}</li>)}</ul></section></div></>;
+  const o=overview.data;
+  return <><div className="section-head"><div><p className="eyebrow">PATIENT PROFILE</p><h3>{patient.data?.name??'Patient'}</h3></div>{picker}</div>
+    {message&&<p role="status" className="md-notice">{message}</p>}
+    {patient.data?.care_code&&<CareCodeCard name={patient.data.name} code={patient.data.care_code} patientId={canEdit?id:undefined}/>}
+    <div className="grid"><section className="card"><h3>Profile</h3>{patient.data?.clinical_notes&&<p className="pp-note"><strong>Clinical notes</strong><br/>{patient.data.clinical_notes}</p>}
+      {canEdit?<form className="pp-form" onSubmit={save}><label>Name<input value={name} onChange={e=>setName(e.target.value)} required/></label><label>Mobility<select value={mobility} onChange={e=>setMobility(e.target.value)}>{MOBILITY.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label><label>Shared care notes<textarea value={notes} onChange={e=>setNotes(e.target.value)}/></label><fieldset className="pp-needs"><legend>Help needed</legend>{SUPPORT_CODES.map(code=><label key={code}><input type="checkbox" checked={needs.includes(code)} onChange={e=>setNeeds(e.target.checked?[...needs,code]:needs.filter(n=>n!==code))}/>{supportLabel(code)}</label>)}</fieldset><button className="primary">Save profile</button></form>:<p>{patient.data?.care_notes}</p>}</section>
+    <section className="card"><h3>Next 7 days</h3><p className="pp-stat"><strong>{o?.upcoming_activities?.length??0}</strong> doses and appointments · <strong>{o?.not_yet_confirmed_count??0}</strong> without a confirmed caretaker</p><h4>Caretakers</h4><ul className="pp-list">{o?.caregivers?.map(c=><li key={c.id}>{c.name}<small>{c.relationship||'caretaker'}{c.is_main_caretaker?' · main caretaker':''}</small></li>)}</ul><h4>Recent changes</h4><ul className="pp-list">{o?.recent_history?.slice(0,5).map((h,i)=><li key={i}>{h.summary}<small>{formatAppTime(h.occurred_at)}</small></li>)}</ul></section></div></>;
 }
 function CareNetwork({role}:{role:string}) {
-  const {id,picker}=usePatient();
+  const {id,picker}=usePatientPick();
   const me=useQuery({queryKey:['me'],queryFn:()=>api<{id:string}>('/api/v1/auth/me')});
   const patient=useQuery({queryKey:['patient',id],queryFn:()=>api<PatientDetails>(`/api/v1/patients/${id}`),enabled:!!id});
   const network=useQuery({queryKey:['caregivers',id],queryFn:()=>api<{items:Caregiver[]}>(`/api/v1/patients/${id}/caregivers`),enabled:!!id});
@@ -217,29 +248,29 @@ function CareNetwork({role}:{role:string}) {
   const [mainId,setMainId]=useState('');
   const currentMain=network.data?.items.find(c=>c.is_main_caretaker)?.id??'';
   useEffect(()=>{setMainId(currentMain);},[currentMain]);
-  const [scheduleId,setScheduleId]=useState('');const [overrideStart,setOverrideStart]=useState(nowLocalInput());const [overrideEnd,setOverrideEnd]=useState('');
-  const canManage=patient.data?.my_permissions?.includes('network:manage');
-  async function preset(c:Caregiver,preset:string){let windows:WeeklyWindow[]=[];if(preset==='Anytime')windows=Array.from({length:7},(_,weekday)=>({weekday,start_min:0,end_min:1440}));if(preset==='Weekdays 9–18')windows=Array.from({length:5},(_,weekday)=>({weekday,start_min:540,end_min:1080}));if(preset==='Weekends only')windows=[5,6].map(weekday=>({weekday,start_min:0,end_min:1440}));if(preset==='Evenings 17–21')windows=Array.from({length:7},(_,weekday)=>({weekday,start_min:1020,end_min:1260}));if(preset==='Mornings 6–12')windows=Array.from({length:7},(_,weekday)=>({weekday,start_min:360,end_min:720}));try{await api(`/api/v1/caregivers/${c.id}/schedule`,{method:'PUT',body:JSON.stringify({windows})});setMessage(`${preset} availability saved.`);}catch(err){setMessage(err instanceof Error?err.message:'Could not save schedule.');}}
-  async function markUnavailable(c:Caregiver){try{await api(`/api/v1/caregivers/${c.id}/availability-overrides`,{method:'POST',body:JSON.stringify({start_at:localInputToIso(overrideStart),end_at:localInputToIso(overrideEnd),status:'UNAVAILABLE',reason:'PERSONAL',note:'Added in Care Network'})});setMessage('Unavailable time recorded in History.');}catch(err){setMessage(err instanceof Error?err.message:'Could not add override.');}}
-  async function saveMain(){if(!mainId)return;try{await api(`/api/v1/patients/${id}/main-caretaker`,{method:'PUT',body:JSON.stringify({caregiver_id:mainId})});setMessage(`${network.data?.items.find(c=>c.id===mainId)?.name??'Caretaker'} is now the main caretaker.`);}catch(err){setMessage(err instanceof Error?err.message:'Could not save the main caretaker.');}}
+  const canManage=!!patient.data?.my_permissions?.includes('network:manage');
+  async function saveMain(){if(!mainId)return;try{await api(`/api/v1/patients/${id}/main-caretaker`,{method:'PUT',body:JSON.stringify({caregiver_id:mainId})});await network.refetch();setMessage(`${network.data?.items.find(c=>c.id===mainId)?.name??'Caretaker'} is now the main caretaker.`);}catch(err){setMessage(err instanceof Error?err.message:'Could not save the main caretaker.');}}
   if(!id)return <section className="card">No patient is linked to this account.</section>;
-  return <><div className="section-head"><div><p className="eyebrow">CARE NETWORK</p><h3>{role==='CARETAKER'?'My availability':'Caretakers'}</h3></div>{picker}</div>{message&&<p role="status" className="muted">{message}</p>}{role==='PRIMARY_CONTACT'&&canManage&&<section className="card"><h3>Main caretaker</h3><p className="muted">New doses and appointments go to the main caretaker when they are free; otherwise a replacement is asked automatically.</p><div className="md-row"><label>Main caretaker<select value={mainId} onChange={e=>setMainId(e.target.value)}><option value="">Select caretaker</option>{network.data?.items.filter(c=>c.is_active).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><button disabled={!mainId} onClick={()=>void saveMain()}>Save main caretaker</button></div></section>}<div className="grid">{network.data?.items.map(c=><section className="card" key={c.id}><div className="card-head"><div><p className="eyebrow">{c.kind} · {c.relationship||'care network'}</p><h3>{c.name}</h3></div><span className="status-pill">{c.is_active?'Active':'Inactive'}</span></div><p>{c.capabilities.map((x:string)=><span className="chip" key={x}>{x.replace(/_/g,' ')}</span>)}</p><p className="muted">Daily limit {c.max_activities_per_day} activities · weekly limit {c.max_hours_per_week} hours {c.phone?`· ${c.phone}`:''}</p>{canManage||c.user_id===me.data?.id?<><div className="chips">{['Anytime','Weekdays 9–18','Weekends only','Evenings 17–21','Mornings 6–12'].map(x=><button key={x} onClick={()=>preset(c,x)}>{x}</button>)}</div><label>Unavailable from<input type="datetime-local" value={overrideStart} onChange={e=>setOverrideStart(e.target.value)}/></label><label>Until<input type="datetime-local" value={overrideEnd} onChange={e=>setOverrideEnd(e.target.value)}/></label><button onClick={()=>void markUnavailable(c)}>Mark unavailable</button><button onClick={()=>setScheduleId(scheduleId===c.id?'':c.id)}>View schedule</button>{scheduleId===c.id&&<ScheduleView caregiverId={c.id}/>}</>:null}</section>)}</div></>;
+  const people=(network.data?.items??[]).filter(c=>role!=='CARETAKER'||c.user_id===me.data?.id).sort((a,b)=>Number(!!b.is_main_caretaker)-Number(!!a.is_main_caretaker)||a.name.localeCompare(b.name));
+  return <><div className="section-head"><div><p className="eyebrow">{role==='CARETAKER'?'MY AVAILABILITY':'CARETAKERS'}</p><h3>{role==='CARETAKER'?'When you can help':'Who can help, and when'}</h3></div>{role==='CARETAKER'?null:picker}</div>
+    {message&&<p role="status" className="md-notice">{message}</p>}
+    {role==='PRIMARY_CONTACT'&&canManage&&<section className="card"><h3>Main caretaker</h3><p className="muted small">New doses and appointments go to the main caretaker when they are free. Otherwise the next best caretaker is asked automatically.</p><div className="md-row"><label className="md-pick">Main caretaker<select value={mainId} onChange={e=>setMainId(e.target.value)}><option value="">Select caretaker</option>{network.data?.items.filter(c=>c.is_active).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><button disabled={!mainId||mainId===currentMain} onClick={()=>void saveMain()}>Save</button></div></section>}
+    {people.length===0&&<section className="card"><p className="muted">No caretakers yet. Invite them from Care Team.</p></section>}
+    <div className="grid">{people.map(c=><CaretakerCard key={c.id} c={c} editable={canManage||c.user_id===me.data?.id} onMessage={setMessage}/>)}</div></>;
 }
-function ScheduleView({caregiverId}:{caregiverId:string}){const q=useQuery({queryKey:['schedule',caregiverId],queryFn:()=>api<{windows:WeeklyWindow[]}>(`/api/v1/caregivers/${caregiverId}/schedule`)});return <ul>{q.data?.windows.map((w,i)=><li key={i}>Day {w.weekday}: {w.start_min}–{w.end_min}</li>)}</ul>}
-function CarePlan({role}:{role:string}) {
-  const {id,picker}=usePatient(); const client=useQueryClient();
-  const activities=useQuery({queryKey:['activities',id],queryFn:()=>api<{items:Activity[]}>(`/api/v1/patients/${id}/activities?limit=100`),enabled:!!id});
-  const caregivers=useQuery({queryKey:['caregivers',id],queryFn:()=>api<{items:Caregiver[]}>(`/api/v1/patients/${id}/caregivers`),enabled:!!id});
-  const [title,setTitle]=useState('');const [category,setCategory]=useState('APPOINTMENT');const [support,setSupport]=useState('TRANSPORT');const [start,setStart]=useState(nowLocalInput());const [end,setEnd]=useState('');const [caregiverId,setCaregiverId]=useState('');const [message,setMessage]=useState('');
-  const patient=useQuery({queryKey:['patient',id],queryFn:()=>api<PatientDetails>(`/api/v1/patients/${id}`),enabled:!!id});const canManage=patient.data?.my_permissions?.includes('plan:manage');const canSchedule=!!canManage;
-  async function addActivity(e:FormEvent){e.preventDefault();try{const made=await api<Activity>(`/api/v1/patients/${id}/activities`,{method:'POST',body:JSON.stringify({title,category,scheduled_start:localInputToIso(start),scheduled_end:localInputToIso(end),required_support:[support],requires_caregiver:true,importance:'MEDIUM'})});setMessage(made.warnings?.length?made.warnings.map((w)=>w.message).join(' '):'Activity added.');setTitle('');await client.invalidateQueries({queryKey:['activities',id]});}catch(err){setMessage(err instanceof Error?err.message:'Could not create activity.');}}
-  async function assign(activityId:string){if(!caregiverId)return;try{const result=await api<{warnings:Warning[]}>(`/api/v1/activities/${activityId}/assignments`,{method:'POST',body:JSON.stringify({caregiver_id:caregiverId,role:'PRIMARY',confirm_now:true,scope:'THIS'})});setMessage(result.warnings?.length?result.warnings.map((w)=>w.message).join(' '):'Primary support confirmed.');await client.invalidateQueries({queryKey:['activities',id]});}catch(err){setMessage(err instanceof Error?err.message:'Could not assign caregiver.');}}
-  const navigate=useNavigate();
-  async function findCover(a:Activity){if(!window.confirm(`Look for someone to cover “${a.title}”? Primary contacts are notified and the current caregiver stays on it until a replacement confirms.`))return;const activityId=a.id;try{await api(`/api/v1/activities/${activityId}/cover-requests`,{method:'POST',body:JSON.stringify({note:'Primary contact asked for cover from Care Plan'})});navigate(`/cover?patient=${id}`);}catch(err){setMessage(err instanceof Error?err.message:'Could not open a cover request.');}}
-  async function cannotMakeIt(a:Activity,x:Assignment){if(!window.confirm(`Tell the care circle you can't make “${a.title}”? You will be marked unavailable for that time (other tasks then will need cover too), and a replacement search starts right away.`))return;try{await api(`/api/v1/caregivers/${x.caregiver_id}/availability-overrides`,{method:'POST',body:JSON.stringify({start_at:a.scheduled_start,end_at:a.scheduled_end,status:'UNAVAILABLE',reason:'PERSONAL',note:`Can't make ${a.title}`.slice(0,1000)})});await client.invalidateQueries({queryKey:['activities',id]});setMessage('Thanks — the primary contact has been told and a replacement search has started. You stay on the task until someone confirms.');}catch(err){setMessage(err instanceof Error?err.message:'Could not record that you are unavailable.');}}
-  async function action(assignmentId:string,verb:string){try{await api(`/api/v1/assignments/${assignmentId}/${verb}`,{method:'POST',body:verb==='decline'?JSON.stringify({reason:'Unable to attend'}):JSON.stringify({})});await client.invalidateQueries({queryKey:['activities',id]});setMessage(`Assignment ${verb} complete.`);}catch(err){setMessage(err instanceof Error?err.message:'Assignment update failed.');}}
-  if(!id)return <section className="card">No patient is linked to this account.</section>;
-  return <><div className="section-head"><div><p className="eyebrow">CARE PLAN</p><h3>Scheduled support</h3></div>{picker}</div>{message&&<p role="status" className="card">{message}</p>}{canSchedule&&<form className="card" onSubmit={addActivity}><h3>Add another care task</h3><label>Title<input required value={title} onChange={e=>setTitle(e.target.value)}/></label><label>Category<select value={category} onChange={e=>setCategory(e.target.value)}>{['APPOINTMENT','TRANSPORT','PRESCRIPTION','MEDICATION','FOLLOW_UP','DAILY_ROUTINE','MOBILITY','LAB','SUPPLIES','POST_APPOINTMENT','OTHER'].map(x=><option key={x}>{x}</option>)}</select></label><label>Required support<select value={support} onChange={e=>setSupport(e.target.value)}>{['TRANSPORT','MEDICATION_ASSIST','PRESCRIPTION_PICKUP','DAILY_ASSIST','MOBILITY_ASSIST','LAB_ESCORT','SUPPLIES','APPOINTMENT_ESCORT'].map(x=><option key={x}>{x}</option>)}</select></label><label>Start (Asia/Kolkata)<input type="datetime-local" required value={start} onChange={e=>setStart(e.target.value)}/></label><label>End (Asia/Kolkata)<input type="datetime-local" required value={end} onChange={e=>setEnd(e.target.value)}/></label><button className="primary">Create activity</button></form>}<div className="grid">{activities.data?.items.map(a=><section className="card" key={a.id}><div className="card-head"><div><p className="eyebrow">{a.category} · {a.importance}</p><h3>{a.title}</h3></div><span className="status-pill">{a.lifecycle_status}</span></div><p><span className={`md-status md-st-${statusTone(a.care_status,a.completed_late)}`}>{statusLabel(a.care_status,a.completed_late)}</span> <span className="chip">{sourceLabel(a.source)}</span></p><p>{formatAppTime(a.scheduled_start)} – {formatAppTime(a.scheduled_end)}</p><p><strong>{a.preliminary_support_status}</strong></p><ul>{a.assignments?.map((x)=><li key={x.id}>{x.role}: {x.caregiver_name} · {x.status}{x.status==='PROPOSED'&&canManage&&<button onClick={()=>void action(x.id,'request-confirmation')}>Request confirmation</button>}{x.status==='AWAITING_CONFIRMATION'&&(canManage||x.is_mine)&&<><button onClick={()=>void action(x.id,'confirm')}>Confirm</button>{x.is_mine&&!canManage&&<button onClick={()=>void action(x.id,'decline')}>Decline</button>}{canManage&&<button onClick={()=>void action(x.id,'reject')}>Reject</button>}</>}{x.status==='CONFIRMED'&&canManage&&<button onClick={()=>void action(x.id,'cancel')}>Cancel assignment</button>}{x.status==='CONFIRMED'&&x.is_mine&&x.role==='PRIMARY'&&a.lifecycle_status==='SCHEDULED'&&withinCoverWindow(a.scheduled_start)&&<button onClick={()=>void cannotMakeIt(a,x)}>I can't make it</button>}</li>)}</ul>{canManage&&role==='PRIMARY_CONTACT'&&a.requires_caregiver!==false&&a.lifecycle_status==='SCHEDULED'&&new Date(a.scheduled_start)>new Date()&&<button onClick={()=>void findCover(a)}>Find cover</button>}{canManage&&<div><select aria-label="Assign caregiver" value={caregiverId} onChange={e=>setCaregiverId(e.target.value)}><option value="">Select caregiver</option>{caregivers.data?.items.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select><button onClick={()=>void assign(a.id)}>Assign and confirm primary</button></div>}</section>)}</div></>;
+function CaretakerCard({c,editable,onMessage}:{c:Caregiver;editable:boolean;onMessage:(m:string)=>void}){
+  const client=useQueryClient();
+  const schedule=useQuery({queryKey:['schedule',c.id],queryFn:()=>api<{windows:WeeklyWindow[]}>(`/api/v1/caregivers/${c.id}/schedule`)});
+  const [from,setFrom]=useState(nowLocalInput());const [until,setUntil]=useState('');const [editing,setEditing]=useState(false);
+  async function preset(label:string,windows:WeeklyWindow[]){try{await api(`/api/v1/caregivers/${c.id}/schedule`,{method:'PUT',body:JSON.stringify({windows})});await client.invalidateQueries({queryKey:['schedule',c.id]});setEditing(false);onMessage(`${c.name}: usual hours set to ${label}.`);}catch(err){onMessage(err instanceof Error?err.message:'Could not save hours.');}}
+  async function away(e:FormEvent){e.preventDefault();try{await api(`/api/v1/caregivers/${c.id}/availability-overrides`,{method:'POST',body:JSON.stringify({start_at:localInputToIso(from),end_at:localInputToIso(until),status:'UNAVAILABLE',reason:'PERSONAL',note:'Time away'})});setUntil('');onMessage(`${c.name} is away ${formatAppTime(localInputToIso(from))} – ${formatAppTime(localInputToIso(until))}. Their tasks in that time will be offered to others.`);}catch(err){onMessage(err instanceof Error?err.message:'Could not record time away.');}}
+  return <section className="card cn-card"><div className="card-head"><div><h3>{c.name}</h3><p className="muted small">{c.relationship||'caretaker'}{c.phone?` · ${c.phone}`:''}</p></div>{c.is_main_caretaker?<span className="status-pill">Main caretaker</span>:!c.is_active?<span className="status-pill">Inactive</span>:null}</div>
+    <p className="cn-line"><span>Can help with</span>{c.capabilities.map(x=><span className="chip" key={x}>{supportLabel(x)}</span>)}</p>
+    <p className="cn-line"><span>Usual hours</span>{schedule.isLoading?'…':scheduleSummary(schedule.data?.windows??[])}</p>
+    <p className="cn-line"><span>Limits</span>{c.max_activities_per_day} tasks a day · {c.max_hours_per_week} hours a week</p>
+    {editable&&<div className="cn-edit">{editing?<div className="chips">{PRESETS.map(([label,windows])=><button key={label} onClick={()=>void preset(label,windows)}>{label}</button>)}<button onClick={()=>setEditing(false)}>Cancel</button></div>:<button onClick={()=>setEditing(true)}>Change usual hours</button>}
+      <details><summary>Add time away</summary><form className="md-form" onSubmit={away}><label>From<input type="datetime-local" required value={from} onChange={e=>setFrom(e.target.value)}/></label><label>Until<input type="datetime-local" required min={from} value={until} onChange={e=>setUntil(e.target.value)}/></label><button className="primary">Save time away</button></form></details></div>}
+  </section>;
 }
-function HistoryPage(){const {id,picker}=usePatient();const history=useQuery({queryKey:['history',id],queryFn:()=>api<{items:HistoryEvent[];total:number}>(`/api/v1/patients/${id}/history?limit=100`),enabled:!!id});return <><div className="section-head"><div><p className="eyebrow">HISTORY</p><h3>Recent changes</h3></div>{picker}</div><section className="card"><ul className="history-list">{history.data?.items.map((x)=><li key={x.id}><i className="timeline-dot"/><span>{x.summary}<small>{x.event_type} · {formatAppTime(x.occurred_at)}</small></span></li>)}</ul>{history.data?.total===0&&<p>No activity history yet.</p>}</section></>}
+function HistoryPage(){const {id,picker}=usePatientPick();const history=useQuery({queryKey:['history',id],queryFn:()=>api<{items:HistoryEvent[];total:number}>(`/api/v1/patients/${id}/history?limit=100`),enabled:!!id});return <><div className="section-head"><div><p className="eyebrow">HISTORY</p><h3>What changed, and when</h3></div>{picker}</div><section className="card"><ul className="history-list">{history.data?.items.map((x)=><li key={x.id}><i className="timeline-dot"/><span>{x.summary}<small>{formatAppTime(x.occurred_at)}</small></span></li>)}</ul>{history.data?.total===0&&<p>No activity history yet.</p>}</section></>}
 export default App;

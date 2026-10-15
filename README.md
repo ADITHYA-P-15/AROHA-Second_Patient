@@ -7,7 +7,7 @@ CareCircle puts every **medication dose** and **appointment** for a patient in o
 - **Status.** Each dose and appointment is *pending*, *completed* or *missed*, judged against the clock.
 - **Automatic cover.** When a caretaker takes leave or is overloaded, CareCircle asks the best eligible caretaker to cover, and the task counts as covered only once they accept.
 
-The product spec is in [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md).
+The product spec is in [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md). For a 10-minute walkthrough, follow [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
 **Team:** TODO: team name/members
 
@@ -557,3 +557,52 @@ A findings log records when each risk was first seen and how it ended. From it t
 ### Checks
 
 `python -m pytest backend/tests -q` covers the four-role model, patient registration, professional find/join, caretaker invites, data feeds, missed/late status, adherence, automatic cover and overload relief, and the migrations of earlier data. The smoke script exercises the whole journey: sign-up by role, registration, professional join, prescription, appointment, a caretaker recording a dose, and adherence.
+
+## Stabilisation — clean demo story, simpler screens, quieter alerts
+
+### What changed
+
+- **One coherent demo story** (`services/demo.py`), built relative to the current time:
+  - Every dose and appointment has a caretaker.
+  - Yesterday has one missed dose to show the status flow.
+  - Older, half-related seed tasks (transport, pickups, lab visit) are gone.
+  - On start-up the story is rebuilt once when its version changes, so existing demo databases are cleaned automatically.
+- **Reset demo data** button (demo accounts only) and `POST /api/v1/demo/reset`. It rebuilds the demo patients' plan and the demo caretakers' profiles; accounts and care teams stay.
+- **Care Plan rebuilt:**
+  - Grouped by day (Yesterday / Today / Tomorrow…), with one row per dose or appointment.
+  - Each row has a status badge and one plain line saying who is doing it ("Caretaker: Savitha", "Waiting for Lakshmi to accept", "Finding cover: Lakshmi Rao has been asked").
+  - Each row shows only the actions that apply.
+  - Filters: Medicines, Appointments, Needs attention. Past 7 days on demand.
+  - Superseded and cancelled assignments are no longer listed as if they were current.
+- **My Day:** a caretaker sees all their patients' tasks in one list. Leave is folded away; open cover searches are shown on the task.
+- **Command Center is quiet when things are fine:**
+  - "No backup" reminders are removed; the forecast covers single points of failure.
+  - Confirmed doses and appointments are not flagged before they are actually late.
+  - "On track" counts today's covered tasks.
+- **Help Requests** (was Incident Center):
+  - Plain level names, "I’ve got this" and "Mark handled" buttons.
+  - Request titles in words ("Medicine help request") instead of "unclassified".
+  - "I missed my medicine" now goes to the caretaker first.
+- **Navigation** grouped into Today / Planning / People / Records for the primary contact. The patient menu is reduced to Today, Request Help and Care Plan.
+- **Patient choice** carries over between pages, and the picker is hidden when there is only one patient. Patients are listed by name.
+- **Caretakers page:** usual hours read as "Every day 07:00–21:30", and skills are in words. Hours can be changed with one tap, and time away is added from the same card.
+- **Medicines & Appointments:** adherence and the current list come first; the new-prescription and new-appointment forms are folded away.
+- **UI fixes:**
+  - A global CSS rule made every plain button 16 px; it now uses the intended 13 px.
+  - Button sizing and spacing are consistent.
+  - A red SOS button and larger quick-message buttons for the patient.
+
+### New endpoint
+
+- `POST /api/v1/demo/reset`: demo mode only; synthetic `@secondpatient.demo` accounts only.
+
+Activities now also carry `cover` (an open cover search: status and, for non-caretakers, who has been asked).
+
+### Demo
+
+See [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
+
+### Checks
+
+`python -m pytest backend/tests -q`; `npm run lint`, `npm run typecheck`, `npm test`, `npm run build` in `frontend/`; `python scripts/smoke.py --base-url http://<LAN-IP>:8000`.
+

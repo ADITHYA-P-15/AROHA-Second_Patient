@@ -18,6 +18,11 @@ def test_red_flag_negation_routes_to_human_review(text):
 def test_third_person_red_flag_stays_emergency(text):
     assert classify_message(text).level == 5
 
+def test_single_missed_medicine_goes_to_the_caretaker_first():
+    result = classify_message("I missed my medicine")
+    assert result.level == 1 and result.category == "MEDICATION"
+    assert classify_message("I missed my medicine twice").level == 4
+
 def test_unknown_is_never_information_and_repeat_raises():
     assert classify_message("blue curtains today").category == "UNCLASSIFIED"
     assert classify_message("blue curtains today").level == 2

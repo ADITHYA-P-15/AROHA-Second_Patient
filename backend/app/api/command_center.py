@@ -96,7 +96,10 @@ def command_center(patient_id: uuid.UUID, day: date | None = Query(default=None,
         needs = [x for x in needs if set(x["related_activity_ids"]) & my_activity_ids or x["assigned_to_user_id"] == str(user.id)]
         risk = [x for x in risk if set(x["related_activity_ids"]) & my_activity_ids or x["assigned_to_user_id"] == str(user.id)]
         decisions, pending, handled = [], [x for x in pending if x["assigned_to_user_id"] == str(user.id)], [x for x in handled if x["assigned_to_user_id"] == str(user.id)]
-    on_track = sum(len(x.get("activities", [])) for x in plan["blocks"] if x["kind"] == "ROUTINE_BLOCK")
+    # On track: today's tasks with a caretaker and nothing flagged about them.
+    flagged = {aid for x in needs + risk + decisions for aid in x["related_activity_ids"]}
+    todays = [a for block in plan["blocks"] for a in (block.get("activities") or [block])]
+    on_track = sum(1 for a in todays if a.get("assignee_id") and str(a.get("activity_id")) not in flagged)
     automated = on_track + sum(x["status"] == "AUTO_RESOLVED" for x in handled)
     payload = {
         "as_of": now().isoformat(), "basis_note": "Based on confirmed assignments, availability and logged updates. This does not check on the patient's wellbeing.",

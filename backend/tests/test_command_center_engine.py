@@ -13,14 +13,14 @@ def test_attention_is_deterministic_and_finds_missing_coverage():
     assert first[0].activity_ids == ("task-1",)
 
 
-def test_attention_reports_confirmed_backup_gap_as_low_planning_reminder():
+def test_attention_is_quiet_for_confirmed_tasks_on_track():
+    """Management by exception: a confirmed dose due soon, or due now within its grace hour, needs no attention."""
     at = datetime(2026, 10, 14, 6, tzinfo=UTC)
-    activity = {"id": "task-1", "title": "Visit", "scheduled_start": at + timedelta(days=1), "importance": "HIGH", "requires_caregiver": True, "lifecycle_status": "SCHEDULED"}
-    snapshot = {"activities": [activity], "assignments": [{"activity_id": "task-1", "caregiver_id": "cg-1", "role": "PRIMARY", "status": "CONFIRMED", "caregiver_available": True}]}
-    result = evaluate_attention(snapshot, at)
-    assert len(result) == 1
-    assert result[0].kind == "NO_BACKUP_CRITICAL"
-    assert result[0].severity == "LOW"
+    soon = {"id": "d1", "title": "Metformin", "source": "PRESCRIPTION", "scheduled_start": at + timedelta(minutes=20), "deadline": at + timedelta(minutes=80), "importance": "HIGH", "requires_caregiver": True, "lifecycle_status": "SCHEDULED"}
+    due_now = {**soon, "id": "d2", "scheduled_start": at - timedelta(minutes=20), "deadline": at + timedelta(minutes=40)}
+    visit = {"id": "v1", "title": "Visit", "scheduled_start": at + timedelta(days=1), "deadline": at + timedelta(hours=20), "importance": "HIGH", "requires_caregiver": True, "lifecycle_status": "SCHEDULED"}
+    snapshot = {"activities": [soon, due_now, visit], "assignments": [{"activity_id": x, "caregiver_id": "cg-1", "role": "PRIMARY", "status": "CONFIRMED", "caregiver_available": True} for x in ("d1", "d2", "v1")]}
+    assert evaluate_attention(snapshot, at) == []
 
 
 def test_attention_assignment_and_acknowledgement_time_boundaries():

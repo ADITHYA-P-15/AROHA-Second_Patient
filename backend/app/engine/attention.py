@@ -82,7 +82,6 @@ def evaluate_attention(snapshot: dict, now: datetime, settings: dict | None = No
         confirmed = next((x for x in active if _get(x, "status") == "CONFIRMED"), None)
         start = _get(activity, "scheduled_start")
         deadline = _get(activity, "deadline")
-        importance = _get(activity, "importance", "MEDIUM")
         name = _get(activity, "title", "Scheduled task")
         if _get(activity, "requires_caregiver", True) and not active:
             add("UNASSIGNED_REQUIRED", activity, f"{name} has no active primary caregiver.", dedupe_key=f"UNASSIGNED_REQUIRED:{aid}", suggested=({"option": "ASSIGN_CAREGIVER"},))
@@ -102,15 +101,14 @@ def evaluate_attention(snapshot: dict, now: datetime, settings: dict | None = No
             add("OVERLAP_CONFLICT", activity, f"The confirmed primary has an overlapping commitment for {name}.")
         if _get(activity, "over_limit") is True and confirmed:
             add("OVER_LIMIT", activity, f"The confirmed primary exceeds a configured workload limit.")
-        if deadline and now < deadline < now + timedelta(hours=24):
+        feed = _get(activity, "source") in {"PRESCRIPTION", "APPOINTMENT"}
+        # Management by exception: a task with a confirmed caretaker is on track until it is actually late or missed.
+        if deadline and now < deadline < now + timedelta(hours=24) and not confirmed:
             add("DEADLINE_APPROACHING", activity, f"{name} has an unresolved deadline at {deadline.astimezone(zone):%H:%M}.", due_at=deadline)
-        if start and start < now and _get(activity, "lifecycle_status", "SCHEDULED") == "SCHEDULED":
+        if start and start < now and _get(activity, "lifecycle_status", "SCHEDULED") == "SCHEDULED" and not (deadline and now < deadline):
             add("TASK_OVERDUE", activity, f"{name} is past its scheduled start and is not marked complete.", severity="HIGH", due_at=start)
-        if confirmed and start and now <= start < now + timedelta(minutes=30) and not _get(activity, "acknowledged_at"):
+        if confirmed and not feed and start and now <= start < now + timedelta(minutes=30) and not _get(activity, "acknowledged_at"):
             add("TASK_UNACKNOWLEDGED", activity, f"{name} starts within 30 minutes and has no acknowledgement.", due_at=start)
-        backups = [x for x in rows if _get(x, "role") == "BACKUP" and _get(x, "status") == "CONFIRMED"]
-        if importance in {"HIGH", "CRITICAL"} and not backups:
-            add("NO_BACKUP_CRITICAL", activity, f"{name} has no confirmed backup; this is a coverage planning reminder.", severity="LOW")
 
     for incident in snapshot.get("incidents", ()):
         if _get(incident, "status") not in {"OPEN", "ACKNOWLEDGED"}:

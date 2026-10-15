@@ -179,8 +179,18 @@ def incident_recipients(db, patient_id, level):
     return recipients
 
 
+# Plain words for the care team; the message text itself stays private to the routing record.
+REQUEST_TOPICS = {"DAILY_HELP": "daily help", "MEDICATION": "medicines", "LOGISTICS": "a care arrangement", "HEALTH_CONCERN": "a health concern",
+                  "EMERGENCY": "an emergency", "INFO": "an update"}
+REQUEST_TITLES = {"DAILY_HELP": "Daily help request", "MEDICATION": "Medicine help request", "LOGISTICS": "Care arrangement problem", "HEALTH_CONCERN": "Health concern", "INFO": "Update from the patient"}
+
+
+def _utc_out(value):
+    return value.replace(tzinfo=UTC) if value is not None and value.tzinfo is None else value
+
+
 def incident_payload(item):
-    return {"id": item.id, "patient_id": item.patient_id, "current_level": item.current_level, "category": item.category, "severity": item.severity, "status": item.status, "title": item.title, "safe_summary": item.safe_summary, "owner_user_id": item.owner_user_id, "created_at": item.created_at, "current_deadline_at": item.current_deadline_at, "deadline_kind": item.deadline_kind, "emergency_unacknowledged": item.emergency_unacknowledged, "acknowledged_at": item.acknowledged_at, "resolved_at": item.resolved_at}
+    return {"id": item.id, "patient_id": item.patient_id, "current_level": item.current_level, "category": item.category, "severity": item.severity, "status": item.status, "title": item.title, "safe_summary": item.safe_summary, "owner_user_id": item.owner_user_id, "created_at": _utc_out(item.created_at), "current_deadline_at": _utc_out(item.current_deadline_at), "deadline_kind": item.deadline_kind, "emergency_unacknowledged": item.emergency_unacknowledged, "acknowledged_at": item.acknowledged_at, "resolved_at": item.resolved_at}
 
 
 def current_escalation_scale(db=None):
@@ -235,9 +245,10 @@ def patient_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Requ
         recipients = incident_recipients(db, patient.id, level)
     if level > 0 and not recipients:
         no_recipients_levels.append(level)
-    safe_summary = f"{patient.name} asked for help with {classification.category.lower().replace('_', ' ')} at {now().astimezone(ZoneInfo(settings.app_timezone)).strftime('%H:%M')}"
+    topic = REQUEST_TOPICS.get(classification.category, "something that needs a person to read the message")
+    safe_summary = f"{patient.name} asked for help with {topic} at {now().astimezone(ZoneInfo(settings.app_timezone)).strftime('%H:%M')}"
     source = "SOS" if body.channel == "SOS_BUTTON" else "CARETAKER_REPORT" if body.on_behalf else "PATIENT_MESSAGE"
-    inc = Incident(patient_id=patient.id, source=source, category=classification.category, initial_level=level, current_level=level, severity=classification.severity, title="Emergency report" if level == 5 else "Care request", safe_summary=safe_summary, dedupe_key=f"message:{uuid.uuid4()}", classification=classification.as_dict())
+    inc = Incident(patient_id=patient.id, source=source, category=classification.category, initial_level=level, current_level=level, severity=classification.severity, title="Emergency report" if level == 5 else REQUEST_TITLES.get(classification.category, "Message to read"), safe_summary=safe_summary, dedupe_key=f"message:{uuid.uuid4()}", classification=classification.as_dict())
     db.add(inc); db.flush()
     if level > 0:
         created_at = now()
@@ -246,7 +257,7 @@ def patient_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Requ
     msg = PatientMessage(patient_id=patient.id, sender_user_id=user.id, on_behalf=body.on_behalf, reported_role=user.role.value, channel=body.channel, body=safe_body, language_hint=body.language_hint, idempotency_key=key, incident_id=inc.id)
     db.add(msg)
     missing_doctor = level == 4 and db.scalar(select(CareTeamMember.id).where(CareTeamMember.patient_id == patient.id, CareTeamMember.team_role == TeamRole.PROFESSIONAL)) is None
-    notice_title = "No doctor on this care team" if missing_doctor else "Emergency report" if level == 5 else "Care request"
+    notice_title = "No doctor on this care team" if missing_doctor else inc.title
     notice_body = "No doctor on this care team — contact the clinic, or call 108/112 if urgent." if missing_doctor else safe_summary
     for recipient in recipients:
         db.add(Notification(user_id=recipient.id, patient_id=patient.id, incident_id=inc.id, kind="INCIDENT", severity=classification.severity, title=notice_title, body=notice_body, requires_ack=level > 0))
@@ -347,7 +358,8 @@ def acknowledge_incident(incident_id: uuid.UUID, request: Request, user: User = 
         inc.status = "ACKNOWLEDGED"; inc.owner_user_id = user.id; inc.acknowledged_at = now(); inc.version += 1
         set_deadline(inc, policy_for(db, patient.id), "RESOLVE", inc.acknowledged_at, current_escalation_scale(db))
         db.add(IncidentEvent(incident_id=inc.id, kind="ACKNOWLEDGED", level=inc.current_level, actor_user_id=user.id, note="Recipient acknowledged"))
-        db.add(Notification(user_id=user.id, patient_id=patient.id, incident_id=inc.id, kind="STATUS", severity=inc.severity, title="You are handling this request", body="The patient request is acknowledged.", requires_ack=False,channel="INBOX"))
+        # Someone has it now: the alerts about this request are answered for everyone; the others get one "being handled" note.
+        for notice in db.scalars(select(Notification).where(Notification.incident_id == inc.id, Notification.read_at.is_(None))): notice.read_at = now()
         event = db.scalar(select(IncidentEvent).where(IncidentEvent.incident_id == inc.id, IncidentEvent.level == inc.current_level, IncidentEvent.kind.in_(("CREATED", "MANUAL_ESCALATED", "AUTO_ESCALATED"))).order_by(IncidentEvent.at.desc()))
         if event:
             recipient_ids=[uuid.UUID(item) for item in event.recipient_user_ids or []]
@@ -509,7 +521,7 @@ def _show_code(user, member) -> bool:
 def list_patients(limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0), user: User = Depends(current_user), db: Session = Depends(get_db)):
     stmt = select(Patient, CareTeamMember).join(CareTeamMember).where(CareTeamMember.user_id == user.id)
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-    rows = db.execute(stmt.order_by(Patient.created_at.desc()).offset(offset).limit(limit)).all()
+    rows = db.execute(stmt.order_by(Patient.name, Patient.created_at.desc()).offset(offset).limit(limit)).all()
     return {"items": [patient_dict(p, can_see_clinical(user, m), _show_code(user, m)) for p, m in rows], "total": total, "limit": limit, "offset": offset}
 
 
@@ -678,6 +690,20 @@ def seed(db=None):
     seed_phase2(db)
     db.commit()
     if own: db.close()
+
+
+@app.post("/api/v1/demo/reset")
+def reset_demo(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Demo mode only, for the fictional demo accounts: rebuild the demo care circle from scratch, relative to now."""
+    if not settings.demo_mode or not user.is_synthetic or not user.email.endswith("@secondpatient.demo"): raise HTTPException(403, "Permission denied")
+    from app.services import demo
+    if not demo.reset(db): raise HTTPException(409, "The demo patients are not present")
+    db.commit()
+    for patient in demo.demo_patients(db).values(): reconcile_patient(db, patient.id)
+    run_planner_tick(db, now())
+    db.commit()
+    log.info("demo reset by %s request=%s", user.id, request.state.request_id)
+    return {"status": "reset"}
 
 
 if settings.seed_demo:

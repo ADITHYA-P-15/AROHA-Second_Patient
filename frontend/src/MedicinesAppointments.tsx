@@ -94,8 +94,19 @@ export function MedicinesAppointments() {
     <div className="section-head"><div><p className="eyebrow">MEDICINES &amp; APPOINTMENTS</p><h3>{canPrescribe ? 'Prescribe and schedule' : 'Medicines and appointments'}</h3></div>{picker}</div>
     {notice && <p className="md-notice" role="status">{notice}</p>}
 
-    {canPrescribe && <section className="card" aria-labelledby="md-rx-h"><h3 id="md-rx-h">Prescribe a medicine</h3>
-      <form onSubmit={prescribe} className="md-form">
+    {adherence.data && <section className="card" aria-labelledby="md-ad-h"><h3 id="md-ad-h">Doses given in the last {adherence.data.days} days</h3>
+      <p className="md-big">{adherenceLabel(adherence.data.on_time_pct)} <span className="muted">on time overall</span></p>
+      {adherence.data.medicines.length === 0 && <p className="muted">No doses were due in this period.</p>}
+      <ul className="md-list">{adherence.data.medicines.map(m => <li key={`${m.medicine}-${m.dose}`} className="md-item">
+        <div className="md-head"><strong>{m.medicine}</strong> <span className="muted">{m.dose}</span> <span className="md-pct">{adherenceLabel(m.on_time_pct)} on time</span></div>
+        <p className="md-small">{m.due} due · {m.on_time} on time · {m.late} late · {m.missed} missed · {m.pending} pending</p>
+      </li>)}</ul>
+      <p className="md-small muted">{adherence.data.note}</p>
+    </section>}
+
+    <section className="card" aria-labelledby="md-active-h"><h3 id="md-active-h">Active prescriptions<span className="cc-count">{meds.length}</span></h3>
+      {meds.length === 0 && <p className="muted">No active prescriptions.</p>}
+      {canPrescribe && <details className="md-new"><summary>+ New prescription</summary><form onSubmit={prescribe} className="md-form">
         <label>Medicine<input required maxLength={120} value={medicine} onChange={e => setMedicine(e.target.value)}/></label>
         <label>Dose<input required maxLength={120} value={dose} onChange={e => setDose(e.target.value)} placeholder="e.g. 500 mg"/></label>
         <label>Instructions<input maxLength={500} value={instructions} onChange={e => setInstructions(e.target.value)} placeholder="e.g. after food"/></label>
@@ -103,11 +114,7 @@ export function MedicinesAppointments() {
         <label>Start date<input type="date" required value={startDate} onChange={e => setStartDate(e.target.value)}/></label>
         <label>End date (optional)<input type="date" value={endDate} min={startDate} onChange={e => setEndDate(e.target.value)}/></label>
         <button className="primary" disabled={busy}>Prescribe</button>
-      </form>
-    </section>}
-
-    <section className="card" aria-labelledby="md-active-h"><h3 id="md-active-h">Active prescriptions<span className="cc-count">{meds.length}</span></h3>
-      {meds.length === 0 && <p className="muted">No active prescriptions.</p>}
+      </form></details>}
       <ul className="md-list">{meds.map(p => <li key={p.id} className="md-item">
         <div className="md-head"><strong>{p.medicine}</strong> <span className="muted">{p.dose}</span></div>
         {p.instructions && <p className="md-small">{p.instructions}</p>}
@@ -123,8 +130,9 @@ export function MedicinesAppointments() {
       </li>)}</ul>
     </section>
 
-    {canPrescribe && <section className="card" aria-labelledby="md-ap-h"><h3 id="md-ap-h">Schedule an appointment</h3>
-      <form onSubmit={schedule} className="md-form">
+    <section className="card" aria-labelledby="md-up-h"><h3 id="md-up-h">Upcoming appointments<span className="cc-count">{upcoming.length}</span></h3>
+      {upcoming.length === 0 && <p className="muted">No upcoming appointments.</p>}
+      {canPrescribe && <details className="md-new"><summary>+ Schedule an appointment</summary><form onSubmit={schedule} className="md-form">
         <label>Title<input required maxLength={200} value={title} onChange={e => setTitle(e.target.value)}/></label>
         <label>Date and time (Asia/Kolkata)<input type="datetime-local" required value={when} min={nowLocalInput()} onChange={e => setWhen(e.target.value)}/></label>
         <label>Duration (minutes)<input type="number" min={10} max={600} required value={duration} onChange={e => setDuration(e.target.value)}/></label>
@@ -133,27 +141,14 @@ export function MedicinesAppointments() {
         <label><input type="checkbox" checked={escort} onChange={e => setEscort(e.target.checked)}/> Needs an escort</label>
         <label>Importance<select value={importance} onChange={e => setImportance(e.target.value)}><option value="MEDIUM">Medium</option><option value="HIGH">High</option><option value="CRITICAL">Critical</option></select></label>
         <button className="primary" disabled={busy}>Schedule appointment</button>
-      </form>
-    </section>}
-
-    <section className="card" aria-labelledby="md-up-h"><h3 id="md-up-h">Upcoming appointments<span className="cc-count">{upcoming.length}</span></h3>
-      {upcoming.length === 0 && <p className="muted">No upcoming appointments.</p>}
+      </form></details>}
       <ul className="md-list">{upcoming.map(a => <li key={a.id} className="md-item">
-        <div className="md-head"><strong>{a.title}</strong> <span className="chip">{a.importance}</span>{a.needs_escort && <span className="chip">Escort needed</span>}</div>
+        <div className="md-head"><strong>{a.title}</strong> <span className="chip">{a.importance.charAt(0) + a.importance.slice(1).toLowerCase()} importance</span>{a.needs_escort && <span className="chip">Escort needed</span>}</div>
         <p className="md-small">{formatAppTime(a.start)}{a.location ? ` · ${a.location}` : ''}</p>
         {a.notes && <p className="md-small">{a.notes}</p>}
-        {canPrescribe && <button onClick={() => cancelAppt(a)} disabled={busy}>Cancel appointment</button>}
+        {canPrescribe && <div className="md-row"><button onClick={() => cancelAppt(a)} disabled={busy}>Cancel appointment</button></div>}
       </li>)}</ul>
     </section>
 
-    {adherence.data && <section className="card" aria-labelledby="md-ad-h"><h3 id="md-ad-h">Adherence (last {adherence.data.days} days)</h3>
-      <p className="md-big">{adherenceLabel(adherence.data.on_time_pct)} <span className="muted">on time overall</span></p>
-      {adherence.data.medicines.length === 0 && <p className="muted">No doses were due in this period.</p>}
-      <ul className="md-list">{adherence.data.medicines.map(m => <li key={`${m.medicine}-${m.dose}`} className="md-item">
-        <div className="md-head"><strong>{m.medicine}</strong> <span className="muted">{m.dose}</span> <span className="md-pct">{adherenceLabel(m.on_time_pct)} on time</span></div>
-        <p className="md-small">{m.due} due · {m.on_time} on time · {m.late} late · {m.missed} missed · {m.pending} pending</p>
-      </li>)}</ul>
-      <p className="md-small muted">{adherence.data.note}</p>
-    </section>}
   </div>;
 }

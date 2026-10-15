@@ -22,14 +22,13 @@ The Command Center puts today's coordination work on one screen. It reports oper
 | `CAPABILITY_MISMATCH` | Confirmed primary lacks required support capability | Activity importance | Review assignment |
 | `OVERLAP_CONFLICT` | Confirmed primary has an overlapping commitment | Activity importance | Review assignment |
 | `OVER_LIMIT` | Configured daily or weekly workload limit is exceeded | Activity importance | Review workload |
-| `DEADLINE_APPROACHING` | Unresolved deadline is within 24 hours | Activity importance | Review due time |
-| `TASK_OVERDUE` | Scheduled start passed while the task remains scheduled | HIGH | Mark complete or review |
-| `TASK_UNACKNOWLEDGED` | Confirmed task starts within 30 minutes without acknowledgement | Activity importance | Acknowledge task |
-| `NO_BACKUP_CRITICAL` | HIGH/CRITICAL activity lacks confirmed backup | LOW | Coverage planning reminder |
+| `DEADLINE_APPROACHING` | Deadline within 24 hours and no confirmed caretaker | Activity importance | Review due time |
+| `TASK_OVERDUE` | Deadline passed while the task remains scheduled (doses and appointments within their grace time are not overdue) | HIGH | Mark complete or review |
+| `TASK_UNACKNOWLEDGED` | Confirmed home task (not a dose or appointment) starts within 30 minutes without acknowledgement | Activity importance | Acknowledge task |
 | `INCIDENT_OPEN` | Phase 3 incident remains open | Incident level mapping | Acknowledge / open incident |
 | `INCIDENT_UNACKED_EMERGENCY` | L5 incident is not acknowledged | CRITICAL | Acknowledge incident |
-| `BRIEF_PENDING` | Handover draft is unpublished | MEDIUM | Open handover |
-| `HANDOVER_UNACKED` | Published handover addressed to a recipient has no acknowledgement | MEDIUM | Acknowledge handover |
+
+Management by exception: a dose or appointment with a confirmed caretaker raises nothing until it is actually late or missed. Single points of failure belong to the Coverage Forecast, not to this list.
 
 “Severity” and “at risk” describe coordination priority, not a clinical state or diagnosis. The current basic provider does not calculate resilience, travel time, true cross-patient candidate rankings, or N-1/N-2 coverage. Phase 5 will supply those through the provider boundary.
 
