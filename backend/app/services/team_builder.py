@@ -43,9 +43,10 @@ def preferences(db: Session, patient_id) -> PatientCarePreference | None:
 
 
 def preference_dict(p: PatientCarePreference | None) -> dict:
-    if p is None: return {"gender": None, "gender_mode": "SOFT", "languages": [], "city": "", "sector_code": None, "min_rating": None, "capabilities": [], "set": False}
-    return {"gender": p.gender, "gender_mode": p.gender_mode, "languages": list(p.languages or []), "city": p.city, "sector_code": p.sector_code,
-            "min_rating": p.min_rating, "capabilities": list(p.capabilities or []), "set": True}
+    # Gender is a directory filter, not a stored preference (the old gender and gender_mode columns are left unused).
+    if p is None: return {"languages": [], "city": "", "sector_code": None, "min_rating": None, "capabilities": [], "set": False}
+    return {"languages": list(p.languages or []), "city": p.city, "sector_code": p.sector_code, "min_rating": p.min_rating,
+            "capabilities": list(p.capabilities or []), "set": True}
 
 
 def save_preferences(db: Session, patient_id, values: dict, user: User) -> PatientCarePreference:
@@ -63,12 +64,12 @@ def save_preferences(db: Session, patient_id, values: dict, user: User) -> Patie
 # --- profiles the matcher and builder read -----------------------------------------------------------------------------
 
 def profiles(db: Session, caregiver_ids: list) -> dict:
-    """{caregiver_id: {composite, metric, city, sector, languages, gender}}. Reputation only when the ratings flag is on."""
+    """{caregiver_id: {composite, metric, city, sector, languages}}. Reputation only when the ratings flag is on."""
     if not caregiver_ids: return {}
     sectors = {s.id: s.code for s in db.scalars(select(Sector))}
-    out = {cid: {"composite": None, "metric": None, "city": "", "sector": None, "languages": [], "gender": None} for cid in caregiver_ids}
+    out = {cid: {"composite": None, "metric": None, "city": "", "sector": None, "languages": []} for cid in caregiver_ids}
     for p in db.scalars(select(CaretakerProfile).where(CaretakerProfile.caregiver_id.in_(caregiver_ids))):
-        out[p.caregiver_id].update(city=p.current_city, sector=sectors.get(p.sector_id), languages=list(p.languages or []), gender=p.gender if p.gender != "UNDISCLOSED" else None)
+        out[p.caregiver_id].update(city=p.current_city, sector=sectors.get(p.sector_id), languages=list(p.languages or []))
     if settings.feature("ratings"):
         from app.services import reputation
         for cid, b in reputation.breakdowns(db, list(caregiver_ids)).items():
@@ -118,42 +119,67 @@ def capacity_note(db: Session, cg: Caregiver, at: datetime | None = None) -> str
     return None
 
 
-def matches(db: Session, patient_id, *, limit: int = 20, need: dict | None = None, min_agency_rating: float | None = None) -> list[dict]:
-    """Listed directory caretakers not on the team, hard preferences applied as filters, ranked by documented points with a "why"."""
+def matches(db: Session, patient_id, *, limit: int = 20, need: dict | None = None, filters=None, min_agency_rating: float | None = None, sort: str = "best") -> dict:
+    """Listed directory caretakers not on the team, narrowed by the directory filters, ranked like the Backup Matcher ranks a
+    backup: hard rules first (must-have skills, minimum reputation), then documented points for reputation, the reliability
+    record, the patient's support needs they can help with, city or region, language, and little free time this week.
+
+    Returns {"items": top `limit`, "total": how many passed}. Nothing here adds anyone: a hire request and the caretaker's
+    acceptance do.
+    """
     from app.core.matcher_policy import policy
+    from app.engine.backup_matcher import extra_points
+    from app.models import Agency, AgencyRating, PatientSupportNeed
+    from app.services import directory
     pref = preference_dict(preferences(db, patient_id))
     if need: pref = {**pref, **{k: v for k, v in need.items() if v not in (None, "", [])}}
     team = _team_caregiver_ids(db, patient_id)
-    rows = db.execute(select(CaretakerProfile, Caregiver).join(Caregiver, Caregiver.id == CaretakerProfile.caregiver_id).join(User, User.id == Caregiver.user_id)
-                      .where(CaretakerProfile.listed.is_(True), Caregiver.is_active.is_(True), Caregiver.kind == "CARETAKER", User.is_active.is_(True), User.role == Role.CARETAKER)).all()
-    rows = [(p, cg) for p, cg in rows if cg.id not in team]
+    f = filters or directory.Filters()
+    if min_agency_rating is not None: f.min_agency_rating = min_agency_rating
+    f.limit, f.offset = 10_000, 0
+    found, _ = directory.search(db, f)
+    rows = [(p, cg) for p, cg, _ in found if cg.id not in team]
     info = profiles(db, [cg.id for _, cg in rows])
     pol = policy()
-    from app.engine.backup_matcher import extra_points
-    from app.models import Agency, AgencyRating
-    agency_names = {a.id: a.name for a in db.scalars(select(Agency))}
-    agency_stars = dict(db.execute(select(AgencyRating.caregiver_id, AgencyRating.rating).where(AgencyRating.caregiver_id.in_([cg.id for _, cg in rows]))).all()) if rows else {}
+    needs = sorted(set(db.scalars(select(PatientSupportNeed.support_code).where(PatientSupportNeed.patient_id == patient_id))) | set(pref["capabilities"]))
+    sectors, agencies = directory.lookups(db)
+    stars = dict(db.execute(select(AgencyRating.caregiver_id, AgencyRating.rating).where(AgencyRating.caregiver_id.in_([cg.id for _, cg in rows]))).all()) if rows else {}
+    from app.services.reputation import summary as rep_summary
     out = []
     for p, cg in rows:
         prof = info[cg.id]
-        missing = sorted(set(pref["capabilities"]) - set(cg.capabilities or []))
-        if missing: continue
-        if pref["gender"] and pref["gender_mode"] == "HARD" and prof["gender"] != pref["gender"]: continue
-        stars = agency_stars.get(cg.id)
-        if min_agency_rating is not None and (stars is None or stars < min_agency_rating): continue
-        below = pref["min_rating"] is not None and prof["composite"] is not None and prof["composite"] < pref["min_rating"]
-        if below: continue
+        if set(pref["capabilities"]) - set(cg.capabilities or []): continue                        # hard: must-have skills
+        if pref["min_rating"] is not None and prof["composite"] is not None and prof["composite"] < pref["min_rating"]: continue  # hard: minimum reputation
         points = extra_points(cg.name, prof, pref, pol)
+        covered = [n for n in needs if n in (cg.capabilities or [])]
+        if covered:
+            from app.engine.backup_matcher import support_phrase
+            points.append({"label": f"Can {support_phrase(covered)} ({len(covered)} of {len(needs)} needs)", "points": pol["need_covered"] * len(covered)})
         why = [x["label"] for x in points if x["points"] > 0]
         if prof["composite"] is None: why.append("No rating yet: shown, not ranked down")
         if pref["capabilities"]: why.append("Has every must-have skill")
-        out.append({"caregiver_id": str(cg.id), "name": cg.name, "score": sum(x["points"] for x in points), "points": points, "why": why,
-                    "composite": prof["composite"], "metric": prof["metric"], "city": p.current_city, "state": p.current_state, "sector": prof["sector"],
-                    "gender": p.gender, "languages": list(p.languages or []), "capabilities": list(cg.capabilities or []), "years_experience": p.years_experience,
-                    "unrated": prof["composite"] is None, "agency": agency_names.get(p.agency_id) if p.agency_id else None,
-                    "agency_rating": float(stars) if stars is not None else None})
-    out.sort(key=lambda m: (-m["score"], -(m["composite"] or 50), m["name"].lower(), m["caregiver_id"]))
-    return out[:limit]
+        card = directory.card(p, cg, sectors, agencies)
+        card.update(caregiver_id=str(cg.id), score=sum(x["points"] for x in points), points=points, why=why, composite=prof["composite"], metric=prof["metric"],
+                    city=p.current_city, state=p.current_state, unrated=prof["composite"] is None, agency_rating=float(stars[cg.id]) if cg.id in stars else None,
+                    agency_name=card["agency"]["name"] if card["agency"] else None)
+        out.append((card, cg))
+    if sort == "name": out.sort(key=lambda x: (x[0]["name"].lower(), x[0]["caregiver_id"]))
+    elif sort == "experience": out.sort(key=lambda x: (-x[0]["years_experience"], x[0]["name"].lower(), x[0]["caregiver_id"]))
+    else: out.sort(key=lambda x: (-x[0]["score"], -(x[0]["composite"] if x[0]["composite"] is not None else 50), x[0]["name"].lower(), x[0]["caregiver_id"]))
+    top = []
+    for card, cg in out[:limit]:
+        note = capacity_note(db, cg)  # only for those shown: a caretaker with no room this week drops in the ranking, with the reason
+        card["capacity_note"] = note
+        if note:
+            card["points"].append({"label": "Little free time this week", "points": -pol["little_capacity"]})
+            card["score"] -= pol["little_capacity"]
+        top.append(card)
+    if sort == "best": top.sort(key=lambda c: (-c["score"], -(c["composite"] if c["composite"] is not None else 50), c["name"].lower(), c["caregiver_id"]))
+    if settings.feature("ratings"):
+        from app.services import reputation
+        found_rep = reputation.breakdowns(db, [uuid.UUID(c["caregiver_id"]) for c in top]) if top else {}
+        for c in top: c["reputation"] = rep_summary(found_rep[uuid.UUID(c["caregiver_id"])])
+    return {"items": top, "total": len(out), "needs": needs}
 
 
 def suggestions(db: Session, patient_id, required: list[str], limit: int = 3) -> list[dict]:
@@ -162,7 +188,7 @@ def suggestions(db: Session, patient_id, required: list[str], limit: int = 3) ->
     if not settings.feature("team_builder"): return []
     pref = preference_dict(preferences(db, patient_id))
     need = {"capabilities": sorted(set(pref["capabilities"]) | set(required or []))}
-    found = matches(db, patient_id, limit=50, need=need)
+    found = matches(db, patient_id, limit=50, need=need)["items"]
     if pref["sector_code"]: found = [m for m in found if m["sector"] == pref["sector_code"]] or found
     return [{"caregiver_id": m["caregiver_id"], "name": m["name"], "composite": m["composite"], "city": m["city"], "why": m["why"][:3],
              "prompt": f"Send a request to {m['name'].split()[0]}?"} for m in found[:limit]]
@@ -253,7 +279,7 @@ def decline(db: Session, r: HireRequest, caretaker_user: User, reason: str = "",
     if cg.user_id != caretaker_user.id: raise HireError(403, "Only the caretaker this request was sent to can answer it")
     if not _transition(db, r, "DECLINED", at, decline_reason=reason.strip()[:300]): raise HireError(409, f"This request is already {r.status.lower()}")
     from app.services.notify import notify
-    notify(db, [r.requested_by], r.patient_id, f"{cg.name} declined", "They declined your request. Nothing was shared. Build care team shows other matches.", kind="STATUS", severity="LOW",
+    notify(db, [r.requested_by], r.patient_id, f"{cg.name} declined", "They declined your request. Nothing was shared. Find & build team shows other matches.", kind="STATUS", severity="LOW",
            channel="INBOX", link="/build-team")
     db.add(ActivityHistory(actor_user_id=caretaker_user.id, patient_id=r.patient_id, event_type="hire_request.declined", entity_type="hire_request", entity_id=str(r.id),
                            summary=f"{cg.name} declined the hire request", payload={}))

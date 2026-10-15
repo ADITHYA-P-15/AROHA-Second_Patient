@@ -8,10 +8,10 @@ before the task counts as covered.
 
 Snapshot: the Workload Balancer snapshot (caregivers, activities, commitments, confirmed_backups)
 plus optional ``history``: {caregiver_id: {"patient_tasks": n, "same_series": n, "same_category": n}}
-and optional ``extras`` (team builder): {"profiles": {caregiver_id: {composite, metric, city, sector, languages, gender}},
-"preferences": {gender, gender_mode, languages, city, sector_code} | None, "policy": core/matcher_policy values}.
-Extras only add points to people who already pass every hard rule, except a HARD gender preference, which is a
-visible filter reason (status PREFERENCE). Unrated people get a neutral, labelled 0.
+and optional ``extras`` (team builder): {"profiles": {caregiver_id: {composite, metric, city, sector, languages}},
+"preferences": {languages, city, sector_code} | None, "policy": core/matcher_policy values}.
+Extras only add points to people who already pass every hard rule; they never filter anyone out. Unrated people get a
+neutral, labelled 0.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from app.engine.availability import Window, is_available_for
 from app.engine.workload_balancer import PROFESSIONAL_KINDS, LoadContext, counts_toward_limit, delegation_class
 
 TRAVEL_GAP = timedelta(minutes=30)
-STATUS_ORDER = ("ELIGIBLE", "PREFERENCE", "AT_LIMIT", "COMMITTED", "UNAVAILABLE", "MISSING_CAPABILITY", "NOT_QUALIFIED", "DECLINED_REQUEST", "INACTIVE", "REPLACED")
+STATUS_ORDER = ("ELIGIBLE", "AT_LIMIT", "COMMITTED", "UNAVAILABLE", "MISSING_CAPABILITY", "NOT_QUALIFIED", "DECLINED_REQUEST", "INACTIVE", "REPLACED")
 POINTS = {"eligible": 40, "daily_headroom": 15, "weekly_headroom": 10, "confirmed_backup": 25, "designated_backup": 10,
           "same_series": 15, "patient_history_per_task": 2, "patient_history_cap": 10, "same_category": 5,
           "professional_on_general": -15, "tight_connection": -10}
@@ -69,13 +69,6 @@ def _scaled(value: float | None, max_points: int) -> int:
     return 0 if value is None else int(round(max_points * (float(value) - 50.0) / 50.0))
 
 
-def _preference_failure(name: str, profile: dict, prefs: dict | None) -> str | None:
-    if not prefs or not prefs.get("gender") or prefs.get("gender_mode") != "HARD": return None
-    if (profile or {}).get("gender") == prefs["gender"]: return None
-    wanted = prefs["gender"].replace("_", "-").lower()
-    return f"{name} does not meet the family's requirement of a {wanted} caretaker." if (profile or {}).get("gender") else f"{name} has no gender recorded; the family requires a {wanted} caretaker."
-
-
 def extra_points(name: str, profile: dict | None, prefs: dict | None, pol: dict) -> list[dict]:
     """Reputation and preference points, each with a plain label. Pure: used by the matcher and documented in BACKUP_MATCHER.md."""
     profile, prefs = profile or {}, prefs or {}
@@ -91,8 +84,6 @@ def extra_points(name: str, profile: dict | None, prefs: dict | None, pol: dict)
     wanted = {x.lower() for x in prefs.get("languages") or []}
     spoken = [x for x in profile.get("languages") or [] if x.lower() in wanted]
     if spoken: out.append({"label": f"Speaks {', '.join(spoken)}", "points": pol["language_match"]})
-    if prefs.get("gender") and prefs.get("gender_mode") == "SOFT" and profile.get("gender") == prefs["gender"]:
-        out.append({"label": "Matches the family's preferred gender", "points": pol["soft_gender"]})
     return out
 
 
@@ -132,9 +123,6 @@ def _assess(ctx: LoadContext, activity, cid: str, *, replaced: str, declined: se
     holds_it = any(other == aid for _, other, _ in load.windows)
     day_after = load.day_tasks.get(day, 0) + (0 if holds_it or not counts_toward_limit(activity) else 1)
     week_after = load.week_hours.get(week, 0.0) + (0 if holds_it else ctx.hours(activity))
-    if extras is not None:
-        preference = _preference_failure(name, extras.get("profiles", {}).get(cid), extras.get("preferences"))
-        if preference: failures["PREFERENCE"] = preference
     if day_after > day_limit:
         failures["AT_LIMIT"] = f"{name} is available but would exceed their daily limit ({day_after}/{day_limit} tasks)."
     elif week_after > week_limit + 1e-9:

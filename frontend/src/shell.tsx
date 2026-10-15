@@ -1,7 +1,7 @@
 import { FormEvent, Fragment, useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BarChart3, CalendarClock, Check, CalendarDays, HandHelping, HeartHandshake, History, LifeBuoy, ListChecks, LogOut, Menu, Network, RotateCcw, Pill, Scale, Search, Siren, Stethoscope, IdCard, UserPlus, Inbox, Sun, UserRound, Users, X, type LucideIcon } from 'lucide-react';
+import { BarChart3, CalendarClock, Check, CalendarDays, HandHelping, HeartHandshake, History, LifeBuoy, ListChecks, LogOut, Menu, Network, RotateCcw, Pill, Scale, Siren, Stethoscope, IdCard, UserPlus, Inbox, Sun, UserRound, Users, X, type LucideIcon } from 'lucide-react';
 import { CommandCenter } from './CommandCenter.tsx';
 import { WorkloadBalancer } from './WorkloadBalancer.tsx';
 import { CoverRequests } from './CoverRequests.tsx';
@@ -15,7 +15,6 @@ import { NotificationCenter } from './Notifications.tsx';
 import { VoiceNoteBlock, VoiceRecorder } from './VoiceNote.tsx';
 import { LEVEL_NAMES, type VoiceNoteInfo } from './lib/voice.ts';
 import { CarePlan } from './CarePlan.tsx';
-import { FindCaretakers } from './FindCaretakers.tsx';
 import { MyDirectoryProfile } from './MyDirectoryProfile.tsx';
 import { BuildTeam, HireRequests } from './BuildTeam.tsx';
 import { CheckInCard } from './CheckIn.tsx';
@@ -52,8 +51,7 @@ const roleNav: Record<string, NavItem[]> = {
     { title: 'Workload Balancer', path: '/workload', icon: Scale },
     { title: 'Care Team', path: '/care-team', icon: Network, group: 'People' },
     { title: 'Caretakers', path: '/care-network', icon: Users },
-    { title: 'Find caretakers', path: '/find-caretakers', icon: Search },
-    { title: 'Build care team', path: '/build-team', icon: UserPlus },
+    { title: 'Find & build team', path: '/build-team', icon: UserPlus },
     { title: 'Patient Profile', path: '/patient-profile', icon: UserRound },
     { title: 'Help Requests', path: '/incidents', icon: Siren, group: 'Records' },
     { title: 'History', path: '/history', icon: History },
@@ -81,7 +79,7 @@ const roleNav: Record<string, NavItem[]> = {
     { title: 'Care Plan', path: '/care-plan', icon: CalendarDays },
   ],
 };
-const DIRECTORY_PATHS = new Set(['/find-caretakers', '/my-profile']);
+const DIRECTORY_PATHS = new Set(['/my-profile']);
 const TEAM_BUILDER_PATHS = new Set(['/build-team', '/hire-requests']);
 const homeFor = (role: string) => (roleNav[role] ?? roleNav.PRIMARY_CONTACT)[0].path;
 function Login({ onLogin, demoMode }: { onLogin: (u: User) => void; demoMode: boolean }) {
@@ -147,7 +145,6 @@ function Workspace({ user, meta }: { user: User; meta?: { phase: number; version
       case '/care-network': return <CareNetwork role={user.role}/>;
       case '/care-plan': return <CarePlan role={user.role}/>;
       case '/history': return <HistoryPage/>;
-      case '/find-caretakers': return <FindCaretakers/>;
       case '/my-profile': return <MyDirectoryProfile/>;
       case '/build-team': return <BuildTeam/>;
       case '/hire-requests': return <HireRequests/>;

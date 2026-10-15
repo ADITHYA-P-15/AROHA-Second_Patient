@@ -819,16 +819,15 @@ A caretaker taps **I'm here · check in** in My Day for appointments, transport,
 
 ## Directory phase 3 — Hire requests, care-team builder, reputation-aware backups
 
-- **Build care team (primary contact):**
-  - Set the patient's needs: preferred or required caretaker gender, languages, city or region, a minimum reputation and must-have skills.
+- **Find & build team (primary contact; Find caretakers and Build care team merged):**
+  - Every directory filter (including gender and agency rating), plus the patient's needs: languages, city or region, a minimum reputation and must-have skills.
   - See ranked directory matches with a plain "why", compare up to three side by side, send a hire request, and track or withdraw it.
 - **Hire requests (caretaker):**
   - Accept or decline in the app.
   - On accept they join the care team as main caretaker or backup, and only then do their phone and email appear to the family.
   - Requests expire after 7 days. Delivery is in-app only.
 - **Backups:**
-  - The Backup Matcher adds documented points for reputation, the reliability record, same city or region, language and a soft gender preference.
-  - A hard preference is a visible filter, and unrated people are neutral.
+  - The Backup Matcher adds documented points for reputation, the reliability record, same city or region and language. Unrated people are neutral. The same logic, plus the patient's support needs and free time, ranks the top caretakers in Find & build team.
   - Hard rules (availability, clashes, skills, limits) never change.
   - When nobody on the team can cover, it suggests directory caretakers to send a request to. It never adds or offers to them on its own.
 - **Removing a member** opens cover for their upcoming tasks right away.

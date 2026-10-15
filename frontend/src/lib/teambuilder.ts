@@ -1,22 +1,38 @@
+import { buildDirectoryQuery, type DirectoryFilters } from './directory.ts';
 import { supportLabel } from './plan.ts';
+import type { ReputationSummary } from './reputation.ts';
 
 export type Point = { label: string; points: number };
+/** One ranked caretaker in the merged Find & build care team list: the public directory card plus how it was ranked. */
 export type Match = {
-  caregiver_id: string; name: string; score: number; points: Point[]; why: string[]; composite: number | null; metric: number | null; city: string; state: string;
-  sector: string | null; gender: string; languages: string[]; capabilities: string[]; years_experience: number; unrated: boolean; request_pending?: boolean;
-  agency?: string | null; agency_rating?: number | null;
+  caregiver_id: string; id?: string; name: string; score: number; points: Point[]; why: string[]; composite: number | null; metric: number | null;
+  city: string; state: string; sector: string | null; gender: string; gender_label?: string; origin_city?: string; origin_state?: string;
+  languages: string[]; capabilities: string[]; years_experience: number; unrated: boolean; request_pending?: boolean;
+  agency?: { id: string; name: string } | null; agency_name?: string | null; agency_rating?: number | null; capacity_note?: string | null; reputation?: ReputationSummary;
 };
-export type Preferences = { gender: string | null; gender_mode: 'HARD' | 'SOFT'; languages: string[]; city: string; sector_code: string | null; min_rating: number | null; capabilities: string[]; set?: boolean };
+export type MatchPage = { items: Match[]; total: number; needs: string[] };
+export type Preferences = { languages: string[]; city: string; sector_code: string | null; min_rating: number | null; capabilities: string[]; set?: boolean };
 export type HireStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'WITHDRAWN' | 'EXPIRED';
 export type HireRequest = {
   id: string; patient: { id: string; name: string }; caretaker: { id: string; name: string }; requested_by: string | null; intended_role: 'MAIN' | 'BACKUP';
   message: string; status: HireStatus; status_text: string; decline_reason: string; created_at: string; expires_at: string; responded_at: string | null; capacity_note?: string | null;
 };
 export type Suggestion = { caregiver_id: string; name: string; composite: number | null; city: string; why: string[]; prompt: string };
+export type MatchSort = 'best' | 'name' | 'experience';
 
 export const MAX_COMPARE = 3;
+export const TOP_DEFAULT = 12;
 
-/** Client-side narrowing of the ranked matches (the server already applied hard preferences). Order is kept. */
+/** Query for GET /patients/{id}/team-matches: every directory filter, plus how many of the top matches and the order. */
+export function buildMatchesQuery(filters: DirectoryFilters, sort: MatchSort = 'best', limit: number = TOP_DEFAULT): string {
+  const base = buildDirectoryQuery({ ...filters, sort: undefined, limit: undefined, offset: undefined }).replace(/^\?/, '');
+  const params = new URLSearchParams(base);
+  if (sort !== 'best') params.set('sort', sort);
+  params.set('limit', String(Math.min(50, Math.max(1, Math.floor(limit) || TOP_DEFAULT))));
+  return `?${params.toString()}`;
+}
+
+/** Client-side narrowing of the ranked matches (the server applied the filters and hard rules). Order is kept. */
 export function filterMatches(items: Match[], f: { text?: string; ratedOnly?: boolean; language?: string; minAgencyRating?: number | null }): Match[] {
   const text = (f.text ?? '').trim().toLowerCase();
   const lang = (f.language ?? '').trim().toLowerCase();
@@ -34,12 +50,14 @@ export function toggleCompare(selected: string[], id: string): string[] {
 }
 
 const fmtScore = (v: number | null) => v === null ? 'Not rated yet' : `${Math.round(v)}/100`;
+const agencyOf = (m: Match) => m.agency_name ?? m.agency?.name ?? null;
 
 /** Rows of the side-by-side view: one attribute per row, one column per caretaker, in the order picked. */
 export function compareRows(items: Match[]): { label: string; values: string[] }[] {
   return [
+    { label: 'Match points', values: items.map(m => String(m.score)) },
     { label: 'Reputation', values: items.map(m => fmtScore(m.composite)) },
-    { label: 'Agency rating', values: items.map(m => m.agency_rating ? `${m.agency_rating.toFixed(1)}★ (${m.agency ?? 'agency'})` : m.agency ? `Not rated (${m.agency})` : 'Independent') },
+    { label: 'Agency rating', values: items.map(m => m.agency_rating ? `${m.agency_rating.toFixed(1)}★ (${agencyOf(m) ?? 'agency'})` : agencyOf(m) ? `Not rated (${agencyOf(m)})` : 'Independent') },
     { label: 'Reliability record', values: items.map(m => m.metric === null ? 'Not enough history' : `${Math.round(m.metric)}/100`) },
     { label: 'Lives in', values: items.map(m => [m.city, m.state].filter(Boolean).join(', ') || 'Not given') },
     { label: 'Languages', values: items.map(m => m.languages.join(', ') || 'Not given') },

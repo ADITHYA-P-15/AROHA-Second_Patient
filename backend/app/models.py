@@ -655,8 +655,8 @@ class PatientCarePreference(Base):
                       CheckConstraint("gender_mode IN ('HARD','SOFT')", name="ck_care_pref_gender_mode"),
                       CheckConstraint("min_rating IS NULL OR (min_rating >= 0 AND min_rating <= 100)", name="ck_care_pref_min_rating"))
     patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), primary_key=True)
-    gender: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    gender_mode: Mapped[str] = mapped_column(String(4), default="SOFT")
+    gender: Mapped[str | None] = mapped_column(String(16), nullable=True)            # unused since gender became a filter only; kept so applied migrations stay valid
+    gender_mode: Mapped[str] = mapped_column(String(4), default="SOFT")              # unused (see gender)
     languages: Mapped[list] = mapped_column(JSON, default=list)
     city: Mapped[str] = mapped_column(String(80), default="")
     sector_code: Mapped[str | None] = mapped_column(String(8), nullable=True)

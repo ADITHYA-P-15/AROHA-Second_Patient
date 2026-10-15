@@ -175,17 +175,14 @@ def test_reputation_reorders_but_never_overrides_a_hard_rule():
     assert labels["Reputation 95/100"] == 9 and {p["label"]: p["points"] for p in rows["anna"]["score_breakdown"]}["Reputation 40/100"] == -2
 
 
-def test_hard_preference_filters_with_a_reason_and_soft_preference_adds_points():
-    prefs = {"gender": "FEMALE", "gender_mode": "HARD", "languages": ["Tamil"], "city": "Chennai", "sector_code": "SOUTH"}
-    extras = {"profiles": {"anna": profile(gender="FEMALE", languages=["Tamil"], city="Chennai"), "bala": profile(80, gender="MALE")}, "preferences": prefs, "policy": POL}
+def test_preferences_only_add_points_and_never_filter_anyone():
+    prefs = {"languages": ["Tamil"], "city": "Chennai", "sector_code": "SOUTH"}
+    extras = {"profiles": {"anna": profile(languages=["Tamil"], city="Chennai"), "bala": profile(80)}, "preferences": prefs, "policy": POL}
     rows = {c["caregiver_id"]: c for c in snap([cg("anna"), cg("bala")], extras)["candidates"]}
-    assert rows["bala"]["status"] == "PREFERENCE" and "requirement of a female caretaker" in rows["bala"]["headline"]
-    soft = {**prefs, "gender_mode": "SOFT"}
-    rows = {c["caregiver_id"]: c for c in snap([cg("anna"), cg("bala")], {**extras, "preferences": soft})["candidates"]}
-    assert rows["bala"]["eligible"]
+    assert rows["anna"]["eligible"] and rows["bala"]["eligible"]  # no preference-based status any more
     labels = {p["label"] for p in rows["anna"]["score_breakdown"]}
-    assert {"Matches the family's preferred gender", "Speaks Tamil", "Lives in Chennai, the patient's city"} <= labels
-    assert "Matches the family's preferred gender" not in {p["label"] for p in rows["bala"]["score_breakdown"]}
+    assert {"Speaks Tamil", "Lives in Chennai, the patient's city"} <= labels
+    assert not any("gender" in p["label"].lower() for r in rows.values() for p in r["score_breakdown"])
 
 
 def test_unrated_is_neutral_and_ties_are_deterministic():
@@ -198,24 +195,24 @@ def test_unrated_is_neutral_and_ties_are_deterministic():
 
 
 def test_extra_points_are_each_explained():
-    labels = [p["label"] for p in extra_points("Asha", profile(90, 70, city="Pune", sector="WEST", languages=["Marathi"], gender="FEMALE"),
-                                                {"gender": "FEMALE", "gender_mode": "SOFT", "languages": ["marathi"], "city": "pune", "sector_code": "WEST"}, POL)]
-    assert labels == ["Reputation 90/100", "Reliability record 70/100", "Lives in Pune, the patient's city", "Speaks Marathi", "Matches the family's preferred gender"]
+    labels = [p["label"] for p in extra_points("Asha", profile(90, 70, city="Pune", sector="WEST", languages=["Marathi"]),
+                                                {"languages": ["marathi"], "city": "pune", "sector_code": "WEST"}, POL)]
+    assert labels == ["Reputation 90/100", "Reliability record 70/100", "Lives in Pune, the patient's city", "Speaks Marathi"]
     assert [p["label"] for p in extra_points("Asha", profile(sector="WEST"), {"sector_code": "WEST"}, POL)][-1] == "Lives in the patient's region"
 
 
 def test_matcher_policy_validation():
     assert mp.build('{"same_city": 9}')["same_city"] == 9
-    for bad in ('{"same_city": -1}', '{"vibes": 3}', '{"reputation_max": 2.5}', '[]', '{bad'):
+    for bad in ('{"same_city": -1}', '{"vibes": 3}', '{"reputation_max": 2.5}', '[]', '{bad', '{"soft_gender": 6}'):
         with pytest.raises(mp.PolicyError): mp.build(bad)
 
 
-def test_the_live_matcher_uses_preferences_for_cover(monkeypatch):
+def test_the_live_matcher_adds_preference_points_for_cover_without_filtering(monkeypatch):
     monkeypatch.setattr(settings, "auto_coordination", False)
     coord, pid = primary_contact_with_patient()
     holder, _ = caretaker(coord, pid, name="Holder", caps=("TRANSPORT",))
     man_cid, _ = caretaker(coord, pid, name="Arun backup", caps=("TRANSPORT",))
-    carer, woman_cid = listed("Bhavna backup")
+    carer, woman_cid = listed("Bhavna backup", languages=("Konkani",))
     with SessionLocal() as db:
         db.get(Caregiver, uuid.UUID(woman_cid)).capabilities = ["TRANSPORT"]; db.commit()
     rid = send(coord, pid, woman_cid).json()["id"]
@@ -230,12 +227,14 @@ def test_the_live_matcher_uses_preferences_for_cover(monkeypatch):
     assert made.status_code == 201, made.text
     aid = made.json()["id"]
     assert coord.post(f"/api/v1/activities/{aid}/assignments", headers=H, json={"caregiver_id": holder, "role": "PRIMARY", "confirm_now": True}).status_code in (200, 201)
-    assert coord.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={"gender": "FEMALE", "gender_mode": "HARD"}).status_code == 200
+    assert coord.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={"languages": ["Konkani"]}).status_code == 200
     req = coord.post(f"/api/v1/activities/{aid}/cover-requests", headers=H, json={"note": "Fictional"}).json()
     ranking = coord.get(f"/api/v1/cover-requests/{req['id']}").json()["ranking"]
     rows = {c["caregiver_id"]: c for c in ranking["candidates"]}
-    assert rows[man_cid]["status"] == "PREFERENCE" and rows[woman_cid]["eligible"]
-    assert any(p["label"].startswith("Reputation") for p in rows[woman_cid]["score_breakdown"])
+    assert rows[man_cid]["eligible"] and rows[woman_cid]["eligible"]
+    labels = [p["label"] for p in rows[woman_cid]["score_breakdown"]]
+    assert "Speaks Konkani" in labels and any(l.startswith("Reputation") for l in labels)
+    assert ranking["candidates"][0]["caregiver_id"] == woman_cid
 
 
 # --- suggestions -------------------------------------------------------------------------------------------------------
@@ -247,7 +246,7 @@ def test_suggestions_are_listed_but_never_added_or_offered(monkeypatch):
     _, outside = listed("Outside helper", city="Testville", languages=("Konkani",))
     with SessionLocal() as db:
         db.get(Caregiver, uuid.UUID(outside)).capabilities = ["TRANSPORT"]; db.commit()
-    coord.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={"sector_code": "WEST", "city": "Testville", "languages": ["Konkani"], "gender": "FEMALE"})
+    coord.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={"sector_code": "WEST", "city": "Testville", "languages": ["Konkani"]})
     start = (now() + timedelta(days=2)).replace(minute=0, second=0, microsecond=0)
     aid = coord.post(f"/api/v1/patients/{pid}/activities", headers=H, json={"title": "Fictional ride", "category": "TRANSPORT", "scheduled_start": start.isoformat(),
                                                                            "scheduled_end": (start + timedelta(hours=1)).isoformat(), "required_support": ["TRANSPORT"]}).json()["id"]
@@ -255,14 +254,15 @@ def test_suggestions_are_listed_but_never_added_or_offered(monkeypatch):
     req = coord.post(f"/api/v1/activities/{aid}/cover-requests", headers=H, json={"note": "Fictional"}).json()
     ranking = coord.get(f"/api/v1/cover-requests/{req['id']}").json()["ranking"]
     assert ranking["eligible_count"] == 0
-    assert outside in {s["caregiver_id"] for s in ranking["suggestions"]}
-    s = next(x for x in ranking["suggestions"] if x["caregiver_id"] == outside)
-    assert s["prompt"] == "Send a request to Outside?"
+    assert ranking["suggestions"]  # the directory has caretakers who could do it
+    s = ranking["suggestions"][0]
+    outside = s["caregiver_id"]
+    assert s["prompt"] == f"Send a request to {s['name'].split()[0]}?" and s["why"]
     assert coord.post(f"/api/v1/cover-requests/{req['id']}/offer", headers=H, json={"caregiver_id": outside}).status_code in (403, 404, 409, 422)
     with SessionLocal() as db:
         assert db.scalar(select(CoverRequest.offered_caregiver_id).where(CoverRequest.id == uuid.UUID(req["id"]))) is None
         assert not db.scalar(select(CareTeamMember.id).join(Caregiver, Caregiver.user_id == CareTeamMember.user_id).where(Caregiver.id == uuid.UUID(outside), CareTeamMember.patient_id == uuid.UUID(pid)))
-        assert not db.scalar(select(HireRequest.id).where(HireRequest.caregiver_id == uuid.UUID(outside)))
+        assert not db.scalar(select(HireRequest.id).where(HireRequest.caregiver_id == uuid.UUID(outside), HireRequest.patient_id == uuid.UUID(pid)))
 
 
 # --- removal and Command Center ----------------------------------------------------------------------------------------
@@ -315,8 +315,9 @@ def test_preferences_are_edited_by_the_primary_contact_only():
     carer_id, carer = caretaker(coord, pid)
     assert carer.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={}).status_code == 403
     assert coord.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={"capabilities": ["TELEPATHY"]}).status_code == 422
-    saved = coord.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={"languages": ["tamil", "Tamil"], "min_rating": 70, "gender": "FEMALE", "gender_mode": "HARD"}).json()
-    assert saved["languages"] == ["Tamil"] and saved["min_rating"] == 70 and saved["gender_mode"] == "HARD"
+    saved = coord.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={"languages": ["tamil", "Tamil"], "min_rating": 70}).json()
+    assert saved["languages"] == ["Tamil"] and saved["min_rating"] == 70 and "gender" not in saved
+    assert coord.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={"gender": "FEMALE"}).status_code == 422  # gender is a filter now
 
 
 def test_insights_show_a_team_reputation_summary_per_patient():
@@ -341,8 +342,41 @@ def test_team_matches_carry_the_agency_rating_and_can_filter_by_it():
     with SessionLocal() as db:
         db.add_all([AgencyRating(caregiver_id=uuid.UUID(high), rating=4.6), AgencyRating(caregiver_id=uuid.UUID(low), rating=3.2)]); db.commit()
     coord.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={"city": "Agencyville"})
-    rows = {m["caregiver_id"]: m for m in coord.get(f"/api/v1/patients/{pid}/team-matches?limit=50").json()["items"]}
+    rows = {m["caregiver_id"]: m for m in coord.get(f"/api/v1/patients/{pid}/team-matches?limit=50&city=Agencyville").json()["items"]}
     assert rows[high]["agency_rating"] == 4.6 and rows[low]["agency_rating"] == 3.2 and rows[none]["agency_rating"] is None
-    filtered = {m["caregiver_id"] for m in coord.get(f"/api/v1/patients/{pid}/team-matches?limit=50&min_agency_rating=4").json()["items"]}
+    filtered = {m["caregiver_id"] for m in coord.get(f"/api/v1/patients/{pid}/team-matches?limit=50&city=Agencyville&min_agency_rating=4").json()["items"]}
     assert high in filtered and low not in filtered and none not in filtered
     assert coord.get(f"/api/v1/patients/{pid}/team-matches?min_agency_rating=0.5").status_code == 422
+
+
+def test_the_merged_list_applies_directory_filters_and_ranks_like_a_backup():
+    from app.models import AgencyRating, PatientSupportNeed
+    coord, pid = primary_contact_with_patient()
+    with SessionLocal() as db:
+        db.add_all([PatientSupportNeed(patient_id=uuid.UUID(pid), support_code="TRANSPORT"), PatientSupportNeed(patient_id=uuid.UUID(pid), support_code="LAB_ESCORT")]); db.commit()
+    _, both = listed("Mergeville both", city="Mergeville", gender="FEMALE")
+    _, one = listed("Mergeville one", city="Mergeville", gender="FEMALE")
+    _, man = listed("Mergeville man", city="Mergeville", gender="MALE")
+    with SessionLocal() as db:
+        db.get(Caregiver, uuid.UUID(both)).capabilities = ["TRANSPORT", "LAB_ESCORT"]
+        db.get(Caregiver, uuid.UUID(one)).capabilities = ["TRANSPORT"]
+        db.get(Caregiver, uuid.UUID(man)).capabilities = ["TRANSPORT", "LAB_ESCORT"]
+        db.add(AgencyRating(caregiver_id=uuid.UUID(one), rating=5.0)); db.commit()
+    body = coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville&limit=10").json()
+    ids = [m["caregiver_id"] for m in body["items"]]
+    assert set(ids) == {both, one, man} and body["total"] == 3 and body["needs"] == ["LAB_ESCORT", "TRANSPORT"]
+    top = body["items"][0]
+    assert ids.index(both) < ids.index(one) or body["items"][ids.index(one)]["score"] >= top["score"]  # capability coverage counts
+    labels = [p["label"] for p in body["items"][ids.index(both)]["points"]]
+    assert any(l.startswith("Can ") and l.endswith("(2 of 2 needs)") for l in labels)
+    assert all("phone" not in m and "private" not in m for m in body["items"])
+    women = {m["caregiver_id"] for m in coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville&gender=FEMALE").json()["items"]}
+    assert women == {both, one}
+    rated = {m["caregiver_id"] for m in coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville&min_agency_rating=4.5").json()["items"]}
+    assert rated == {one}
+    assert len(coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville&limit=1").json()["items"]) == 1
+    names = [m["name"] for m in coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville&sort=name").json()["items"]]
+    assert names == sorted(names, key=str.lower)
+    coord.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={"capabilities": ["LAB_ESCORT"]})  # must-have skill is a hard rule
+    assert {m["caregiver_id"] for m in coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mergeville").json()["items"]} == {both, man}
+    assert coord.get(f"/api/v1/patients/{pid}/team-matches?capability=FLYING").status_code == 422

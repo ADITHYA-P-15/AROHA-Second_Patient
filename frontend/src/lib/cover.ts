@@ -1,6 +1,6 @@
 export const candidateLabels: Record<string, string> = {
   ELIGIBLE: 'Can take it', COMMITTED: 'Already committed', AT_LIMIT: 'At limit', UNAVAILABLE: 'Unavailable',
-  MISSING_CAPABILITY: 'Missing capability', PREFERENCE: 'Family preference', NOT_QUALIFIED: 'Needs professional', DECLINED_REQUEST: 'Said no', INACTIVE: 'Inactive', REPLACED: 'Being replaced',
+  MISSING_CAPABILITY: 'Missing capability', NOT_QUALIFIED: 'Needs professional', DECLINED_REQUEST: 'Said no', INACTIVE: 'Inactive', REPLACED: 'Being replaced',
 };
 export const resolutionLabels: Record<string, string> = { MATCHER: 'via matcher', MANUAL: 'arranged directly' };
 

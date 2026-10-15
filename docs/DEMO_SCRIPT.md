@@ -87,7 +87,7 @@ CHECKIN_POLICY={"grace_min": 0, "missing_after_min": 0}
 
 The scheduler checks about once a minute.
 
-1. **Set preferences (30 s).** Sign in as `anita.iyer@secondpatient.demo` and open **Build care team**. Set Kannada as the language, Bengaluru as the city, a minimum reputation of 60, and Transport as a must-have skill. Save. The matches re-rank, and each "why" line names the points it earned. Tick three and show **Compare**.
+1. **Set needs and filters (30 s).** Sign in as `anita.iyer@secondpatient.demo` and open **Find & build team**. Under "What the patient needs", set Kannada as the language, Bengaluru as the city, a minimum reputation of 60, and Transport as a must-have skill. Save. Pick the South sector and an agency rating of 4★ and up. The top matches re-rank, and each reason names the points it earned. Tick three and show **Compare**.
 2. **Send a hire request (20 s).** Pick a Bengaluru caretaker, choose **Backup pool**, add a short note and send. Point out the status line ("Waiting ... in the app") and that no phone number is shown anywhere yet.
 3. **The caretaker accepts and the phone appears (40 s).** In another browser, sign in as that caretaker with password `Demo@1234`; the email is in Find caretakers or [DEMO_PEOPLE.md](DEMO_PEOPLE.md). Open **Hire requests** and tap **Accept**. Back as Anita, open **Care Team** and **Caretakers**: the new backup is listed with their (fictional) phone. Find caretakers shows "On your care team".
 4. **A caretaker misses a check-in (40 s).** As Anita, add an appointment starting now in Care Plan and assign it to Savitha (confirm now). Savitha does not tap **I'm here**. Within about a minute, **Cover Requests** shows the task with the reason **No check-in**.

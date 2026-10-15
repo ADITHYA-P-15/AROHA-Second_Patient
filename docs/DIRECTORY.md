@@ -106,6 +106,15 @@ Rules:
 
 - **Agency rating filter.** **Find caretakers** and **Build care team** both have a minimum **Agency rating** filter (any, 3★, 3.5★, 4★, 4.5★ and up). It uses the agency's own 1–5 rating of each caretaker, one of the four reputation sources. Independent caretakers, and those their agency has not rated, are left out once a minimum is chosen. Cards and matches show the agency's rating next to the agency name, and the compare view has an "Agency rating" row.
   - API: `GET /api/v1/directory/caretakers?min_agency_rating=4` and `GET /api/v1/patients/{id}/team-matches?min_agency_rating=4`. Values outside 1–5 return 422.
-- **"Is this gender a must?"** (formerly "How strict") belongs to the patient's gender preference in Build care team.
-  - **Preferred:** caretakers of that gender get +6 points in matches and in the Backup Matcher. Everyone else is still shown and can still be offered cover, just lower.
-  - **Required:** caretakers of other genders, or with no gender recorded, are left out of matches. In cover they appear under "Everyone else" with the reason "Family preference", and they are never offered the task.
+- **Gender** is only a filter (Any, or one gender). The earlier "How strict" / "Is this gender a must?" setting and the stored gender preference were removed. They no longer affect matches or cover. The two old columns in `patient_care_preferences` are left in place, unused, so applied migrations stay untouched.
+
+## One screen: Find & build team
+
+For primary contacts, **Find caretakers** and **Build care team** are now one screen, **Find & build team** (`/build-team`). It has:
+- the patient picker;
+- "What the patient needs" (languages, city, region, minimum reputation, must-have skills);
+- sector tabs and every directory filter, including agency rating;
+- the top matches ranked the way the Backup Matcher ranks a backup (see [BACKUP_MATCHER.md](BACKUP_MATCHER.md)), with match points and plain reasons;
+- the profile drawer, compare up to 3, send a hire request, and request tracking.
+
+API: `GET /api/v1/patients/{id}/team-matches` takes every directory filter, plus `sort` (`best`, `name`, `experience`) and `limit` (up to 50). It returns `{items, total, needs}`. The public `GET /api/v1/directory/caretakers` stays for patients and professionals.

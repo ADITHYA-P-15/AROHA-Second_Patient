@@ -6,6 +6,7 @@ Request responses never carry phone, email or notes; after acceptance the existi
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
@@ -37,8 +38,6 @@ def _primary_contact(db, user, pid):
 
 class PreferencesIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    gender: Literal["FEMALE", "MALE", "NON_BINARY"] | None = None
-    gender_mode: Literal["HARD", "SOFT"] = "SOFT"
     languages: list[str] = Field(default_factory=list, max_length=6)
     city: str = Field(default="", max_length=80)
     sector_code: Literal["NORTH", "SOUTH", "EAST", "WEST"] | None = None
@@ -96,7 +95,6 @@ def get_preferences(pid: uuid.UUID, user=Depends(_current_user), db: Session = D
 def put_preferences(pid: uuid.UUID, body: PreferencesIn, user=Depends(_current_user), db: Session = Depends(get_db)):
     _primary_contact(db, user, pid)
     values = body.model_dump()
-    if values["gender"] is None: values["gender_mode"] = "SOFT"
     svc.save_preferences(db, pid, values, user)
     from app.services.command_center import reconcile_patient
     reconcile_patient(db, pid)
@@ -105,13 +103,22 @@ def put_preferences(pid: uuid.UUID, body: PreferencesIn, user=Depends(_current_u
 
 
 @router.get("/patients/{pid}/team-matches")
-def team_matches(pid: uuid.UUID, limit: int = Query(20, ge=1, le=50), min_agency_rating: float | None = Query(None, ge=1, le=5),
-                 user=Depends(_current_user), db: Session = Depends(get_db)):
+def team_matches(pid: uuid.UUID, limit: int = Query(20, ge=1, le=50), sector: Literal["NORTH", "SOUTH", "EAST", "WEST"] | None = None, agency: uuid.UUID | None = None,
+                 state: str | None = Query(None, max_length=60), city: str | None = Query(None, max_length=80),
+                 gender: Literal["FEMALE", "MALE", "NON_BINARY", "UNDISCLOSED"] | None = None, language: str | None = Query(None, max_length=40),
+                 capability: str | None = Query(None, max_length=40), min_experience: int | None = Query(None, ge=0, le=60),
+                 min_agency_rating: float | None = Query(None, ge=1, le=5), available_on: date | None = None,
+                 sort: Literal["best", "name", "experience"] = "best", user=Depends(_current_user), db: Session = Depends(get_db)):
+    """The Find & build team list: every directory filter, ranked for this patient like a backup would be."""
     _primary_contact(db, user, pid)
+    if capability and capability not in SUPPORT: raise HTTPException(422, "Unknown capability")
+    from app.services.directory import Filters
+    f = Filters(sector=sector, agency=agency, state=state or None, city=city or None, gender=gender, language=language or None, capability=capability,
+                min_experience=min_experience, min_agency_rating=min_agency_rating, available_on=available_on)
     pending = {str(c) for c in db.scalars(select(HireRequest.caregiver_id).where(HireRequest.patient_id == pid, HireRequest.status == "PENDING"))}
-    items = svc.matches(db, pid, limit=limit, min_agency_rating=min_agency_rating)
-    for m in items: m["request_pending"] = m["caregiver_id"] in pending
-    return {"items": items, "preferences": svc.preference_dict(svc.preferences(db, pid))}
+    result = svc.matches(db, pid, limit=limit, filters=f, sort=sort)
+    for m in result["items"]: m["request_pending"] = m["caregiver_id"] in pending
+    return {**result, "preferences": svc.preference_dict(svc.preferences(db, pid))}
 
 
 @router.post("/patients/{pid}/hire-requests", status_code=201)

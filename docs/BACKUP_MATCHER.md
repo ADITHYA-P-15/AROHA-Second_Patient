@@ -25,7 +25,6 @@ Every caregiver linked to the patient is assessed on the same load model as the 
 | Status | Meaning | Headline example |
 |---|---|---|
 | `ELIGIBLE` | Passes every check | “Anna can provide transport and is available 10:00–11:00.” |
-| `PREFERENCE` | Fails the family's HARD preference (team builder) | “… does not meet the family's requirement of a female caretaker.” |
 | `AT_LIMIT` | Would exceed their daily task or weekly hour limit | “… would exceed their daily limit (2/1 tasks).” |
 | `COMMITTED` | Overlapping commitment, buffers included | “… is already committed at that time.” |
 | `UNAVAILABLE` | Outside recorded availability or on a recorded absence | “… is not available 10:00–11:00 (recorded absence).” |
@@ -143,12 +142,22 @@ With the team builder on, eligible people get extra additive points on top of th
 | Same city | +5 | The caretaker's listed city equals the patient's preferred city | "Lives in Pune, the patient's city" |
 | Same region | +2 | Only when the city does not match: same sector | "Lives in the patient's region" |
 | Language | +6 | Speaks any preferred language | "Speaks Tamil" |
-| Soft gender preference | +6 | Matches a SOFT gender preference | "Matches the family's preferred gender" |
 
 - **Hard rules do not change.** Availability, overlaps (with buffers), capabilities, limits, professional-only tasks and an earlier "no" still decide eligibility. Reputation only reorders people who already pass them, so no amount of reputation buys a missing skill or a clash.
-- A **HARD gender preference** is a filter with a visible reason: status `PREFERENCE`, shown under "Everyone else". A **SOFT** preference is points.
+- Preferences only add points; they never filter anyone out of cover. (Gender is a filter in Find & build team, not a matcher rule; the earlier hard/soft gender setting was removed.)
 - Ties keep the existing deterministic order: score, then name, then id.
 - The same ranking serves every reason: decline, absence, manual, unassigned and **NO_CHECKIN** (a missing check-in, see [CHECKIN.md](CHECKIN.md)).
 - Cover Requests and Care Plan show the same breakdown. The per-task score is labelled **Fit for this task** and is never called reputation.
 - **Pool expansion:** when nobody on the care team is eligible, the ranking adds up to three `suggestions`. These are the best listed directory caretakers in the patient's preferred region with the needed skills, each with "Send a request to Priya?". They are never added to the team and never offered the task. Only a primary contact's hire request and the caretaker's acceptance can bring them in.
 - With the flag off, the snapshot carries no `extras` and the matcher behaves exactly as before.
+
+### The same logic when building a team
+
+**Find & build team** ranks directory caretakers for a patient with the points above:
+- reputation and reliability record (neutral when unrated);
+- same city or region;
+- language;
+- **+4 per support need of the patient** they can help with (`need_covered`), from the patient's support needs plus the must-have skills;
+- **-5 "Little free time this week"** (`little_capacity`) when they are already at their limits or have no free hours in the next 7 days.
+
+Must-have skills and the family's minimum reputation are hard rules: people who fail them are not shown. Every directory filter narrows the list first: sector, agency, agency rating, state, city, gender, language, skill, experience and availability on a date. The top matches come first, best first, each with its reasons. Nobody joins without a hire request and their acceptance.

@@ -2,7 +2,7 @@
 
 Defaults below; MATCHER_POLICY (a JSON object merged over them) overrides any value. Validated at start-up like
 CHECKIN_POLICY and REPUTATION_POLICY. These points only reorder people who already pass every hard rule
-(availability, overlaps, capabilities, limits, professional-only, already declined, a HARD preference).
+(availability, overlaps, capabilities, limits, professional-only, already declined).
 See docs/BACKUP_MATCHER.md for the table.
 """
 from __future__ import annotations
@@ -17,7 +17,8 @@ DEFAULT_POLICY: dict = {
     "same_city": 5,
     "same_sector": 2,          # only when the city does not match
     "language_match": 6,
-    "soft_gender": 6,
+    "need_covered": 4,         # team building: per support need of the patient the caretaker can help with
+    "little_capacity": 5,      # team building: subtracted when already at their limits or with no free hours this week
 }
 
 
