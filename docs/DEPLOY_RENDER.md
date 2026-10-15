@@ -15,7 +15,7 @@ What the app needs decides this, not preference:
 
 | Option | Fit | Why |
 |---|---|---|
-| **Render** (web service + managed Postgres) | **Recommended** | Runs the Docker image as it is, always on from the Starter plan, managed Postgres, automatic HTTPS and domains, deploy on green CI, one-click rollback. Least to operate. |
+| **Render** (web service + managed Postgres) | **Recommended** | Runs the Docker image as it is, always on from the Starter plan, managed Postgres, automatic HTTPS and domains, deploys on every commit (the build runs the tests), one-click rollback. Least to operate. |
 | Railway | Good alternative | Same shape (Docker service + Postgres add-on), usage-based pricing. Use the same environment variables. |
 | Fly.io | Good alternative | Strong regional options (including Mumbai); more command-line work (`fly.toml`, Postgres, volumes). |
 | One VM with Docker Compose | Best control and cost | Already built: `docker-compose.prod.yml`, Caddy, `scripts/deploy.sh` (see [DEPLOYMENT.md](DEPLOYMENT.md)). More chores: patching, backups, monitoring are yours. |
@@ -45,13 +45,8 @@ database): health, version, production flags, hidden schema, scheduler running, 
 ## 3. Step by step on Render
 
 1. **Get the code on GitHub** with `render.yaml` at the repository root (it is on `main` once this is merged).
-2. **Optional: make CI a gate.** `render.yaml` deploys on every commit to `main` (`autoDeployTrigger: commit`). That is safe,
-   because the image build runs the whole test suite and a failing build leaves the running version in place. When GitHub
-   Actions is working for the repository, change it to `checksPass` so Render also waits for CI, and require the `backend` and
-   `frontend` checks in GitHub: Settings, Branches.
-   **If CI shows "The job was not started because recent account payments have failed or your spending limit needs to be
-   increased"**, that is a GitHub billing or spending-limit setting on the account or organization that owns the repository
-   (Settings, Billing and plans). It is not a code problem. Deploys still work because the build tests the code itself.
+2. **Deploys are gated by the build.** `render.yaml` deploys every commit to `main` (`autoDeployTrigger: commit`). The image build
+   runs the whole backend and frontend test suites, so a failing commit never replaces the running version.
 3. **Create the services.** In Render: New, Blueprint, connect the GitHub repository, branch `main`. Render reads
    `render.yaml` and lists a web service `carecircle` and a database `carecircle-db`. Click Apply.
 4. **Enter the two secrets it asks for**: `GEMINI_API_KEY` and `GROQ_API_KEY`. Leave them empty to run without AI (voice notes
@@ -75,7 +70,7 @@ database): health, version, production flags, hidden schema, scheduler running, 
 
 | Task | How |
 |---|---|
-| Ship a change | Merge a pull request. CI runs, then Render builds and deploys. Migrations run on boot (additive only: see DEPLOYMENT.md section 7). |
+| Ship a change | Merge a pull request. Render builds (running the tests) and deploys. Migrations run on boot (additive only: see DEPLOYMENT.md section 7). |
 | Roll back | Render dashboard, the service's Deploys tab, pick the previous deploy, Rollback. Safe because migrations are additive. |
 | Turn a feature on or off | Edit `FEATURES` in the service's Environment and save (Render restarts it). Add `voice_notes` to enable, remove it to disable. |
 | Rotate a secret | Change it in Environment. Changing `SECRET_KEY` signs everyone out. |

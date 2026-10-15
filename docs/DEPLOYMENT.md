@@ -35,7 +35,7 @@ microphone and secure cookies), is cheap to run, and is the same shape Stage C w
 ```
 
 Files: `docker-compose.prod.yml`, `deploy/Caddyfile`, `.env.production.example`, `scripts/deploy.sh`, `scripts/backup.sh`,
-`scripts/restore.sh`, `scripts/postdeploy_check.py`, `.github/workflows/ci.yml`.
+`scripts/restore.sh`, `scripts/postdeploy_check.py`.
 
 Why one container and one worker: the scheduler (escalation timers, missed doses, reminders, automatic cover) runs inside
 the app and keeps a few counters in memory (login rate limits). One worker is correct. A **database lock** now guarantees only
@@ -167,11 +167,11 @@ setting, and switched off again in seconds, without a redeploy of old behaviour.
 ### The path of a change
 
 ```
-feature branch ─▶ pull request + CI (lint, types, tests, build) ─▶ main ─▶ tag vYYYY.MM.N ─▶ staging ─▶ production
+feature branch ─▶ pull request + checks (lint, types, tests, build) ─▶ main ─▶ tag vYYYY.MM.N ─▶ staging ─▶ production
 ```
 
 1. **Branch** from `main`; keep branches short (days, not weeks).
-2. **CI must be green** before merge (`.github/workflows/ci.yml`). Protect `main` in GitHub: require the CI checks and one review.
+2. **The checks must pass** before merge: `python -m pytest backend/tests -q`, and from `frontend/`: `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`. The Docker build runs the same commands, so a failing change cannot be deployed. There is no CI workflow committed; if you add one later, require it on `main` together with one review.
 3. **Tag** a release (`git tag v2026.10.2 && git push origin v2026.10.2`). Deploy tags, not whatever happens to be on a branch.
 4. **Staging first.** Run a second copy of the stack on another hostname (a second `.env.production` with its own `DOMAIN`,
    `POSTGRES_*`, `DEMO_MODE=true`). Deploy the tag there, run the demo script, then promote the *same tag* to production.
@@ -199,7 +199,7 @@ feature branch ─▶ pull request + CI (lint, types, tests, build) ─▶ main 
 
 ### Definition of done for a feature
 
-- [ ] Unit and API tests; frontend test for any new logic; CI green
+- [ ] Unit and API tests; frontend test for any new logic; all checks pass
 - [ ] Migration is additive; tested on an upgraded copy of production data (restore a backup to staging)
 - [ ] Behind a feature flag if it is user-visible and not trivial
 - [ ] Alerts for the decisions it introduces (`services/notify.py`) and an entry in `docs/NOTIFICATIONS.md`
@@ -218,7 +218,7 @@ Do these in order, only when a real signal says so.
 | Web traffic outgrows one worker | Run a second app instance with `RUN_SCHEDULER=false`. First move the in-memory login and lookup rate limits to the database or Redis. |
 | Voice audio grows | Move audio to object storage (S3-compatible) and keep only the key in the database; add a retention job. |
 | You want alerts on closed browsers | Web push (service worker and VAPID keys) and/or SMS from `care_status._on_missed`. |
-| Several people deploy | Build images in CI, push to a registry (GHCR), and have the server `pull` instead of `build`. |
+| Several people deploy | Build images in a pipeline, push to a registry (GHCR), and have the server `pull` instead of `build`. |
 
 ## 9. Gates before real patient data (Stage C)
 
@@ -247,7 +247,7 @@ None of these are built. They are the honest list of what stands between this de
 | AI provider down or slow | Per-provider circuit breaker, fallback chain, text-task timeout of 8 s; the app routes by rules without AI. |
 | Demo data or reset endpoint on real data | `DEMO_MODE=false` closes the reset endpoint and marks new records non-synthetic; entrypoint refuses unsafe production settings. |
 | Secrets leaked | Never in git (`.env.production` ignored), `chmod 600`, rotate on exposure. |
-| Database tests differ from production | CI runs on SQLite. **Gap:** add a Postgres service to CI so migrations and locks are tested on the real engine. |
+| Database tests differ from production | The test suite runs on SQLite. **Gap:** add a Postgres-backed test run so migrations and locks are tested on the real engine. |
 | Disk fills (audio, logs, images) | Image pruning in `deploy.sh`, backup rotation (14), alert on disk usage. Move audio out of the database when volume grows. |
 | Time zones | All times are stored UTC and shown in `APP_TIMEZONE`; keep the server clock synced (NTP). |
 
