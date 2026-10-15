@@ -92,13 +92,13 @@ function Login({ onLogin, demoMode }: { onLogin: (u: User) => void; demoMode: bo
 function App() {
   const queryClient = useQueryClient(); const navigate = useNavigate();
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<User>('/api/v1/auth/me'), retry: false });
-const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<{phase:number;version:string;demo_mode:boolean;escalation_scaled:boolean;escalation_time_scale:number;features?:string[]}>('/api/v1/meta') });
+  const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<{phase:number;version:string;demo_mode:boolean;demo_reset_enabled:boolean;escalation_scaled:boolean;escalation_time_scale:number;features?:string[]}>('/api/v1/meta') });
   if (me.isLoading) return <div className="loading">Loading your workspace…</div>;
   if (me.isError) return <Login demoMode={meta.data?.demo_mode ?? false} onLogin={u=>{ queryClient.setQueryData(['me'],u); navigate(homeFor(u.role)); }} />;
   return <Workspace user={me.data!} meta={meta.data}/>;
 }
 
-function Workspace({ user, meta }: { user: User; meta?: { phase: number; version: string; demo_mode: boolean; escalation_scaled: boolean; escalation_time_scale: number; features?: string[] } }) {
+function Workspace({ user, meta }: { user: User; meta?: { phase: number; version: string; demo_mode: boolean; demo_reset_enabled: boolean; escalation_scaled: boolean; escalation_time_scale: number; features?: string[] } }) {
   const queryClient = useQueryClient(); const navigate = useNavigate(); const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => { setMenuOpen(false); }, [location.pathname]);
@@ -146,7 +146,7 @@ function Workspace({ user, meta }: { user: User; meta?: { phase: number; version
       <div className="sidebar-top"><div className="brand"><span className="brand-icon"><HeartHandshake/></span><span>CareCircle</span></div><button className="icon-button menu-close" aria-label="Close menu" onClick={() => setMenuOpen(false)}><X size={20}/></button></div>
       {meta?.demo_mode && <div className="demo-tag">DEMO · SYNTHETIC DATA</div>}
       <nav className="side-nav">{menu.map(({ title, path, icon: Icon, group }) => <Fragment key={path}>{group && <p className="nav-group">{group}</p>}<NavLink to={path} end className={({ isActive }) => isActive ? 'active' : undefined}><Icon size={18} aria-hidden="true"/>{title}</NavLink></Fragment>)}</nav>
-      {meta?.demo_mode && user.email.endsWith('@secondpatient.demo') && <button className="reset-demo" disabled={resetting} onClick={() => void resetDemo()}><RotateCcw size={15} aria-hidden="true"/>{resetting ? 'Resetting…' : 'Reset demo data'}</button>}
+      {meta?.demo_reset_enabled && user.role === 'PRIMARY_CONTACT' && user.email.endsWith('@secondpatient.demo') && <button className="reset-demo" disabled={resetting} onClick={() => void resetDemo()}><RotateCcw size={15} aria-hidden="true"/>{resetting ? 'Resetting…' : 'Reset demo data'}</button>}
       <div className="side-bottom"><span className="avatar">{user.name[0]}</span><div className="identity"><strong>{user.name}</strong><small>{roleLabel}</small></div><button className="icon-button" aria-label="Log out" title="Log out" onClick={() => void logout()}><LogOut size={18}/></button></div>
     </aside>
     {menuOpen && <div className="scrim" aria-hidden="true" onClick={() => setMenuOpen(false)}/>}

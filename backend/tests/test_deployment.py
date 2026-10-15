@@ -3,7 +3,7 @@ import sys
 
 from fastapi.testclient import TestClient
 
-from app.core.config import Settings, docs_enabled, settings
+from app.core.config import Settings, demo_reset_enabled, docs_enabled, settings
 from app.main import app
 from app.services.leader import scheduler_lease
 from tests.helpers import H, account, primary_contact_with_patient
@@ -61,6 +61,14 @@ def test_api_docs_are_enabled_only_for_explicit_development_environments():
     assert not docs_enabled("production")
     assert not docs_enabled("staging")
     assert not docs_enabled("")
+
+
+def test_demo_reset_is_disabled_outside_development_and_test():
+    assert demo_reset_enabled("dev", True)
+    assert demo_reset_enabled("test", True)
+    assert not demo_reset_enabled("prod", True)
+    assert not demo_reset_enabled("production", True)
+    assert not demo_reset_enabled("development", False)
 
 
 def test_platform_database_urls_are_normalised_for_the_psycopg_driver():

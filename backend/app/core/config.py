@@ -7,6 +7,11 @@ def docs_enabled(app_env: str) -> bool:
     return app_env.strip().lower() in {"dev", "development", "test"}
 
 
+def demo_reset_enabled(app_env: str, demo_mode: bool) -> bool:
+    """Allow the destructive demo reset only in explicit development/test environments."""
+    return demo_mode and app_env.strip().lower() in {"dev", "development", "test"}
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     app_env: str = "dev"

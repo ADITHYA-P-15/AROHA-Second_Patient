@@ -19,7 +19,7 @@ from sqlalchemy import select, text, func
 from sqlalchemy.orm import Session
 
 from app.core.clock import now
-from app.core.config import docs_enabled, settings
+from app.core.config import demo_reset_enabled, docs_enabled, settings
 from app.core.db import Base, engine, get_db, SessionLocal
 from app.core.security import create_token, hash_password, verify_password
 from app.core.permissions import require_patient_access
@@ -175,7 +175,7 @@ def meta(db: Session = Depends(get_db)):
     from app.services import ai as ai_service
     ai_status = ai_service.status()
     scale = current_escalation_scale(db)
-    return {"app_name": "CareCircle", "version": "0.5.0", "git_sha": settings.git_sha, "phase": 5, "demo_mode": settings.demo_mode, "features": settings.feature_list, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "server_time": now().isoformat(), "poll_seconds": max(3, settings.client_poll_seconds), "timezone": settings.app_timezone, "ai_enabled": bool(ai_status["speech"] or ai_status["text"]), "ai": ai_status}
+    return {"app_name": "CareCircle", "version": "0.5.0", "git_sha": settings.git_sha, "phase": 5, "demo_mode": settings.demo_mode, "demo_reset_enabled": demo_reset_enabled(settings.app_env, settings.demo_mode), "features": settings.feature_list, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "server_time": now().isoformat(), "poll_seconds": max(3, settings.client_poll_seconds), "timezone": settings.app_timezone, "ai_enabled": bool(ai_status["speech"] or ai_status["text"]), "ai": ai_status}
 
 
 def incident_recipients(db, patient_id, level):
@@ -776,8 +776,8 @@ def seed(db=None):
 
 @app.post("/api/v1/demo/reset")
 def reset_demo(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    """Demo mode only, for the fictional demo accounts: rebuild the demo care circle from scratch, relative to now."""
-    if not settings.demo_mode or not user.is_synthetic or not user.email.endswith(("@secondpatient.demo", "@carecircle.demo")): raise HTTPException(403, "Permission denied")
+    """Development/test demo reset for synthetic primary contacts only."""
+    if not demo_reset_enabled(settings.app_env, settings.demo_mode) or not user.is_synthetic or user.role != Role.PRIMARY_CONTACT or not user.email.endswith("@secondpatient.demo"): raise HTTPException(403, "Permission denied")
     from app.services import demo
     if not demo.reset(db): raise HTTPException(409, "The demo patients are not present")
     db.commit()
