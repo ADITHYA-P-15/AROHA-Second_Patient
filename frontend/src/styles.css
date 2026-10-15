@@ -186,7 +186,7 @@ a.cp-btn.amb{background:#b42318;border-color:#b42318;color:#fff;font-weight:700}
 .tb-picker{display:flex;justify-content:flex-end}
 /* India sector map (schematic tiles; no map data or CDN). */
 .im{display:grid;gap:12px}.im-legend{display:flex;flex-wrap:wrap;gap:8px}.im-key i,.im-dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
-.im-body{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(220px,1fr);gap:18px;align-items:start}.im-map{width:100%;height:auto;max-height:440px;user-select:none}
+.im-body{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(200px,1fr);gap:18px;align-items:start}.im-map{width:100%;height:auto;user-select:none}
 .im-tile{cursor:pointer;transition:opacity .15s ease}.im-tile rect{stroke:#fff;stroke-width:2}.im-tile:hover rect{stroke:var(--ink)}.im-code{font-size:13px;font-weight:700;fill:#fff;pointer-events:none}.im-n{font-size:11px;fill:#ffffffd9;pointer-events:none}
 .im-north rect,.im-key.im-north i,.im-dot.im-north{fill:#4f74c8;background:#4f74c8}.im-south rect,.im-key.im-south i,.im-dot.im-south{fill:#24886a;background:#24886a}.im-east rect,.im-key.im-east i,.im-dot.im-east{fill:#c27a1e;background:#c27a1e}.im-west rect,.im-key.im-west i,.im-dot.im-west{fill:#8a4fb8;background:#8a4fb8}.im-none rect{fill:#c9d3d3}.im-none{cursor:default}
 .im-dim{opacity:.28}.im-active rect{stroke:var(--ink);stroke-width:2.5}
