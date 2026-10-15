@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMatchesQuery, compareRows, filterMatches, hasActiveFilters, requestStatusText, toggleCompare, topReasons, type Match } from './teambuilder.ts';
+import { buildMatchesQuery, compareRows, filterMatches, hasActiveFilters, preferencesPayload, requestStatusText, toggleCompare, topReasons, type Match } from './teambuilder.ts';
 
 const m = (id: string, over: Partial<Match> = {}): Match => ({ caregiver_id: id, name: `Person ${id}`, score: 0, points: [], why: [], composite: 70, metric: null, city: 'Pune',
   state: 'Maharashtra', sector: 'WEST', gender: 'FEMALE', languages: ['Marathi'], capabilities: ['TRANSPORT'], years_experience: 4, unrated: false, ...over });
@@ -74,5 +74,14 @@ describe('must-help, reset and reasons', () => {
     const points = [{ label: 'Reputation 90/100', points: 8 }, { label: 'Speaks Tamil', points: 6 }, { label: 'Little free time', points: -5 }, { label: 'Lives in Pune', points: 5 }, { label: 'Region', points: 2 }];
     expect(topReasons({ points, why: [] })).toEqual(['Reputation 90/100', 'Speaks Tamil', 'Lives in Pune']);
     expect(topReasons({ points: [], why: ['No rating yet'] })).toEqual(['No rating yet']);
+  });
+});
+
+describe('saving the patient needs', () => {
+  it('sends only the accepted fields, never the read-only set flag', () => {
+    const read = { languages: ['Kannada'], city: 'Bengaluru', sector_code: 'SOUTH', min_rating: 60, capabilities: ['TRANSPORT'], set: true };
+    const body = preferencesPayload(read, ['MEDICATION_ASSIST', 'APPOINTMENT_ESCORT', 'MEDICATION_ASSIST']);
+    expect(body).toEqual({ languages: ['Kannada'], city: 'Bengaluru', sector_code: 'SOUTH', min_rating: 60, capabilities: ['MEDICATION_ASSIST', 'APPOINTMENT_ESCORT'] });
+    expect('set' in body).toBe(false);
   });
 });

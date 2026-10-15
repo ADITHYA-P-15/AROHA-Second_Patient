@@ -8,7 +8,7 @@ import { usePatientPick } from './PatientPick.tsx';
 import { AGENCY_STARS, GENDERS, cityOptions, type Agency, type DirectoryFilters, type DirectoryOptions, type Sector } from './lib/directory.ts';
 import { MultiSelect } from './MultiSelect.tsx';
 import { ProfileDrawer } from './FindCaretakers.tsx';
-import { MAX_COMPARE, TOP_DEFAULT, buildMatchesQuery, compareRows, hasActiveFilters, requestStatusText, roleText, toggleCompare, topReasons, type HireRequest, type Match, type MatchPage, type MatchSort, type Preferences } from './lib/teambuilder.ts';
+import { MAX_COMPARE, TOP_DEFAULT, buildMatchesQuery, compareRows, hasActiveFilters, preferencesPayload, requestStatusText, roleText, toggleCompare, topReasons, type HireRequest, type Match, type MatchPage, type MatchSort, type Preferences } from './lib/teambuilder.ts';
 
 const CAPS = ['MEDICATION_ASSIST', 'APPOINTMENT_ESCORT', 'TRANSPORT', 'DAILY_ASSIST', 'MOBILITY_ASSIST', 'PRESCRIPTION_PICKUP', 'LAB_ESCORT', 'SUPPLIES'];
 const SECTORS: [string, string][] = [['NORTH', 'North'], ['SOUTH', 'South'], ['EAST', 'East'], ['WEST', 'West']];
@@ -46,7 +46,7 @@ export function BuildTeam() {
   async function saveNeeds(e: FormEvent) {
     e.preventDefault(); setNotice('');
     try {
-      await api(`/api/v1/patients/${pid}/care-preferences`, { method: 'PUT', body: JSON.stringify({ ...form, capabilities: mustNow }) });
+      await api(`/api/v1/patients/${pid}/care-preferences`, { method: 'PUT', body: JSON.stringify(preferencesPayload(form, mustNow)) });
       setNotice('Saved.'); await refresh();
     } catch (err) { setNotice(err instanceof Error ? err.message : 'Could not save.'); }
   }

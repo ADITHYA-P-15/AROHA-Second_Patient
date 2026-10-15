@@ -34,6 +34,11 @@ export function buildMatchesQuery(filters: DirectoryFilters, sort: MatchSort = '
   return `?${params.toString()}`;
 }
 
+/** The body for PUT care-preferences: only the fields it accepts (never the read-only "set" flag the GET returns). */
+export function preferencesPayload(form: Preferences, mustHave: string[]): Omit<Preferences, 'set'> {
+  return { languages: form.languages, city: form.city, sector_code: form.sector_code, min_rating: form.min_rating, capabilities: [...new Set(mustHave)] };
+}
+
 /** Whether any filter is set, so "Reset all filters" can be enabled only when it would do something. */
 export function hasActiveFilters(filters: DirectoryFilters, sort: MatchSort = 'best'): boolean {
   return sort !== 'best' || Object.values(filters).some(v => Array.isArray(v) ? v.length > 0 : v !== undefined && v !== null && String(v).trim() !== '');

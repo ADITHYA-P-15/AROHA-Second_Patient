@@ -38,6 +38,8 @@ def _primary_contact(db, user, pid):
 
 class PreferencesIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    # "set" is the read-only flag GET returns; accepted and ignored so a screen can send back what it read. Other extras are rejected.
+    set: bool | None = None
     languages: list[str] = Field(default_factory=list, max_length=6)
     city: str = Field(default="", max_length=80)
     sector_code: Literal["NORTH", "SOUTH", "EAST", "WEST"] | None = None
@@ -94,7 +96,7 @@ def get_preferences(pid: uuid.UUID, user=Depends(_current_user), db: Session = D
 @router.put("/patients/{pid}/care-preferences")
 def put_preferences(pid: uuid.UUID, body: PreferencesIn, user=Depends(_current_user), db: Session = Depends(get_db)):
     _primary_contact(db, user, pid)
-    values = body.model_dump()
+    values = body.model_dump(exclude={"set"})
     svc.save_preferences(db, pid, values, user)
     from app.services.command_center import reconcile_patient
     reconcile_patient(db, pid)

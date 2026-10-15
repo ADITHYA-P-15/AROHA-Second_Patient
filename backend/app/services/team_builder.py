@@ -21,6 +21,7 @@ from app.engine.availability import effective_windows
 from app.models import (ActivityHistory, AvailabilityOverride, CareActivity, CareAssignment, CareTeamMember, Caregiver, CaregiverPatientLink,
                         CaregiverWeeklySchedule, CaretakerProfile, HireRequest, Patient, PatientCarePreference, Role, Sector, TeamRole, User)
 
+CARETAKER_SKILLS = {"TRANSPORT", "MEDICATION_ASSIST", "PRESCRIPTION_PICKUP", "DAILY_ASSIST", "MOBILITY_ASSIST", "LAB_ESCORT", "SUPPLIES", "APPOINTMENT_ESCORT"}
 REQUEST_DAYS = 7               # a pending request expires after this
 MAX_REQUESTS_PER_DAY = 20      # per primary contact
 OPEN, FINAL = "PENDING", ("ACCEPTED", "DECLINED", "WITHDRAWN", "EXPIRED")
@@ -142,7 +143,8 @@ def matches(db: Session, patient_id, *, limit: int = 20, need: dict | None = Non
     rows = [(p, cg) for p, cg, _ in found if cg.id not in team]
     info = profiles(db, [cg.id for _, cg in rows])
     pol = policy()
-    support = set(db.scalars(select(PatientSupportNeed.support_code).where(PatientSupportNeed.patient_id == patient_id)))
+    # Only help a caretaker can give (a clinical visit is the professional's), so the screen can always send the list back.
+    support = set(db.scalars(select(PatientSupportNeed.support_code).where(PatientSupportNeed.patient_id == patient_id))) & CARETAKER_SKILLS
     # Must-help skills are a hard rule (every one required). Default: the help recorded for the patient plus the saved must-haves.
     # The screen sends what is ticked right now, so a change applies before it is saved.
     required = sorted(set(must_have) if must_have is not None else support | set(pref["capabilities"]))

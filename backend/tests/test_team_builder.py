@@ -412,3 +412,34 @@ def test_the_patients_must_help_skills_filter_the_list():
     body = coord.get(f"/api/v1/patients/{pid}/team-matches?city=Mustville").json()
     assert body["must_have"] == ["LAB_ESCORT"]
     assert coord.get(f"/api/v1/patients/{pid}/team-matches?must_have=FLYING").status_code == 422
+
+
+def test_saving_needs_accepts_what_the_screen_read_back_including_old_stored_values():
+    """Regression: GET returns a read-only "set" flag and the screen sent it back, so Save failed with "Request validation failed"."""
+    coord, pid = primary_contact_with_patient()
+    first = coord.get(f"/api/v1/patients/{pid}/care-preferences").json()
+    assert first["set"] is False
+    saved = coord.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={**first, "languages": ["Kannada"], "capabilities": ["MEDICATION_ASSIST"]})
+    assert saved.status_code == 200, saved.text
+    again = coord.get(f"/api/v1/patients/{pid}/care-preferences").json()
+    assert again["set"] is True and again["languages"] == ["Kannada"] and again["capabilities"] == ["MEDICATION_ASSIST"]
+    with SessionLocal() as db:  # a row saved before gender became a filter only
+        from app.models import PatientCarePreference
+        row = db.get(PatientCarePreference, uuid.UUID(pid)); row.gender, row.gender_mode = "FEMALE", "HARD"; db.commit()
+    legacy = coord.get(f"/api/v1/patients/{pid}/care-preferences").json()
+    assert "gender" not in legacy and "gender_mode" not in legacy
+    back = coord.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={**legacy, "city": "Bengaluru", "min_rating": 60})
+    assert back.status_code == 200, back.text
+    assert back.json()["city"] == "Bengaluru" and back.json()["min_rating"] == 60 and back.json()["capabilities"] == ["MEDICATION_ASSIST"]
+    assert coord.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={**legacy, "surprise": 1}).status_code == 422  # other unknown fields still rejected
+
+
+def test_a_clinical_visit_need_never_blocks_saving_or_matching():
+    from app.models import PatientSupportNeed
+    coord, pid = primary_contact_with_patient()
+    with SessionLocal() as db:
+        db.add_all([PatientSupportNeed(patient_id=uuid.UUID(pid), support_code="CLINICAL_VISIT"), PatientSupportNeed(patient_id=uuid.UUID(pid), support_code="TRANSPORT")]); db.commit()
+    body = coord.get(f"/api/v1/patients/{pid}/team-matches").json()
+    assert body["must_have"] == ["TRANSPORT"]  # the professional's work is not a caretaker filter
+    prefs = coord.get(f"/api/v1/patients/{pid}/care-preferences").json()
+    assert coord.put(f"/api/v1/patients/{pid}/care-preferences", headers=H, json={**prefs, "capabilities": body["must_have"]}).status_code == 200
