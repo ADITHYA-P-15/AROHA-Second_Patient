@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Download, Search } from 'lucide-react';
 import { api } from './api/client.ts';
+import { ProgressReport } from './ProgressReport.tsx';
 import { formatAppTime } from './lib/time.ts';
 import { BAND_LABEL, bandOf, filterPatients, pctText, toCsv, trendText, type Band, type BandFilter, type Insights as InsightsData, type PatientInsight } from './lib/insights.ts';
 
@@ -28,7 +29,7 @@ function DailyChart({ data }: { data: InsightsData['daily'] }) {
   </svg>;
 }
 
-function Row({ p }: { p: PatientInsight }) {
+function Row({ p, onReport }: { p: PatientInsight; onReport?: () => void }) {
   const band = bandOf(p);
   return <li className={`in-row in-b-${band}`}>
     <div className="in-who"><strong>{p.name}</strong><small>{p.birth_year ? `Born ${p.birth_year}` : ''}{p.care_code ? ` · ${p.care_code}` : ''}</small></div>
@@ -36,12 +37,14 @@ function Row({ p }: { p: PatientInsight }) {
     <div className="in-trend"><Spark values={p.spark}/><span className={`in-t in-t-${p.trend}`}>{trendText(p.trend)}</span></div>
     <div className="in-next">{p.next_appointment ? <><span>{p.next_appointment.title}</span><small>{formatAppTime(p.next_appointment.start, { timeStyle: undefined })}{p.next_appointment.covered ? '' : ' · no escort yet'}</small></> : <small>No appointment booked</small>}</div>
     <div className="in-flags">{p.flags.length ? p.flags.map(f => <span key={f.code} className={`in-flag in-f-${f.code.toLowerCase()}`}>{f.text}</span>) : <span className="muted small">Nothing to follow up</span>}</div>
-    <div className="in-links"><Link className="cp-btn" to={`/medicines?patient=${p.id}`}>Medicines</Link><Link className="cp-btn" to={`/care-plan?patient=${p.id}`}>Care plan</Link></div>
+    <div className="in-links"><Link className="cp-btn" to={`/medicines?patient=${p.id}`}>Medicines</Link><Link className="cp-btn" to={`/care-plan?patient=${p.id}`}>Care plan</Link>{onReport && <button className="cp-btn" onClick={onReport}>Progress report</button>}</div>
   </li>;
 }
 
 export function Insights() {
-  const [days, setDays] = useState(30); const [query, setQuery] = useState(''); const [band, setBand] = useState<BandFilter>('all');
+  const [days, setDays] = useState(30); const [query, setQuery] = useState(''); const [band, setBand] = useState<BandFilter>('all'); const [reportFor, setReportFor] = useState<string | null>(null);
+  const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<{ features?: string[]; ai_enabled?: boolean }>('/api/v1/meta') });
+  const reportOn = !meta.data?.features || meta.data.features.includes('progress_report');
   const insights = useQuery({ queryKey: ['insights', days], queryFn: () => api<InsightsData>(`/api/v1/insights/professional?days=${days}`), refetchInterval: 60000 });
   const data = insights.data;
   const shown = useMemo(() => filterPatients(data?.patients ?? [], query, band), [data, query, band]);
@@ -77,13 +80,15 @@ export function Insights() {
         <p className="muted small">Follow-up is suggested at {data.thresholds.missed_recent}+ missed doses in {data.thresholds.recent_days} days, or under {low}% given. Select a band to filter the list.</p></section>
     </div>
 
+    {reportFor && data.patients.some(p => p.id === reportFor) && <ProgressReport key={reportFor} patientId={reportFor} patientName={data.patients.find(p => p.id === reportFor)?.name ?? ''} aiAvailable={!!meta.data?.ai_enabled} onClose={() => setReportFor(null)}/>}
+
     <section className="card">
       <div className="in-toolbar">
         <h3>Patients</h3>
         <label className="in-search"><Search size={16} aria-hidden="true"/><input type="search" placeholder="Search name or CareCircle ID" value={query} onChange={e => setQuery(e.target.value)} aria-label="Search patients"/></label>
         <button className="cp-filter" onClick={download}><Download size={15} aria-hidden="true"/>Export CSV</button>
       </div>
-      {shown.length === 0 ? <p className="muted">No patients match.</p> : <ul className="in-list">{shown.map(p => <Row key={p.id} p={p}/>)}</ul>}
+      {shown.length === 0 ? <p className="muted">No patients match.</p> : <ul className="in-list">{shown.map(p => <Row key={p.id} p={p} onReport={reportOn ? () => setReportFor(p.id) : undefined}/>)}</ul>}
     </section>
 
     {data.medicines.length > 0 && <section className="card"><h3>Medicines most often missed</h3>

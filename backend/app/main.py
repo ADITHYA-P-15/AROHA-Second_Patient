@@ -574,6 +574,8 @@ from app.api.voice import router as voice_router
 app.include_router(voice_router)
 from app.api.emergency import router as emergency_router
 app.include_router(emergency_router)
+from app.api.progress_report import router as progress_report_router
+app.include_router(progress_report_router)
 
 
 lookup_attempts: dict[str, deque[float]] = defaultdict(deque)

@@ -155,7 +155,7 @@ the database (`bash scripts/restore.sh backups/<file>.sql.gz --yes`) if data its
 | `COOKIE_SECURE` | `true` | Required by the entrypoint in production. |
 | `DOMAIN` | your hostname | Caddy gets and renews the certificate. |
 | `DEMO_MODE`, `SEED_DEMO`, `DEMO_POPULATION` | `true` for a hosted demo; `false` for real data | With `DEMO_MODE=false` new patients are not marked synthetic and the reset endpoint is closed. |
-| `FEATURES` | `voice_notes,insights,reminders` | Allow-list for staged rollout (section 7). `*` enables everything shipped. |
+| `FEATURES` | `voice_notes,insights,reminders,progress_report` | Allow-list for staged rollout (section 7). `*` enables everything shipped. |
 | `RUN_SCHEDULER` | `true` | `false` on an instance that must only serve web traffic. |
 | `GEMINI_API_KEY`, `GROQ_API_KEY`, models | optional | See [AI.md](AI.md). `python scripts/ai_check.py` verifies them. |
 

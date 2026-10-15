@@ -264,3 +264,9 @@ Cumulative record of features built one at a time on top of the phased roadmap i
 - Abuse guard for a public demo: per-person rate limit on voice previews.
 - Docs: [DEPLOY_RENDER.md](DEPLOY_RENDER.md): platform comparison (why not Vercel), steps, day-2 operations, public-demo risks.
 
+
+## AI progress report for professionals
+
+- Draft report per patient from recorded facts only (treatment course, adherence and its change, missed/late doses, appointments, help requests and response time, check-ins, monitoring); the model phrases and every sentence is verified against cited facts; falls back to plain fact sentences; never sent automatically.
+- Optional wellbeing check-in (pain 0-10, mood 1-5, note) by the patient or family/caretaker; migration 0014; behind the `progress_report` flag; included in demo reset.
+- Docs: [AI.md](AI.md).

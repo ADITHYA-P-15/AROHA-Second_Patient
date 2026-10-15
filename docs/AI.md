@@ -73,6 +73,17 @@ It tells you which of your configured models are not available on your key, so y
 - `POST /api/v1/incidents/{id}/ambulance`: a primary contact records that they are calling an ambulance; the rest of the team is notified.
 - `GET /api/v1/incidents` includes `voice_note` and `ambulance` where there are any.
 
+## Progress report for the professional (`progress_report` feature)
+
+A draft summary of one patient's recorded care over 14, 30 or 60 days, on the Insights page (the **Progress report** button on a patient).
+
+- **Numbers come from the backend** (`services/progress_report.py`): course of treatment from the prescriptions, share of doses given and the change between the first and last half of the period, missed and late doses (and the medicines most missed), appointments kept or missed, help requests and median time to a first response, optional check-ins (pain, mood), and what is being monitored (doses with an outcome, tasks without a confirmed caretaker in the next 7 days, last recorded contact).
+- **The model only phrases them.** It receives the numbered facts (no name) and must return sentences that cite fact ids. A sentence is kept only if it cites known facts, uses only numbers found in those facts, contains no clinical vocabulary (diagnosis, condition, recovery, risk, "clinically"), and uses no judgement word ("improved", "better") unless it carries a figure and is not about the person. Rejected sentences are dropped and counted; if none survive, or no AI is configured, the report shows the facts' own sentences. So "adherence rose from 70% to 90%" can appear; "improving clinically" cannot.
+- **A draft, never sent.** Nothing is stored or sent anywhere; the professional reads it and can copy it as text. Drafts are rate limited (10 per person per 10 minutes).
+- **Check-ins make it more meaningful.** `POST /api/v1/patients/{id}/check-ins` `{pain 0-10?, mood 1-5?, note?}` is optional and quick, recorded by the patient (card on Request Help) or a family member or caretaker. The report quotes counts and averages only. Professionals cannot record check-ins for a patient.
+
+API: `GET /api/v1/patients/{id}/progress-report?days=30` (facts and plain sentences, no AI) and `POST /api/v1/patients/{id}/progress-report/draft` `{days}` (AI phrasing, verified). Professionals on that patient's team only. Switch off with `FEATURES` (remove `progress_report`).
+
 ## Next
 
-Progress reports for professionals, caretaker voice handovers, read-aloud medicine instructions. See the discussion in the project notes.
+Caretaker voice handovers, read-aloud medicine instructions, clinician-entered vitals for the report. See the discussion in the project notes.

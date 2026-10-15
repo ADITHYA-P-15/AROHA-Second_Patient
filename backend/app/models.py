@@ -488,3 +488,20 @@ class VoiceNote(Base):
     applied_level: Mapped[int | None] = mapped_column(Integer, nullable=True)  # set only when the suggestion raised the routing level
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, index=True)
 
+
+
+class WellbeingCheckIn(Base):
+    """An optional short self-report (pain 0-10, mood 1-5, a note) recorded by the patient or someone on the team for them.
+
+    It is what the care team was told, nothing more: the progress report may quote its counts and averages, never interpret them.
+    """
+    __tablename__ = "wellbeing_check_ins"
+    __table_args__ = (CheckConstraint("pain IS NULL OR (pain >= 0 AND pain <= 10)", name="ck_checkin_pain"),
+                      CheckConstraint("mood IS NULL OR (mood >= 1 AND mood <= 5)", name="ck_checkin_mood"))
+    id: Mapped[uuid.UUID] = uuid_pk()
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
+    recorded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    pain: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    mood: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    note: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now, index=True)

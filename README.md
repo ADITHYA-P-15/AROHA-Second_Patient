@@ -781,3 +781,6 @@ Same as before, plus `python scripts/load_check.py --base-url http://<LAN-IP>:80
 - **Quick requests confirm themselves.** The Request Help page now says what was sent, who was told and the live status, and a repeated tap merges into the open request ("asked again") instead of flooding the care team.
 - Details: [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md). Migration `0013_notification_links`.
 
+## AI assist — progress report for professionals
+
+A professional can open a **Progress report** from Insights: course of treatment, adherence trend, missed and late doses, appointments kept or missed, help requests and response times, optional wellbeing check-ins, and what is being monitored. Every number is computed by the backend; the AI only turns the numbered facts into sentences, each citing the facts it used, and anything it cannot trace to a figure (or that sounds clinical) is dropped. It is a draft for the professional to review and is never sent automatically. Patients and family can add an optional check-in (pain, mood, a note). See [docs/AI.md](docs/AI.md).

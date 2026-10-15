@@ -17,7 +17,7 @@ from app.core.clock import now, to_utc
 from app.core.config import settings
 from app.models import (ActionItem, ActivityDependency, ActivityHistory, AppSetting, AvailabilityOverride, CareActivity, CareAssignment, Caregiver,
                         CaregiverPatientLink, CaregiverWeeklySchedule, CareTeamMember, CoverageFinding, CoverRequest, CoverRequestEvent, Incident,
-                        IncidentEvent, Notification, Patient, PatientMessage, PatientSupportNeed, Prescription, TeamRole, User, VoiceNote)
+                        IncidentEvent, Notification, Patient, PatientMessage, PatientSupportNeed, Prescription, TeamRole, User, VoiceNote, WellbeingCheckIn)
 from app.services.care_feeds import DOSE_GRACE, DOSE_MINUTES, create_appointment, generate_doses
 from app.services.care_team import ensure_care_profile
 
@@ -55,6 +55,7 @@ def wipe(db: Session, patient_ids: list) -> None:
         delete(ActionItem).where(ActionItem.patient_id.in_(patient_ids)),
         delete(Notification).where(or_(Notification.patient_id.in_(patient_ids), Notification.user_id.in_(select(User.id).where(User.email.like("%@secondpatient.demo"))))),
         delete(VoiceNote).where(VoiceNote.patient_id.in_(patient_ids)),
+        delete(WellbeingCheckIn).where(WellbeingCheckIn.patient_id.in_(patient_ids)),
         delete(PatientMessage).where(PatientMessage.patient_id.in_(patient_ids)),
         delete(IncidentEvent).where(IncidentEvent.incident_id.in_(incidents)),
         delete(Incident).where(Incident.patient_id.in_(patient_ids)),

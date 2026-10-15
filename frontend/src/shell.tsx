@@ -15,6 +15,7 @@ import { NotificationCenter } from './Notifications.tsx';
 import { VoiceNoteBlock, VoiceRecorder } from './VoiceNote.tsx';
 import { LEVEL_NAMES, type VoiceNoteInfo } from './lib/voice.ts';
 import { CarePlan } from './CarePlan.tsx';
+import { CheckInCard } from './CheckIn.tsx';
 import { usePatientPick } from './PatientPick.tsx';
 import { scheduleSummary, supportLabel, type WeeklyWindow } from './lib/plan.ts';
 import { api } from './api/client.ts';
@@ -204,6 +205,7 @@ function HelpPage() {
   const client=useQueryClient();
   const meta=useQuery({queryKey:['meta'],queryFn:()=>api<{features?:string[]}>('/api/v1/meta')});
   const voiceOn=!meta.data?.features||meta.data.features.includes('voice_notes');
+  const checkInOn=!meta.data?.features||meta.data.features.includes('progress_report');
   const patients=useQuery({queryKey:['patients'],queryFn:()=>api<{items:Patient[]}>('/api/v1/patients')});
   // One idempotency key per draft: retrying after a dropped connection reuses it, so no duplicate request is created.
   const draftKey=useRef(newId());
@@ -248,6 +250,7 @@ function HelpPage() {
     <label>Your message<textarea maxLength={1000} value={message} onChange={e=>setMessage(e.target.value)} rows={4}/></label><button className="primary" disabled={!message.trim()||!!sending} onClick={()=>void send()}>{sending&&sending===message.trim()?'Sending…':'Send request'}</button>
     <div className="card" style={{marginTop:20,borderColor:'#b42318'}}><h3>Emergency SOS</h3>{countdown===null?<button className="primary sos" onClick={()=>{setError('');setCountdown(3);}}>Start SOS · 3 second countdown</button>:<><p role="status">SOS will be sent in {countdown}…</p><button onClick={()=>setCountdown(null)}>Cancel SOS</button></>}</div>
     {error&&<p role="alert" className="error">{error}</p>}
+    {checkInOn&&<CheckInCard patientId={patientId}/>}
   </section>;
 }
 
