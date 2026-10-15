@@ -167,12 +167,14 @@ function NotificationBell(){
   async function choose(item:{id:string;incident_id?:string|null}){await api(`/api/v1/notifications/${item.id}/read`,{method:'POST'});await client.invalidateQueries({queryKey:['notifications']});setOpen(false);if(item.incident_id)navigate('/incidents');}
   return <div className="notification-menu"><button className="icon-button" aria-label={`Notifications, ${query.data?.unread_count ?? 0} unread`} aria-expanded={open} onClick={()=>setOpen(!open)}><Bell/>{Boolean(query.data?.unread_count)&&<span>{query.data?.unread_count}</span>}</button>{open&&<section className="card" aria-label="Notifications"><h3>Notifications</h3>{query.data?.items.length?query.data.items.slice(0,8).map(item=><button key={item.id} onClick={()=>void choose(item).catch(()=>undefined)}><strong>{item.title}</strong><small>{item.body}</small></button>):<p>No notifications.</p>}</section>}</div>;
 }
-type IncidentRow = { id:string; patient_id:string; current_level:number; category:string; severity:string; status:string; title:string; safe_summary:string; created_at?:string; current_deadline_at?:string|null; deadline_kind?:string|null; emergency_unacknowledged?:boolean; acknowledged_at?:string|null; resolved_at?:string|null; voice_note?:VoiceNoteInfo|null };
+type IncidentRow = { id:string; patient_id:string; current_level:number; category:string; severity:string; status:string; title:string; safe_summary:string; created_at?:string; current_deadline_at?:string|null; deadline_kind?:string|null; emergency_unacknowledged?:boolean; acknowledged_at?:string|null; resolved_at?:string|null; voice_note?:VoiceNoteInfo|null; ambulance?:{at:string;by:string|null}|null };
 // Routing levels describe who is asked to respond, not a medical judgement.
 const levelNames = LEVEL_NAMES;
 const incidentStatus = (s:string) => s==='OPEN'?'Waiting for someone':s==='ACKNOWLEDGED'?'Being handled':s==='RESOLVED'?'Handled':s==='CANCELLED'?'Cancelled':s.toLowerCase();
 function IncidentCenter() {
   const client=useQueryClient(); const [notice,setNotice]=useState(''); const [showClosed,setShowClosed]=useState(false);
+  const me=useQuery({queryKey:['me'],queryFn:()=>api<{role:string}>('/api/v1/auth/me')});
+  async function ambulance(item:IncidentRow){setNotice('Dialling 108. The rest of the care team has been told so nobody calls twice.');try{await api(`/api/v1/incidents/${item.id}/ambulance`,{method:'POST',body:'{}'});}catch{/* the call itself is not blocked by this record */}await client.invalidateQueries({queryKey:['incidents']});}
   const incidents=useQuery({queryKey:['incidents'],queryFn:()=>api<{items:IncidentRow[]}>('/api/v1/incidents'),refetchInterval:5000});
   async function act(item:IncidentRow,verb:'acknowledge'|'resolve'){
     let body:Record<string,string>={};
@@ -188,7 +190,8 @@ function IncidentCenter() {
     <div className="cp-title"><strong>{item.title}</strong><span className="chip">{levelNames[item.current_level]??`Level ${item.current_level}`}</span><span className={`md-status ${item.status==='OPEN'?'md-st-bad':item.status==='ACKNOWLEDGED'?'md-st-pending':'md-st-muted'}`}>{incidentStatus(item.status)}</span></div>
     <p className="cp-detail">{item.safe_summary}{item.status==='OPEN'&&item.current_deadline_at?` · goes to the next person at ${formatAppTime(item.current_deadline_at,{dateStyle:undefined,timeStyle:'short'})}`:''}</p>
     {item.voice_note&&<VoiceNoteBlock note={item.voice_note}/>}
-    {(item.status==='OPEN'||item.status==='ACKNOWLEDGED')&&<div className="cp-actions">{item.status==='OPEN'&&<button className="cp-btn cp-primary" onClick={()=>void act(item,'acknowledge')}>I’ve got this</button>}{item.status==='ACKNOWLEDGED'&&<button className="cp-btn cp-primary" onClick={()=>void act(item,'resolve')}>Mark handled</button>}</div>}
+    {item.ambulance&&<p className="vn-assist">{item.ambulance.by??'Someone'} started an ambulance call at {formatAppTime(item.ambulance.at,{dateStyle:undefined,timeStyle:'short'})}.</p>}
+    {(item.status==='OPEN'||item.status==='ACKNOWLEDGED')&&<div className="cp-actions">{me.data?.role==='PRIMARY_CONTACT'&&item.current_level>=2&&<><a className="cp-btn amb" href="tel:108" onClick={()=>void ambulance(item)}>Call ambulance · 108</a><a className="cp-btn" href="tel:112">112</a></>}{item.status==='OPEN'&&<button className="cp-btn cp-primary" onClick={()=>void act(item,'acknowledge')}>I’ve got this</button>}{item.status==='ACKNOWLEDGED'&&<button className="cp-btn cp-primary" onClick={()=>void act(item,'resolve')}>Mark handled</button>}</div>}
   </li>;
   return <div className="cp"><div className="section-head"><div><p className="eyebrow">HELP REQUESTS</p><h3>{open.length?`${open.length} open request${open.length===1?'':'s'}`:'No open requests'}</h3></div><button className="cp-filter" onClick={()=>setShowClosed(!showClosed)}>{showClosed?'Hide handled':'Show handled'}</button></div>
     <p className="muted small">Messages and SOS from the patient, and alerts the care team needs to answer. Levels say who is asked to respond; they are not a medical diagnosis.</p>

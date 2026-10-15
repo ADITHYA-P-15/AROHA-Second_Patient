@@ -225,7 +225,7 @@ def patient_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Requ
     return create_message(patient_id, body, request, user, db)
 
 
-def create_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Request, user: User, db: Session, advisor=None):
+def create_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Request, user: User, db: Session, advisor=None, classify_extra: str | None = None):
     """Route a message from (or for) a patient. `advisor`, when given, may only raise the level the rules chose."""
     patient, member = patient_access(db, user, patient_id)
     if user.role == Role.PATIENT:
@@ -242,7 +242,9 @@ def create_message(patient_id: uuid.UUID, body: PatientMessageIn, request: Reque
             return incident_payload(db.get(Incident, prior.incident_id))
     safe_body = "".join(ch for ch in body.body if unicodedata.category(ch)[0] != "C" or ch in "\n\t").strip()
     if not safe_body: raise HTTPException(422, "Message is empty")
-    classification = classify_message(safe_body, language_hint=body.language_hint, context={"mobility_level": patient.mobility_level}, sos=body.channel == "SOS_BUTTON", advisor=advisor)
+    # `classify_extra` (e.g. the English translation of a voice note) is read by the rules too, so a mis-heard word in one language can still be caught in the other.
+    classify_text = safe_body if not classify_extra or classify_extra.strip() == safe_body else f"{safe_body}\n{classify_extra.strip()[:600]}"
+    classification = classify_message(classify_text, language_hint=body.language_hint, context={"mobility_level": patient.mobility_level}, sos=body.channel == "SOS_BUTTON", advisor=advisor)
     if advisor is not None and classification.advisor: advisor.applied = classification.advisor.get("applied_level")
     level = classification.level
     no_recipients_levels = []
@@ -303,7 +305,9 @@ def list_incidents(patient_id: uuid.UUID | None = None, status: str | None = Non
     visible = visible[:100]
     from app.api.voice import voice_notes_for
     notes = voice_notes_for(db, [x["id"] for x in visible])
-    return {"items": [{**x, "voice_note": notes.get(x["id"])} for x in visible]}
+    from app.api.emergency import ambulance_calls_for
+    calls = ambulance_calls_for(db, [x["id"] for x in visible])
+    return {"items": [{**x, "voice_note": notes.get(x["id"]), "ambulance": calls.get(x["id"])} for x in visible]}
 
 
 @app.get("/api/v1/incidents/{incident_id}")
@@ -518,6 +522,8 @@ from app.api.insights import router as insights_router
 app.include_router(insights_router)
 from app.api.voice import router as voice_router
 app.include_router(voice_router)
+from app.api.emergency import router as emergency_router
+app.include_router(emergency_router)
 
 
 lookup_attempts: dict[str, deque[float]] = defaultdict(deque)

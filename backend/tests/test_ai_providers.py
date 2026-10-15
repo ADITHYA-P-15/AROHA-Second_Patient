@@ -107,3 +107,16 @@ def test_default_order_is_groq_then_gemini_for_speech_and_the_gemini_model_is_us
     heard = ai.transcribe_audio(b"audio", "audio/webm")
     assert heard.provider == "gemini" and heard.model == settings.gemini_speech_model and settings.gemini_speech_model in seen[0]
     assert ai.speech_providers() == ["groq", "gemini"]
+
+
+def test_translation_returns_english_unchanged_and_asks_a_text_model_otherwise(monkeypatch):
+    assert ai.translate_to_english("I need water", "en") == "I need water" and ai.translate_to_english("", "hi") is None
+    seen = []
+    def groq_chat(system, user):
+        seen.append(user); return '{"english": "I have a headache and feel dizzy"}'
+    monkeypatch.setattr(ai, "_groq_chat", groq_chat)
+    assert ai.translate_to_english("मुझे सिर दर्द है और चक्कर आ रहा है", "hi") == "I have a headache and feel dizzy" and "Language: hi" in seen[0]
+    monkeypatch.setattr(ai, "_groq_chat", lambda s, u: '{"nope": 1}')
+    ai.reset_breakers()
+    monkeypatch.setattr(ai, "_post_json", lambda *a, **k: (_ for _ in ()).throw(ai.AIError("HTTP 500")))
+    assert ai.translate_to_english("ನನಗೆ ತಲೆ ನೋವು", "kn") is None

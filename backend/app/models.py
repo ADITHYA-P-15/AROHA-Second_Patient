@@ -471,7 +471,11 @@ class VoiceNote(Base):
     size_bytes: Mapped[int] = mapped_column(Integer)
     audio: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
     status: Mapped[str] = mapped_column(String(16), default="UNTRANSCRIBED")
-    transcript: Mapped[str] = mapped_column(Text, default="")
+    transcript: Mapped[str] = mapped_column(Text, default="")            # what is sent: the heard text, as verified or corrected by the sender
+    transcript_original: Mapped[str] = mapped_column(Text, default="")   # exactly what the speech model heard
+    english: Mapped[str] = mapped_column(Text, default="")               # English translation shown to the sender and the care team
+    edited: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_draft: Mapped[bool] = mapped_column(Boolean, default=False)       # recorded and previewed, not yet confirmed and sent
     language: Mapped[str | None] = mapped_column(String(8), nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     stt_provider: Mapped[str | None] = mapped_column(String(24), nullable=True)

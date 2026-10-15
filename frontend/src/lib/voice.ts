@@ -3,7 +3,7 @@ export const LEVEL_NAMES = ['For information', 'Caretakers asked', 'Family asked
 const LANGUAGES: Record<string, string> = { en: 'English', hi: 'Hindi', kn: 'Kannada', te: 'Telugu', ta: 'Tamil', ml: 'Malayalam', mr: 'Marathi', bn: 'Bengali', gu: 'Gujarati', pa: 'Punjabi', ur: 'Urdu' };
 
 export type VoiceNoteInfo = {
-  id: string; status: 'TRANSCRIBED' | 'UNTRANSCRIBED'; transcript: string; language: string | null; confidence: number | null; low_confidence: boolean;
+  id: string; status: 'TRANSCRIBED' | 'UNTRANSCRIBED'; transcript: string; english?: string; edited?: boolean; language: string | null; confidence: number | null; low_confidence: boolean;
   provider: string | null; suggested_level: number | null; suggested_reason: string | null; applied_level: number | null; audio_url: string; size_bytes: number;
 };
 
@@ -31,3 +31,26 @@ export function assistantLine(note: Pick<VoiceNoteInfo, 'suggested_level' | 'app
     ? `The assistant raised this to “${name}”.${reason}`
     : `The assistant suggested “${name}”; the rules had already routed it at least that high.${reason}`;
 }
+
+export type Routing = {
+  level: number; level_name: string; emergency: boolean; no_recipients: boolean; reason: string | null;
+  notify: { role: string; label: string; names: string[] }[];
+  suggested_level: number | null; suggested_reason: string | null; applied_level: number | null; assistant: string | null;
+};
+export type VoicePreview = VoiceNoteInfo & { patient_id: string; heard: boolean; routing: Routing; english: string };
+
+/** "Caretaker: Savitha · Family: Anita Iyer, Karthik Iyer" */
+export function notifyLine(routing: Pick<Routing, 'notify'>): string {
+  return routing.notify.map(n => (n.names.length ? `${n.label}: ${n.names.join(', ')}` : n.label)).join(' · ');
+}
+
+/** One plain sentence for the person about to send. */
+export function routingHeadline(routing: Pick<Routing, 'level' | 'emergency' | 'notify'>): string {
+  const who = routing.notify.map(n => n.label.toLowerCase());
+  const list = who.length > 1 ? `${who.slice(0, -1).join(', ')} and ${who[who.length - 1]}` : who[0] ?? 'your care team';
+  if (routing.emergency) return `This sounds urgent. The ${list} will all be told at once.`;
+  return `This will go to the ${list}.`;
+}
+
+/** True when the text was edited after the last check, so the preview shown no longer matches it. */
+export const isStale = (current: string, checked: string): boolean => current.trim() !== checked.trim();
