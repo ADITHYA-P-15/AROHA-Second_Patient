@@ -274,6 +274,26 @@ All supplied people, care notes, and clinical-looking notes are fictional demons
 
 CareCircle currently provides the Phase 1/2 foundation and an initial Phase 3 deterministic classifier/message-to-incident path. Time-boxed escalation, complete role portals, absence simulation, and real-time updates are not yet implemented. The reset route clears patient/team/history rows but preserves user accounts. Demo role switching uses pre-seeded accounts. The second-device LAN check is manual; host firewall rules and Wi-Fi client isolation can still prevent access. Login throttling is process-local and resets on restart. Database schema creation includes a create-all safety path alongside the migration baseline. npm audit reports build-only transitive advisories from the requested Tailwind CSS 3.4 toolchain; frontend dependencies are not copied into the runtime image.
 
+### Potential Security Limitations to Assess
+
+The following are security areas to test, not confirmed vulnerabilities. No security audit has established which, if any, affect this project:
+
+- **Patient access (BOLA/IDOR):** whether a user can access another patient's records by changing a patient, activity, or related resource ID.
+- **Role permissions:** whether each role is prevented from performing actions reserved for another role.
+- **Sensitive fields:** whether API responses expose private notes, account details, or other fields a user does not need.
+- **Input tampering:** whether submitted fields can change record ownership, roles, permissions, or other protected values.
+- **Authentication and sessions:** password handling, session-cookie settings, logout, expiry, and account recovery.
+- **Patient lookup abuse:** whether CareCircle IDs and birth years can be guessed or enumerated, and whether attempts are rate-limited.
+- **Request abuse:** whether login, lookup, voice-note, and other costly endpoints are protected against excessive requests.
+- **Input handling and uploads:** validation and safe storage of user text, filenames, and voice recordings.
+- **Web protections:** CSRF, CORS, HTTPS, security headers, and cookie configuration.
+- **Secrets and deployment settings:** possible exposure of credentials, API keys, demo accounts, or debug details in the repository, logs, or production configuration.
+- **Database and backups:** access restrictions for database connections and protection of stored data and backups.
+- **Errors and logs:** accidental disclosure of stack traces, secrets, or sensitive patient information.
+- **Dependencies and containers:** vulnerable packages, outdated base images, or unsafe build settings.
+- **External AI services:** controls around sending voice recordings or patient-related text to external providers.
+- **Workflow edge cases:** concurrent or repeated requests causing duplicate assignments, bypassed approvals, or inconsistent care records.
+
 ---
 
 ## Existing Repository Event Guidelines
