@@ -36,8 +36,8 @@ def test_health_reports_what_a_deployment_check_needs():
     assert body == {"status": "ok", "database": "ok"}
     meta = client.get("/api/v1/meta").json()
     assert "voice_notes" in meta["features"]
-    assert {"demo_mode", "demo_reset_enabled", "features", "poll_seconds", "ai_enabled"} <= meta.keys()
-    assert not ({"git_sha", "app_name", "version", "phase", "server_time", "timezone", "ai", "env", "scheduler"} & (body.keys() | meta.keys()))
+    assert {"demo_mode", "demo_reset_enabled", "features", "poll_seconds", "timezone", "ai_enabled"} <= meta.keys()
+    assert not ({"git_sha", "app_name", "version", "phase", "server_time", "ai", "env", "scheduler"} & (body.keys() | meta.keys()))
 
 
 def test_only_one_holder_of_the_scheduler_lease_at_a_time_on_sqlite_it_is_always_granted():

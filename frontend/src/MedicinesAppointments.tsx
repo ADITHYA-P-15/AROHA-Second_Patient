@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api/client.ts';
-import { formatAppTime, localInputToIso, nowLocalInput } from './lib/time.ts';
+import { APP_TIMEZONE, formatAppTime, localInputToIso, nowLocalInput } from './lib/time.ts';
 import { adherenceLabel } from './lib/care.ts';
 import { usePatientPick } from './PatientPick.tsx';
 
@@ -23,6 +23,8 @@ function TimeChips({ times, onChange, label }: { times: string[]; onChange: (t: 
 export function MedicinesAppointments() {
   const client = useQueryClient();
   const { id, picker, loading, empty } = usePatientPick();
+  const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<{ timezone?: string }>('/api/v1/meta') });
+  const timeZone = meta.data?.timezone ?? APP_TIMEZONE;
   const patient = useQuery({ queryKey: ['patient', id], queryFn: () => api<PatientInfo>(`/api/v1/patients/${id}`), enabled: !!id });
   const canPrescribe = !!patient.data?.my_permissions?.includes('care:prescribe');
   const rx = useQuery({ queryKey: ['prescriptions', id], queryFn: () => api<{ items: Prescription[] }>(`/api/v1/patients/${id}/prescriptions?status=active`), enabled: !!id });
@@ -73,10 +75,10 @@ export function MedicinesAppointments() {
   function schedule(e: FormEvent) {
     e.preventDefault();
     void run(async () => {
-      const start = localInputToIso(when);
+      const start = localInputToIso(when, timeZone);
       await api(`/api/v1/patients/${id}/appointments`, { method: 'POST', body: JSON.stringify({ title: title.trim(), start, duration_minutes: Number(duration), location: location.trim(), notes: notes.trim(), needs_escort: escort, importance }) });
       const t = title.trim(); setTitle(''); setWhen(''); setLocation(''); setNotes('');
-      return `${t} scheduled for ${formatAppTime(start)}.`;
+      return `${t} scheduled for ${formatAppTime(start, {}, timeZone)}.`;
     }, 'Could not schedule the appointment.');
   }
   function cancelAppt(a: Appointment) {
@@ -118,7 +120,7 @@ export function MedicinesAppointments() {
       <ul className="md-list">{meds.map(p => <li key={p.id} className="md-item">
         <div className="md-head"><strong>{p.medicine}</strong> <span className="muted">{p.dose}</span></div>
         {p.instructions && <p className="md-small">{p.instructions}</p>}
-        <p className="md-small">{p.times.map(t => <span className="chip" key={t}>{t}</span>)} {p.next_dose_at ? <>Next dose {formatAppTime(p.next_dose_at)}</> : 'No upcoming dose'}{p.end_date ? ` · until ${p.end_date}` : ''}</p>
+        <p className="md-small">{p.times.map(t => <span className="chip" key={t}>{t}</span>)} {p.next_dose_at ? <>Next dose {formatAppTime(p.next_dose_at, {}, timeZone)}</> : 'No upcoming dose'}{p.end_date ? ` · until ${p.end_date}` : ''}</p>
         {canPrescribe && editing !== p.id && <div className="md-row"><button onClick={() => startEdit(p)} disabled={busy}>Change</button><button onClick={() => stop(p)} disabled={busy}>Stop</button></div>}
         {canPrescribe && editing === p.id && <div className="md-edit">
           <label>Dose<input value={eDose} onChange={e => setEDose(e.target.value)}/></label>
@@ -134,7 +136,7 @@ export function MedicinesAppointments() {
       {upcoming.length === 0 && <p className="muted">No upcoming appointments.</p>}
       {canPrescribe && <details className="md-new"><summary>+ Schedule an appointment</summary><form onSubmit={schedule} className="md-form">
         <label>Title<input required maxLength={200} value={title} onChange={e => setTitle(e.target.value)}/></label>
-        <label>Date and time (Asia/Kolkata)<input type="datetime-local" required value={when} min={nowLocalInput()} onChange={e => setWhen(e.target.value)}/></label>
+        <label>Date and time ({timeZone})<input type="datetime-local" required value={when} min={nowLocalInput(new Date(), timeZone)} onChange={e => setWhen(e.target.value)}/></label>
         <label>Duration (minutes)<input type="number" min={10} max={600} required value={duration} onChange={e => setDuration(e.target.value)}/></label>
         <label>Location<input maxLength={300} value={location} onChange={e => setLocation(e.target.value)}/></label>
         <label>Notes<textarea maxLength={1000} value={notes} onChange={e => setNotes(e.target.value)}/></label>
@@ -144,7 +146,7 @@ export function MedicinesAppointments() {
       </form></details>}
       <ul className="md-list">{upcoming.map(a => <li key={a.id} className="md-item">
         <div className="md-head"><strong>{a.title}</strong> <span className="chip">{a.importance.charAt(0) + a.importance.slice(1).toLowerCase()} importance</span>{a.needs_escort && <span className="chip">Escort needed</span>}</div>
-        <p className="md-small">{formatAppTime(a.start)}{a.location ? ` · ${a.location}` : ''}</p>
+        <p className="md-small">{formatAppTime(a.start, {}, timeZone)}{a.location ? ` · ${a.location}` : ''}</p>
         {a.notes && <p className="md-small">{a.notes}</p>}
         {canPrescribe && <div className="md-row"><button onClick={() => cancelAppt(a)} disabled={busy}>Cancel appointment</button></div>}
       </li>)}</ul>

@@ -175,7 +175,7 @@ def meta(db: Session = Depends(get_db)):
     from app.services import ai as ai_service
     ai_status = ai_service.status()
     scale = current_escalation_scale(db)
-    return {"demo_mode": settings.demo_mode, "demo_reset_enabled": demo_reset_enabled(settings.app_env, settings.demo_mode), "features": settings.feature_list, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "poll_seconds": max(3, settings.client_poll_seconds), "ai_enabled": bool(ai_status["speech"] or ai_status["text"])}
+    return {"demo_mode": settings.demo_mode, "demo_reset_enabled": demo_reset_enabled(settings.app_env, settings.demo_mode), "features": settings.feature_list, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "poll_seconds": max(3, settings.client_poll_seconds), "timezone": settings.app_timezone, "ai_enabled": bool(ai_status["speech"] or ai_status["text"])}
 
 
 def incident_recipients(db, patient_id, level):
