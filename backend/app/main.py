@@ -519,11 +519,12 @@ def login(body: LoginIn, request: Request, response: Response, db: Session = Dep
     attempts = login_attempts[key]
     cutoff = time.monotonic() - 60
     while attempts and attempts[0] < cutoff: attempts.popleft()
-    if len(attempts) >= 10: raise HTTPException(429, "Too many login attempts", headers={"Retry-After": "60"})
-    attempts.append(time.monotonic())
+    if len(attempts) >= 5: raise HTTPException(429, "Too many login attempts", headers={"Retry-After": "60"})
     user = db.scalar(select(User).where(User.email == str(body.email).lower()))
     if not user or not user.is_active or not verify_password(body.password, user.password_hash):
+        attempts.append(time.monotonic())
         raise HTTPException(401, "Invalid credentials")
+    attempts.clear()
     response.set_cookie(COOKIE, create_token(user), httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=settings.session_hours * 3600, path="/")
     return user_dict(user, db)
 
