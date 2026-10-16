@@ -7,8 +7,8 @@ roles do not need direct table privileges.
 from alembic import op
 from sqlalchemy import text
 
-revision = "0015_lock_down_public_api"
-down_revision = "0014_wellbeing_check_ins"
+revision = "0020_lock_down_public_api"
+down_revision = "0019_hire_requests"
 branch_labels = None
 depends_on = None
 
@@ -40,6 +40,18 @@ APP_TABLES = (
     "prescriptions",
     "voice_notes",
     "wellbeing_check_ins",
+    "task_check_ins",
+    "sectors",
+    "sector_states",
+    "agencies",
+    "caretaker_profiles",
+    "agency_ratings",
+    "doctor_ratings",
+    "reviews",
+    "review_reports",
+    "reputation_snapshots",
+    "patient_care_preferences",
+    "hire_requests",
 )
 
 

@@ -6,7 +6,7 @@ from app.core.db import Base
 
 
 def test_rls_migration_covers_every_application_table():
-    migration_path = Path(__file__).parents[1] / "alembic" / "versions" / "0015_lock_down_public_api.py"
+    migration_path = Path(__file__).parents[1] / "alembic" / "versions" / "0020_lock_down_public_api.py"
     spec = spec_from_file_location("migration_lock_down_public_api", migration_path)
     migration = module_from_spec(spec)
     spec.loader.exec_module(migration)
