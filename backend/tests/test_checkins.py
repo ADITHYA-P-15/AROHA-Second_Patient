@@ -187,7 +187,7 @@ def _upgrade_paths(url, monkeypatch):
     assert {"task_check_ins", "caretaker_profiles", "reviews", "patient_care_preferences", "hire_requests"} <= tables
     checks = {c["name"]: c["sqltext"] for c in inspect(engine).get_check_constraints("cover_requests")}
     assert "NO_CHECKIN" in checks["ck_cover_request_reason"]
-    command.downgrade(cfg, "-2")  # -1 is the no-op RLS lock-down step; -2 actually drops hire_requests
+    command.downgrade(cfg, "0018_care_preferences")  # one step before hire_requests; a named target, not a step count from head, which later migrations would shift
     assert "hire_requests" not in inspect(engine).get_table_names() and "reviews" in inspect(engine).get_table_names()
     command.downgrade(cfg, "0014_wellbeing_check_ins")
     tables = set(inspect(engine).get_table_names())

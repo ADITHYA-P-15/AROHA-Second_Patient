@@ -9,7 +9,7 @@ from app.core.db import SessionLocal
 from app.models import CareActivity, Notification
 from app.services.care_status import mark_missed
 from app.services.workload_balancer import _aware
-from tests.helpers import H, account, caretaker, join_as_professional, primary_contact_with_patient
+from tests.helpers import H, account, caretaker, give_dose, join_as_professional, primary_contact_with_patient
 
 ZONE = ZoneInfo("Asia/Kolkata")
 
@@ -81,7 +81,8 @@ def test_status_from_the_clock_missed_then_completed_late():
     assert after["care_status"] == "MISSED"
     outsider_caretaker = caretaker(coord, pid, "Other Caretaker", caps=("MEDICATION_ASSIST",))[1]
     assert outsider_caretaker.post(f"/api/v1/activities/{dose['id']}/complete", headers=H, json={}).status_code == 403
-    done = main.post(f"/api/v1/activities/{dose['id']}/complete", headers=H, json={})
+    assert main.post(f"/api/v1/activities/{dose['id']}/complete", headers=H, json={}).status_code == 422  # no proof photo yet
+    done = give_dose(main, dose["id"])
     assert done.status_code == 200 and done.json() == {"status": "completed", "care_status": "COMPLETED", "completed_late": True}
     adherence = doctor.get(f"/api/v1/patients/{pid}/adherence", params={"days": 7}).json()
     assert adherence["totals"]["due"] == 0  # the dose is due tomorrow, so it is not yet in the past-week window
@@ -117,7 +118,7 @@ def test_adherence_counts_on_time_late_and_missed():
             row.scheduled_start = _aware(row.scheduled_start) + shift; row.scheduled_end = _aware(row.scheduled_end) + shift; row.deadline = _aware(row.deadline) + shift
         db.commit()
         mark_missed(db); db.commit()
-    assert main.post(f"/api/v1/activities/{evening['id']}/complete", headers=H, json={}).json()["completed_late"] is True
+    assert give_dose(main, evening["id"]).json()["completed_late"] is True
     report = coord.get(f"/api/v1/patients/{pid}/adherence", params={"days": 7}).json()
     assert report["totals"] == {"due": 2, "on_time": 0, "late": 1, "missed": 1, "pending": 0} and report["medicines"][0]["medicine"] == "Vitamin D"
 

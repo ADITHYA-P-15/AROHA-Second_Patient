@@ -6,6 +6,7 @@ import { canCheckIn, checkInHint, checkInText, type CheckIn, type CheckInPolicy 
 import { APP_TIMEZONE, formatAppTime, localInputToIso, nowLocalInput } from './lib/time.ts';
 import { canRecordLate, dayBounds, statusLabel, statusTone } from './lib/care.ts';
 import { coverLine, kindLabel, timeOnly, type CoverState } from './lib/plan.ts';
+import { ProofPhotoCapture } from './ProofPhoto.tsx';
 
 type Assignment = { id: string; caregiver_id: string; caregiver_name: string; role: string; status: string; is_mine: boolean };
 type Task = { cover?: CoverState; importance?: string; requires_caregiver?: boolean; id: string; patient_id: string; title: string; category: string; description?: string; location_note?: string; scheduled_start: string; scheduled_end: string; care_status: string; due_by: string | null; source: string; completed_late: boolean; lifecycle_status: string; assignments: Assignment[] };
@@ -38,18 +39,18 @@ export function MyDay() {
   const checkPolicy = checks.find(q => q.data)?.data?.policy;
   const checkedIn = new Map(checks.flatMap(q => q.data?.items ?? []).map(c => [c.activity_id, c]));
   const [notice, setNotice] = useState(''); const [busy, setBusy] = useState(false);
+  const [photoFor, setPhotoFor] = useState<Task | null>(null);
   const [from, setFrom] = useState(''); const [to, setTo] = useState(''); const [reason, setReason] = useState('PERSONAL'); const [note, setNote] = useState('');
   useEffect(() => { if (!from) setFrom(nowLocalInput(new Date(), timeZone)); }, [from, timeZone]);
 
+  const refresh = () => Promise.all(['activities', 'cover', 'cover-offers', 'command-center', 'workload', 'notifications', 'adherence'].map(k => client.invalidateQueries({ queryKey: [k] }))).catch(() => undefined);
   async function run(fn: () => Promise<string>, fail: string) {
     if (busy) return;
     setBusy(true);
     try { setNotice(await fn()); } catch (err) { setNotice(err instanceof Error ? err.message : fail); }
-    finally {
-      await Promise.all(['activities', 'cover', 'cover-offers', 'command-center', 'workload', 'notifications', 'adherence'].map(k => client.invalidateQueries({ queryKey: [k] }))).catch(() => undefined);
-      setBusy(false);
-    }
+    finally { await refresh(); setBusy(false); }
   }
+  const photoDone = (message: string) => { setPhotoFor(null); setNotice(message); void refresh(); };
   const checkIn = (t: Task) => void run(async () => {
     const r = await api<CheckIn>(`/api/v1/activities/${t.id}/check-in`, { method: 'POST', body: '{}' });
     await client.invalidateQueries({ queryKey: ['check-ins'] });
@@ -102,10 +103,11 @@ export function MyDay() {
       {!readOnly && t.care_status === 'PENDING' && t.cover && <p className="md-small cp-who-waiting">{coverLine(t.cover)}. You keep it until someone accepts.</p>}
       {!readOnly && checkedIn.get(t.id) && <p className="md-small"><span className="chip">{checkInText(checkedIn.get(t.id)!)}</span></p>}
       {!readOnly && actions && mineA && checkPolicy && canCheckIn(t, checkPolicy, checkedIn.get(t.id)) && <p className="md-small">{checkInHint(t, checkPolicy)}</p>}
-      {!readOnly && actions && mineA && <div className="md-row">
+      {!readOnly && actions && mineA && photoFor?.id === t.id && <ProofPhotoCapture activityId={t.id} title={t.title} timeZone={timeZone} onDone={photoDone} onCancel={() => setPhotoFor(null)}/>}
+      {!readOnly && actions && mineA && photoFor?.id !== t.id && <div className="md-row">
         {checkPolicy && canCheckIn(t, checkPolicy, checkedIn.get(t.id)) && <button className="primary" disabled={busy} onClick={() => checkIn(t)}>I’m here · check in</button>}
-        {canDo && <button className="primary" disabled={busy} onClick={() => done(t)}>Done</button>}
-        {canRecordLate(t.care_status, t.due_by) && <button className="primary" disabled={busy} onClick={() => done(t)}>Record as done (late)</button>}
+        {canDo && <button className="primary" disabled={busy} onClick={() => t.source === 'PRESCRIPTION' ? setPhotoFor(t) : done(t)}>Done</button>}
+        {canRecordLate(t.care_status, t.due_by) && <button className="primary" disabled={busy} onClick={() => t.source === 'PRESCRIPTION' ? setPhotoFor(t) : done(t)}>Record as done (late)</button>}
         {t.care_status === 'PENDING' && !t.cover && startMs > Date.now() && <button disabled={busy} onClick={() => cannot(t, mineA)}>I can’t make it</button>}
       </div>}
     </li>;

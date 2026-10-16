@@ -8,7 +8,7 @@ from app.core.clock import now
 from app.core.db import SessionLocal
 from app.models import CareActivity, Notification
 from app.services.reminders import run_reminders
-from tests.helpers import H, caretaker, join_as_professional, primary_contact_with_patient
+from tests.helpers import H, caretaker, give_dose, join_as_professional, primary_contact_with_patient
 
 ZONE = ZoneInfo("Asia/Kolkata")
 
@@ -70,7 +70,7 @@ def test_marking_a_dose_done_and_taking_leave_alert_the_family():
     assert doctor.post(f"/api/v1/patients/{pid}/prescriptions", headers=H, json={"medicine": "Aspirin", "dose": "75 mg", "instructions": "", "times": [soon.strftime("%H:%M")],
                                                                               "start_date": soon.date().isoformat(), "end_date": soon.date().isoformat()}).status_code == 201
     dose = next(a for a in main.get(f"/api/v1/patients/{pid}/activities", params={"limit": 100}).json()["items"] if a["title"].startswith("Aspirin"))
-    assert main.post(f"/api/v1/activities/{dose['id']}/complete", headers=H, json={}).status_code == 200
+    assert give_dose(main, dose["id"]).status_code == 200
     assert "Done: Aspirin 75 mg" in titles(coord) and "Done: Aspirin 75 mg" not in titles(main)
     away_from, away_to = (now() + timedelta(days=5)), (now() + timedelta(days=5, hours=3))
     assert main.post(f"/api/v1/caregivers/{main_id}/availability-overrides", headers=H,

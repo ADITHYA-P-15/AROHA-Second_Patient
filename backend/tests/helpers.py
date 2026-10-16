@@ -38,6 +38,16 @@ def caretaker(coord, pid, name="Caretaker", caps=("TRANSPORT",), day=3, week=40.
     return cid, client
 
 
+TINY_JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 600 + b"\xff\xd9"  # not a real photo; just over the server's minimum size
+
+
+def give_dose(client, aid, **kwargs):
+    """Upload the (demo) proof photo a medicine dose now requires, then record it as done."""
+    uploaded = client.put(f"/api/v1/activities/{aid}/proof-photo", headers={**H, "Content-Type": "image/jpeg"}, content=TINY_JPEG)
+    assert uploaded.status_code == 201, uploaded.text
+    return client.post(f"/api/v1/activities/{aid}/complete", headers=H, json={}, **kwargs)
+
+
 def join_as_professional(pid_owner, pid):
     """A healthcare professional joins via the CareCircle ID and birth year the family shared."""
     patient = pid_owner.get(f"/api/v1/patients/{pid}").json()
