@@ -2,6 +2,31 @@
 
 One entry per feature, newest first. Local dev-workflow notes, not part of the submission docs.
 
+## Proof-photo fix + primary-contact verification
+
+Follow-up to the proof-photo feature below, from live demo testing.
+
+**Bug fixed:** every upload failed with "That file could not be read as a photo." Cause: the app's
+`Content-Security-Policy` only allowed `img-src 'self' data:`, so the browser silently refused the `blob:` object URL
+that `loadImage()` and the preview `<img>` both use. Added `blob:` to `img-src` in `backend/app/main.py`.
+
+**New: the primary contact must review and verify every proof photo.**
+- `activity_proof_photos` gets `verified_by`/`verified_at` (migration `0022`, written with `batch_alter_table` since
+  SQLite's plain `DROP COLUMN` leaves a dangling FK clause behind on downgrade otherwise).
+- `POST /activities/{id}/proof-photo/verify` — primary-contact-only (`patient:update`), idempotent (keeps the first
+  sign-off; re-verifying doesn't reset the timestamp).
+- `GET /patients/{id}/proof-photos?verified=` — the review list, newest first, joined with the activity's title.
+- Uploading a photo now notifies the primary contact (`family_ids`, excluding the uploader) with the dose title, a
+  formatted capture time, and a plain-text location line spelled out in the notification body itself — not just relying
+  on the burned-in watermark on the image. Re-uploading a replacement photo clears any existing verification, since a
+  different photo needs a fresh look.
+- Frontend: `ProofPhotoReview.tsx`, shown on Care Plan to the primary contact only — each pending photo's thumbnail,
+  `captured_at_text` and `location_text` as plain text (clock/pin icons, not just the image), with a Verify button.
+
+Verified live end to end in the browser (two caretaker/patient pairs): upload → "Proof photo to review" notification
+with time + location spelled out → Care Plan review panel shows the photo and facts → Verify → panel clears. 348
+backend tests pass; full frontend gate passes. Committed and fast-forwarded into local `main` — not pushed.
+
 ## Caretaker proof-photo accountability
 
 Caretakers can no longer tap "Done" on a medicine dose with nothing to back it up. A photo is now required before a
