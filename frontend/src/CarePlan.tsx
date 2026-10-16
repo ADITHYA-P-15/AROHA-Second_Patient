@@ -7,6 +7,7 @@ import { canRecordLate, statusLabel, statusTone } from './lib/care.ts';
 import { coverLine, groupByDay, holderSummary, kindLabel, supportLabel, timeOnly, type PlanActivity, type PlanAssignment } from './lib/plan.ts';
 import { APP_TIMEZONE, localInputToIso, nowLocalInput } from './lib/time.ts';
 import { ProofPhotoReview } from './ProofPhotoReview.tsx';
+import { ProofPhotoCapture } from './ProofPhoto.tsx';
 
 type Activity = PlanActivity & { description?: string | null; location_note?: string | null; due_by?: string | null; completed_late?: boolean; my_permissions: string[] };
 type Caregiver = { id: string; name: string; is_active: boolean };
@@ -30,6 +31,8 @@ export function CarePlan({ role }: { role: string }) {
   const patient = useQuery({ queryKey: ['patient', id], queryFn: () => api<{ my_permissions: string[] }>(`/api/v1/patients/${id}`), enabled: !!id });
   const manager = !!patient.data?.my_permissions?.includes('plan:manage') && role === 'PRIMARY_CONTACT';
   const caregivers = useQuery({ queryKey: ['caregivers', id], queryFn: () => api<{ items: Caregiver[] }>(`/api/v1/patients/${id}/caregivers`), enabled: !!id && manager });
+  const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<{ timezone?: string }>('/api/v1/meta') });
+  const timeZone = meta.data?.timezone ?? APP_TIMEZONE;
 
   async function run(fn: () => Promise<string>, fail: string) {
     if (busy) return;
@@ -41,6 +44,7 @@ export function CarePlan({ role }: { role: string }) {
     }
   }
   const post = (path: string, body: unknown = {}) => api(path, { method: 'POST', body: JSON.stringify(body) });
+  const photoDone = (msg: string) => { setNotice(msg); void Promise.all(['activities', 'cover', 'cover-offers', 'command-center', 'notifications', 'adherence', 'workload', 'forecast', 'proof-photos'].map(k => client.invalidateQueries({ queryKey: [k] }))).catch(() => undefined); };
   const actions = {
     done: (a: Activity) => run(async () => { const r = await api<{ completed_late: boolean }>(`/api/v1/activities/${a.id}/complete`, { method: 'POST', body: '{}' }); return `${a.title} recorded as done${r.completed_late ? ' (late)' : ''}.`; }, 'Could not record this.'),
     cannot: (a: Activity, x: PlanAssignment) => {
@@ -72,7 +76,7 @@ export function CarePlan({ role }: { role: string }) {
     {!activities.isLoading && groups.length === 0 && <section className="card cp-empty"><p>{filter === 'ATTENTION' ? 'Nothing needs attention. Every task has a caretaker.' : 'Nothing scheduled in this period.'}</p></section>}
     {groups.map(g => <section key={g.key} className="cp-day" aria-label={g.label}>
       <h4>{g.label}</h4>
-      <ul>{g.items.map(a => <PlanRow key={a.id} a={a} role={role} manager={manager} busy={busy} caregivers={caregivers.data?.items ?? []} actions={actions}/>)}</ul>
+      <ul>{g.items.map(a => <PlanRow key={a.id} a={a} role={role} manager={manager} busy={busy} caregivers={caregivers.data?.items ?? []} actions={actions} timeZone={timeZone} onPhotoDone={photoDone}/>)}</ul>
     </section>)}
     {manager && !past && <HomeTask patientId={id} onDone={msg => { setNotice(msg); void client.invalidateQueries({ queryKey: ['activities'] }); }}/>}
   </div>;
@@ -80,8 +84,9 @@ export function CarePlan({ role }: { role: string }) {
 
 type Actions = { done: (a: Activity) => Promise<void>; cannot: (a: Activity, x: PlanAssignment) => void; respond: (x: PlanAssignment, verb: 'confirm' | 'decline') => Promise<void>; assign: (a: Activity, caregiverId: string) => Promise<void>; cover: (a: Activity) => Promise<void> };
 
-function PlanRow({ a, role, manager, busy, caregivers, actions }: { a: Activity; role: string; manager: boolean; busy: boolean; caregivers: Caregiver[]; actions: Actions }) {
+function PlanRow({ a, role, manager, busy, caregivers, actions, timeZone, onPhotoDone }: { a: Activity; role: string; manager: boolean; busy: boolean; caregivers: Caregiver[]; actions: Actions; timeZone: string; onPhotoDone: (msg: string) => void }) {
   const [picking, setPicking] = useState(false); const [choice, setChoice] = useState('');
+  const [showPhoto, setShowPhoto] = useState(false);
   const who = holderSummary(a);
   const tone = statusTone(a.care_status, a.completed_late);
   const now = Date.now(); const startMs = new Date(a.scheduled_start).getTime();
@@ -101,8 +106,9 @@ function PlanRow({ a, role, manager, busy, caregivers, actions }: { a: Activity;
       {detail && <p className="cp-detail">{detail}</p>}
       <p className={`cp-who cp-who-${who.tone}`}><span>Caretaker:</span> {who.text}</p>
       {pending && a.cover && <p className="cp-who cp-who-waiting">{coverLine(a.cover)}</p>}
-      {role !== 'PATIENT' && <div className="cp-actions">
-        {canRecord && <button className="cp-btn cp-primary" disabled={busy} onClick={() => void actions.done(a)}>{a.care_status === 'MISSED' ? 'Record as done (late)' : 'Mark done'}</button>}
+      {role !== 'PATIENT' && showPhoto && <ProofPhotoCapture activityId={a.id} title={a.title} timeZone={timeZone} onDone={msg => { setShowPhoto(false); onPhotoDone(msg); }} onCancel={() => setShowPhoto(false)}/>}
+      {role !== 'PATIENT' && !showPhoto && <div className="cp-actions">
+        {canRecord && <button className="cp-btn cp-primary" disabled={busy} onClick={() => a.source === 'PRESCRIPTION' ? setShowPhoto(true) : void actions.done(a)}>{a.care_status === 'MISSED' ? 'Record as done (late)' : 'Mark done'}</button>}
         {who.asking?.is_mine && <><button className="cp-btn cp-primary" disabled={busy} onClick={() => void actions.respond(who.asking!, 'confirm')}>Accept</button><button className="cp-btn" disabled={busy} onClick={() => void actions.respond(who.asking!, 'decline')}>Decline</button></>}
         {upcoming && mineConfirmed && !manager && !a.cover && startMs - now < 2 * DAY && <button className="cp-btn" disabled={busy} onClick={() => actions.cannot(a, mineConfirmed)}>I can’t make it</button>}
         {upcoming && manager && a.requires_caregiver !== false && !picking && <button className="cp-btn" disabled={busy} onClick={() => setPicking(true)}>{who.confirmed ? 'Change caretaker' : 'Assign caretaker'}</button>}
