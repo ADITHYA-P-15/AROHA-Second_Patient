@@ -31,12 +31,15 @@ def _current_user(request: Request, db: Session = Depends(get_db)):
     return current_user(request, db)
 
 
-def _may_record_done(db, user, aid, patient_id) -> bool:
-    """Same rule as recording an activity as done: the primary contact, or the caretaker it is confirmed-assigned to."""
+def _may_record_done(db, user, aid, patient_id, source=None) -> bool:
+    """Same rule as recording an activity as done: the caretaker it is confirmed-assigned to must give (and photograph)
+    a medicine dose themselves; the primary contact reviews and verifies afterwards, rather than acting on it."""
     own = db.scalar(select(Caregiver).where(Caregiver.user_id == user.id, Caregiver.id.in_(select(CaregiverPatientLink.caregiver_id).where(CaregiverPatientLink.patient_id == patient_id))))
+    assigned = bool(own and db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == aid, CareAssignment.caregiver_id == own.id, CareAssignment.status == "CONFIRMED")))
+    if source == "PRESCRIPTION": return assigned
     member = db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == patient_id, CareTeamMember.user_id == user.id))
     coordinator = (member and member.team_role == TeamRole.PRIMARY_CONTACT)
-    return bool(coordinator) or bool(own and db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == aid, CareAssignment.caregiver_id == own.id, CareAssignment.status == "CONFIRMED")))
+    return bool(coordinator) or assigned
 
 
 def _activity_or_404(db, aid) -> CareActivity:
@@ -83,11 +86,11 @@ def _meta(photo: ActivityProofPhoto) -> dict:
 async def upload_proof_photo(aid: uuid.UUID, request: Request, latitude: float | None = None, longitude: float | None = None,
                              accuracy_m: float | None = None, location_status: str = "UNAVAILABLE", captured_at: datetime | None = None,
                              user=Depends(_current_user), db: Session = Depends(get_db)):
-    """The caretaker (or primary contact) uploads the dose photo. Body is the raw image; location comes from the device."""
+    """The assigned caretaker uploads the dose photo themselves. Body is the raw image; location comes from the device."""
     a = _activity_or_404(db, aid)
     require_patient_access(db, user, a.patient_id, "patient:read")
-    if not _may_record_done(db, user, aid, a.patient_id): raise HTTPException(403, "Only the primary contact or the assigned caretaker can add this photo")
     if a.source != "PRESCRIPTION": raise HTTPException(409, "Proof photos are only used for medicine doses")
+    if not _may_record_done(db, user, aid, a.patient_id, a.source): raise HTTPException(403, "Only the caretaker this dose is assigned to can add its proof photo")
     if a.lifecycle_status == "COMPLETED": raise HTTPException(409, "This dose is already recorded as done; its proof photo cannot be changed")
     mime = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
     if mime not in ALLOWED: raise HTTPException(415, "Send the photo as an image (jpeg, png or webp)")

@@ -88,7 +88,10 @@ function PlanRow({ a, role, manager, busy, caregivers, actions }: { a: Activity;
   const pending = a.care_status === 'PENDING';
   const upcoming = pending && startMs > now;
   const mineConfirmed = who.confirmed?.is_mine ? who.confirmed : undefined;
-  const canRecord = (pending && startMs - now <= EARLY_MS && (manager || !!mineConfirmed)) || ((manager || !!mineConfirmed) && canRecordLate(a.care_status ?? '', a.due_by));
+  // A medicine dose must be given and photographed by its assigned caretaker; the primary contact reviews the photo
+  // afterwards instead of recording it themselves (and Care Plan has no camera flow to let them anyway).
+  const mayRecord = a.source === 'PRESCRIPTION' ? !!mineConfirmed : (manager || !!mineConfirmed);
+  const canRecord = (pending && startMs - now <= EARLY_MS && mayRecord) || (mayRecord && canRecordLate(a.care_status ?? '', a.due_by));
   const detail = [a.location_note, a.description].filter(Boolean).join(' · ');
   const others = caregivers.filter(c => c.is_active && c.id !== who.confirmed?.caregiver_id);
   return <li className={`cp-row cp-${tone}`}>

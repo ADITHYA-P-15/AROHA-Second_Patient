@@ -47,13 +47,15 @@ def test_a_dose_cannot_be_completed_without_a_photo_then_can_with_one():
     assert photo.status_code == 200 and photo.headers["content-type"].startswith("image/jpeg") and photo.content == TINY_JPEG
 
 
-def test_only_the_coordinator_or_assigned_caretaker_may_upload_the_photo():
+def test_only_the_assigned_caretaker_may_upload_the_photo_not_the_primary_contact():
     coord, pid, doctor, main, _ = setup()
     dose = a_dose(coord, pid, doctor)
     outsider = caretaker(coord, pid, "Outsider", caps=("MEDICATION_ASSIST",))[1]
     assert outsider.put(f"/api/v1/activities/{dose['id']}/proof-photo", headers=JPEG, content=TINY_JPEG).status_code == 403
     assert account("PRIMARY_CONTACT")[0].put(f"/api/v1/activities/{dose['id']}/proof-photo", headers=JPEG, content=TINY_JPEG).status_code == 403  # not on this care team
-    assert coord.put(f"/api/v1/activities/{dose['id']}/proof-photo", headers=JPEG, content=TINY_JPEG).status_code == 201  # the primary contact may also record it
+    assert coord.put(f"/api/v1/activities/{dose['id']}/proof-photo", headers=JPEG, content=TINY_JPEG).status_code == 403  # the primary contact reviews; the caretaker gives and photographs the dose
+    assert coord.post(f"/api/v1/activities/{dose['id']}/complete", headers=H, json={}).status_code == 403  # and cannot complete the dose directly either
+    assert main.put(f"/api/v1/activities/{dose['id']}/proof-photo", headers=JPEG, content=TINY_JPEG).status_code == 201
 
 
 def test_proof_photos_are_only_for_medicine_doses():

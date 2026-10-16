@@ -649,12 +649,16 @@ def cancel_activity(aid: uuid.UUID, request: Request, body: CancelIn | None = No
     reassess(db, [a.patient_id], TriggerEvent.ASSIGNMENT_REMOVED, {"activity_id": str(aid)}); db.commit(); return {"status": "cancelled"}
 
 
-def _may_record_done(db, user, aid, patient_id) -> bool:
-    """Who may record an activity as done: the primary contact, or the caretaker it is confirmed-assigned to."""
+def _may_record_done(db, user, aid, patient_id, source=None) -> bool:
+    """Who may record an activity as done: the caretaker it is confirmed-assigned to, or — for anything but a medicine
+    dose — the primary contact too. A dose must be given and photographed by the caretaker; the primary contact's part
+    is to review and verify that photo afterwards, not to record the dose as given themselves."""
     own = db.scalar(select(Caregiver).where(Caregiver.user_id == user.id, Caregiver.id.in_(select(CaregiverPatientLink.caregiver_id).where(CaregiverPatientLink.patient_id == patient_id))))
+    assigned = bool(own and db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == aid, CareAssignment.caregiver_id == own.id, CareAssignment.status == "CONFIRMED")))
+    if source == "PRESCRIPTION": return assigned
     member = db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == patient_id, CareTeamMember.user_id == user.id))
     coordinator = (member and member.team_role == TeamRole.PRIMARY_CONTACT)
-    return bool(coordinator) or bool(own and db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == aid, CareAssignment.caregiver_id == own.id, CareAssignment.status == "CONFIRMED")))
+    return bool(coordinator) or assigned
 
 
 @router.post("/activities/{aid}/complete")
@@ -663,7 +667,8 @@ def complete_activity(aid: uuid.UUID, request: Request, user: User = Depends(__i
     a = db.get(CareActivity, aid)
     if not a: raise HTTPException(404, "Activity not found")
     _member(db, user, a.patient_id)
-    if not _may_record_done(db, user, aid, a.patient_id): raise HTTPException(403, "Only the primary contact or the assigned caretaker can record this as done")
+    if not _may_record_done(db, user, aid, a.patient_id, a.source):
+        raise HTTPException(403, "Only the assigned caretaker can record a medicine dose as done" if a.source == "PRESCRIPTION" else "Only the primary contact or the assigned caretaker can record this as done")
     if a.lifecycle_status == "COMPLETED": return {"status": "completed", "care_status": "COMPLETED", "completed_late": a.completed_late}
     require_proof_photo(db, a)
     try: care_status_service.complete(db, a, user.id)
