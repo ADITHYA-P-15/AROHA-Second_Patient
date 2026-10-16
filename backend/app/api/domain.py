@@ -649,16 +649,23 @@ def cancel_activity(aid: uuid.UUID, request: Request, body: CancelIn | None = No
     reassess(db, [a.patient_id], TriggerEvent.ASSIGNMENT_REMOVED, {"activity_id": str(aid)}); db.commit(); return {"status": "cancelled"}
 
 
+def _may_record_done(db, user, aid, patient_id) -> bool:
+    """Who may record an activity as done: the primary contact, or the caretaker it is confirmed-assigned to."""
+    own = db.scalar(select(Caregiver).where(Caregiver.user_id == user.id, Caregiver.id.in_(select(CaregiverPatientLink.caregiver_id).where(CaregiverPatientLink.patient_id == patient_id))))
+    member = db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == patient_id, CareTeamMember.user_id == user.id))
+    coordinator = (member and member.team_role == TeamRole.PRIMARY_CONTACT)
+    return bool(coordinator) or bool(own and db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == aid, CareAssignment.caregiver_id == own.id, CareAssignment.status == "CONFIRMED")))
+
+
 @router.post("/activities/{aid}/complete")
 def complete_activity(aid: uuid.UUID, request: Request, user: User = Depends(__import__("app.main", fromlist=["current_user"]).current_user), db: Session = Depends(get_db)):
+    from app.api.proof_photos import require_proof_photo
     a = db.get(CareActivity, aid)
     if not a: raise HTTPException(404, "Activity not found")
     _member(db, user, a.patient_id)
-    own = db.scalar(select(Caregiver).where(Caregiver.user_id == user.id, Caregiver.id.in_(select(CaregiverPatientLink.caregiver_id).where(CaregiverPatientLink.patient_id == a.patient_id))))
-    member = db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == a.patient_id, CareTeamMember.user_id == user.id))
-    coordinator = (member and member.team_role == TeamRole.PRIMARY_CONTACT)
-    if not coordinator and not (own and db.scalar(select(CareAssignment.id).where(CareAssignment.activity_id == aid, CareAssignment.caregiver_id == own.id, CareAssignment.status == "CONFIRMED"))): raise HTTPException(403, "Only the primary contact or the assigned caretaker can record this as done")
+    if not _may_record_done(db, user, aid, a.patient_id): raise HTTPException(403, "Only the primary contact or the assigned caretaker can record this as done")
     if a.lifecycle_status == "COMPLETED": return {"status": "completed", "care_status": "COMPLETED", "completed_late": a.completed_late}
+    require_proof_photo(db, a)
     try: care_status_service.complete(db, a, user.id)
     except care_status_service.StatusError as exc: raise HTTPException(409, str(exc)) from None
     _history(db, user, request, a.patient_id, "activity.completed", "care_activity", aid, f"{a.title} recorded as done" + (" (late)" if a.completed_late else ""))

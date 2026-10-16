@@ -690,3 +690,26 @@ class HireRequest(Base):
     expires_at: Mapped[object] = mapped_column(DateTime(timezone=True))
     responded_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class ActivityProofPhoto(Base):
+    """Caretaker accountability: a photo taken at the moment a dose is recorded as given, with the device's time and location.
+
+    One photo per activity, uploaded before `complete` and never replaced afterwards, so it cannot be swapped in after the
+    fact. The timestamp and location are also burned into the image itself on the client (visible, tamper-evident), and kept
+    here as structured fields too so the care team can see them without opening the photo.
+    """
+    __tablename__ = "activity_proof_photos"
+    __table_args__ = (CheckConstraint("location_status IN ('AVAILABLE','DENIED','UNAVAILABLE')", name="ck_proof_photo_location_status"),)
+    id: Mapped[uuid.UUID] = uuid_pk()
+    activity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("care_activities.id", ondelete="CASCADE"), unique=True, index=True)
+    uploaded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    mime_type: Mapped[str] = mapped_column(String(60))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    image: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    captured_at: Mapped[object] = mapped_column(DateTime(timezone=True))  # device clock, at the moment the photo was taken
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    location_accuracy_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    location_status: Mapped[str] = mapped_column(String(12), default="UNAVAILABLE")  # AVAILABLE | DENIED | UNAVAILABLE
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)  # server receipt time (trusted; captured_at is client-reported)

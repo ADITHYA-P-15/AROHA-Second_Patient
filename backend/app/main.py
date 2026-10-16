@@ -594,6 +594,8 @@ from app.api.checkins import router as checkins_router
 app.include_router(checkins_router)
 from app.api.team_builder import router as team_builder_router
 app.include_router(team_builder_router)
+from app.api.proof_photos import router as proof_photos_router
+app.include_router(proof_photos_router)
 
 
 lookup_attempts: dict[str, deque[float]] = defaultdict(deque)

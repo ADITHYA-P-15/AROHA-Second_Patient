@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     demo_mode: bool = True
     seed_demo: bool = True
     # Staged rollout: a feature that is not listed here is off. New features ship dark and are switched on per environment ("*" = all).
-    features: str = "voice_notes,insights,reminders,progress_report,checkins,directory,ratings,team_builder"
+    features: str = "voice_notes,insights,reminders,progress_report,checkins,directory,ratings,team_builder,proof_photos"
     # Set to false on web-only instances. The scheduler also takes a database lock, so a second instance never double-runs it.
     run_scheduler: bool = True
     # Background cadence. Small hosts (shared CPU, remote database) do better with longer gaps; reminders are minutes-grained anyway.
