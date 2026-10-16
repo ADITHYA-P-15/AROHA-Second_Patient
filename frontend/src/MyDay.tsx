@@ -43,7 +43,7 @@ export function MyDay() {
   const [from, setFrom] = useState(''); const [to, setTo] = useState(''); const [reason, setReason] = useState('PERSONAL'); const [note, setNote] = useState('');
   useEffect(() => { if (!from) setFrom(nowLocalInput(new Date(), timeZone)); }, [from, timeZone]);
 
-  const refresh = () => Promise.all(['activities', 'cover', 'cover-offers', 'command-center', 'workload', 'notifications', 'adherence'].map(k => client.invalidateQueries({ queryKey: [k] }))).catch(() => undefined);
+  const refresh = () => Promise.all(['activities', 'cover', 'cover-offers', 'command-center', 'workload', 'notifications', 'adherence', 'proof-photos'].map(k => client.invalidateQueries({ queryKey: [k] }))).catch(() => undefined);
   async function run(fn: () => Promise<string>, fail: string) {
     if (busy) return;
     setBusy(true);

@@ -91,3 +91,45 @@ def test_an_unrelated_account_cannot_read_the_photo_or_its_metadata():
     assert stranger.get(f"/api/v1/activities/{dose['id']}/proof-photo").status_code == 403
     assert stranger.get(f"/api/v1/activities/{dose['id']}/proof-photo/meta").status_code == 403
     assert coord.get(f"/api/v1/activities/{dose['id']}/proof-photo/meta").status_code == 200  # the primary contact may review it
+
+
+def titles(client):
+    return [n["title"] for n in client.get("/api/v1/notifications").json()["items"]]
+
+
+def test_uploading_a_photo_notifies_the_primary_contact_with_the_time_and_location_spelled_out():
+    coord, pid, doctor, main, _ = setup()
+    dose = a_dose(coord, pid, doctor)
+    uploaded = main.put(f"/api/v1/activities/{dose['id']}/proof-photo", headers=JPEG, content=TINY_JPEG,
+                         params={"latitude": "12.9716", "longitude": "77.5946", "accuracy_m": "12", "location_status": "AVAILABLE"})
+    assert uploaded.status_code == 201
+    meta = uploaded.json()
+    assert "Location unavailable" not in meta["location_text"] and "12.97160" in meta["location_text"] and "77.59460" in meta["location_text"]
+    assert f"Proof photo to review: {dose['title']}" in titles(coord)
+    notif = next(n for n in coord.get("/api/v1/notifications").json()["items"] if n["title"].startswith("Proof photo to review"))
+    assert "12.97160" in notif["body"] and meta["captured_at_text"] in notif["body"] and notif["requires_ack"] is True
+    assert f"Proof photo to review: {dose['title']}" not in titles(main)  # the uploader is not told about their own upload
+
+
+def test_only_the_primary_contact_can_verify_a_photo_and_it_is_idempotent():
+    coord, pid, doctor, main, _ = setup()
+    dose = a_dose(coord, pid, doctor)
+    main.put(f"/api/v1/activities/{dose['id']}/proof-photo", headers=JPEG, content=TINY_JPEG)
+    assert main.post(f"/api/v1/activities/{dose['id']}/proof-photo/verify", headers=H, json={}).status_code == 403  # a caretaker cannot verify their own evidence
+    first = coord.post(f"/api/v1/activities/{dose['id']}/proof-photo/verify", headers=H, json={})
+    assert first.status_code == 200 and first.json()["verified_by"] is not None and first.json()["verified_at"] is not None
+    first_at = first.json()["verified_at"]
+    second = coord.post(f"/api/v1/activities/{dose['id']}/proof-photo/verify", headers=H, json={})
+    assert second.json()["verified_at"] == first_at  # verifying again keeps the original sign-off
+
+
+def test_replacing_a_photo_clears_its_verification_and_the_review_list_reflects_it():
+    coord, pid, doctor, main, _ = setup()
+    dose = a_dose(coord, pid, doctor)
+    main.put(f"/api/v1/activities/{dose['id']}/proof-photo", headers=JPEG, content=TINY_JPEG)
+    assert coord.post(f"/api/v1/activities/{dose['id']}/proof-photo/verify", headers=H, json={}).status_code == 200
+    unverified_before = coord.get(f"/api/v1/patients/{pid}/proof-photos", params={"verified": "false"}).json()["items"]
+    assert dose["id"] not in [p["activity_id"] for p in unverified_before]
+    main.put(f"/api/v1/activities/{dose['id']}/proof-photo", headers=JPEG, content=TINY_JPEG + b"\x00" * 4)  # a new photo needs a fresh look
+    unverified_after = coord.get(f"/api/v1/patients/{pid}/proof-photos", params={"verified": "false"}).json()["items"]
+    assert dose["id"] in [p["activity_id"] for p in unverified_after]

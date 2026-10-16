@@ -6,6 +6,7 @@ import { usePatientPick } from './PatientPick.tsx';
 import { canRecordLate, statusLabel, statusTone } from './lib/care.ts';
 import { coverLine, groupByDay, holderSummary, kindLabel, supportLabel, timeOnly, type PlanActivity, type PlanAssignment } from './lib/plan.ts';
 import { APP_TIMEZONE, localInputToIso, nowLocalInput } from './lib/time.ts';
+import { ProofPhotoReview } from './ProofPhotoReview.tsx';
 
 type Activity = PlanActivity & { description?: string | null; location_note?: string | null; due_by?: string | null; completed_late?: boolean; my_permissions: string[] };
 type Caregiver = { id: string; name: string; is_active: boolean };
@@ -35,7 +36,7 @@ export function CarePlan({ role }: { role: string }) {
     setBusy(true);
     try { setNotice(await fn()); } catch (err) { setNotice(err instanceof Error ? err.message : fail); }
     finally {
-      await Promise.all(['activities', 'cover', 'cover-offers', 'command-center', 'notifications', 'adherence', 'workload', 'forecast'].map(k => client.invalidateQueries({ queryKey: [k] }))).catch(() => undefined);
+      await Promise.all(['activities', 'cover', 'cover-offers', 'command-center', 'notifications', 'adherence', 'workload', 'forecast', 'proof-photos'].map(k => client.invalidateQueries({ queryKey: [k] }))).catch(() => undefined);
       setBusy(false);
     }
   }
@@ -62,6 +63,7 @@ export function CarePlan({ role }: { role: string }) {
   return <div className="cp">
     <div className="section-head"><div><p className="eyebrow">CARE PLAN</p><h3>{past ? 'Last 7 days' : 'Today and the next 7 days'}</h3></div>{picker}</div>
     {notice && <p className="md-notice" role="status">{notice}</p>}
+    {manager && id && <ProofPhotoReview patientId={id} onDone={msg => { setNotice(msg); void client.invalidateQueries({ queryKey: ['proof-photos'] }); }}/>}
     <div className="cp-toolbar">
       <div className="cp-filters" role="group" aria-label="Show">{FILTERS.map(([value, label]) => <button key={value} className={`cp-filter${filter === value ? ' on' : ''}`} aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}{value === 'ATTENTION' && attention > 0 ? <span className="cp-badge">{attention}</span> : null}</button>)}</div>
       <button className="cp-filter" onClick={() => setPast(!past)}>{past ? 'Show upcoming' : 'Show last 7 days'}</button>

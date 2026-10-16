@@ -713,3 +713,5 @@ class ActivityProofPhoto(Base):
     location_accuracy_m: Mapped[float | None] = mapped_column(Float, nullable=True)
     location_status: Mapped[str] = mapped_column(String(12), default="UNAVAILABLE")  # AVAILABLE | DENIED | UNAVAILABLE
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=now)  # server receipt time (trusted; captured_at is client-reported)
+    verified_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", name="fk_proof_photo_verified_by"), nullable=True)  # the primary contact who reviewed it
+    verified_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
