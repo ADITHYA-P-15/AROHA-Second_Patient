@@ -1,11 +1,11 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api/client.ts';
 import { usePatientPick } from './PatientPick.tsx';
 import { canRecordLate, statusLabel, statusTone } from './lib/care.ts';
 import { coverLine, groupByDay, holderSummary, kindLabel, supportLabel, timeOnly, type PlanActivity, type PlanAssignment } from './lib/plan.ts';
-import { localInputToIso, nowLocalInput } from './lib/time.ts';
+import { APP_TIMEZONE, localInputToIso, nowLocalInput } from './lib/time.ts';
 
 type Activity = PlanActivity & { description?: string | null; location_note?: string | null; due_by?: string | null; completed_late?: boolean; my_permissions: string[] };
 type Caregiver = { id: string; name: string; is_active: boolean };
@@ -113,11 +113,14 @@ function PlanRow({ a, role, manager, busy, caregivers, actions }: { a: Activity;
 }
 
 function HomeTask({ patientId, onDone }: { patientId: string; onDone: (msg: string) => void }) {
-  const [title, setTitle] = useState(''); const [start, setStart] = useState(nowLocalInput()); const [minutes, setMinutes] = useState(30); const [support, setSupport] = useState('DAILY_ASSIST'); const [error, setError] = useState('');
+  const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<{ timezone?: string }>('/api/v1/meta') });
+  const timeZone = meta.data?.timezone ?? APP_TIMEZONE;
+  const [title, setTitle] = useState(''); const [start, setStart] = useState(''); const [minutes, setMinutes] = useState(30); const [support, setSupport] = useState('DAILY_ASSIST'); const [error, setError] = useState('');
+  useEffect(() => { if (!start) setStart(nowLocalInput(new Date(), timeZone)); }, [start, timeZone]);
   async function submit(e: FormEvent) {
     e.preventDefault(); setError('');
     try {
-      const begin = localInputToIso(start);
+      const begin = localInputToIso(start, timeZone);
       await api(`/api/v1/patients/${patientId}/activities`, { method: 'POST', body: JSON.stringify({ title: title.trim(), category: 'DAILY_ROUTINE', scheduled_start: begin, scheduled_end: new Date(new Date(begin).getTime() + minutes * 60_000).toISOString(), required_support: [support], requires_caregiver: true, importance: 'MEDIUM' }) });
       setTitle(''); onDone(`“${title.trim()}” added. Assign a caretaker from the plan above.`);
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not add the task.'); }
@@ -126,7 +129,7 @@ function HomeTask({ patientId, onDone }: { patientId: string; onDone: (msg: stri
     <p className="muted small">Medicines and appointments come from the hospital. Use this for other help at home, such as a grocery run.</p>
     <form className="md-form" onSubmit={submit}>
       <label>What needs doing<input required maxLength={200} value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Pick up groceries"/></label>
-      <label>When (Asia/Kolkata)<input type="datetime-local" required value={start} onChange={e => setStart(e.target.value)}/></label>
+      <label>When ({timeZone})<input type="datetime-local" required value={start} onChange={e => setStart(e.target.value)}/></label>
       <label>How long (minutes)<input type="number" min={10} max={480} step={5} required value={minutes} onChange={e => setMinutes(Number(e.target.value))}/></label>
       <label>Kind of help<select value={support} onChange={e => setSupport(e.target.value)}>{HOME_SUPPORT.map(s => <option key={s} value={s}>{supportLabel(s)}</option>)}</select></label>
       {error && <p className="error" role="alert">{error}</p>}

@@ -50,7 +50,7 @@ services:
       # The larger fictional population (24 patients, 30 days of history) makes every background tick several times heavier.
       # Switch it on once the service has a paid instance; the core demo family and the second patient are always there.
       - key: DEMO_POPULATION
-        value: "false"
+        value: "true"
       - key: AUTO_COORDINATION
         value: "true"
       - key: FEATURES

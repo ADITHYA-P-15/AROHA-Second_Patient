@@ -143,7 +143,18 @@ def test_change_password_invalidates_existing_session():
 
 def test_login_rate_limit():
     c = TestClient(app); email = f"missing-{uuid.uuid4().hex}@example.com"
-    for _ in range(10):
+    for _ in range(5):
         assert c.post("/api/v1/auth/login", headers=H, json={"email": email, "password": "WrongPass!123"}).status_code == 401
     limited = c.post("/api/v1/auth/login", headers=H, json={"email": email, "password": "WrongPass!123"})
     assert limited.status_code == 429 and limited.headers["retry-after"] == "60"
+
+
+def test_successful_login_clears_failed_attempts():
+    c = TestClient(app); email = f"rate-reset-{uuid.uuid4().hex}@example.com"; password = "ValidPass!234"
+    assert c.post("/api/v1/auth/register", headers=H, json={"name": "Rate Reset", "email": email, "password": password}).status_code == 201
+    for _ in range(4):
+        assert c.post("/api/v1/auth/login", headers=H, json={"email": email, "password": "WrongPass!123"}).status_code == 401
+    assert c.post("/api/v1/auth/login", headers=H, json={"email": email, "password": password}).status_code == 200
+    for _ in range(5):
+        assert c.post("/api/v1/auth/login", headers=H, json={"email": email, "password": "WrongPass!123"}).status_code == 401
+    assert c.post("/api/v1/auth/login", headers=H, json={"email": email, "password": "WrongPass!123"}).status_code == 429

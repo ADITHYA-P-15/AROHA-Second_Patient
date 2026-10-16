@@ -19,7 +19,7 @@ from sqlalchemy import select, text, func
 from sqlalchemy.orm import Session
 
 from app.core.clock import now
-from app.core.config import settings
+from app.core.config import demo_reset_enabled, docs_enabled, settings
 from app.core.db import Base, engine, get_db, SessionLocal
 from app.core.security import create_token, hash_password, verify_password
 from app.core.permissions import require_patient_access
@@ -44,7 +44,7 @@ from app.seed.population import build_in_background as build_population_in_backg
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("second_patient")
 # The interactive API docs are for development; a production deployment does not publish its API schema.
-_docs = settings.app_env != "prod"
+_docs = docs_enabled(settings.app_env)
 app = FastAPI(title="CareCircle", version="0.1.0", openapi_url="/api/openapi.json" if _docs else None, docs_url="/docs" if _docs else None, redoc_url=None)
 if settings.app_env == "prod" and settings.secret_key == "change-me-before-production":
     raise RuntimeError("SECRET_KEY must be changed before starting in production")
@@ -177,7 +177,7 @@ scheduler_state: dict = {"last_tick_at": None, "leader": None, "last_error": Non
 @app.get("/api/health")
 def health(db: Session = Depends(get_db)):
     db.execute(text("SELECT 1"))
-    return {"status": "ok", "database": "ok", "git_sha": settings.git_sha, "env": settings.app_env, "scheduler": {"enabled": settings.run_scheduler, **scheduler_state}}
+    return {"status": "ok", "database": "ok"}
 
 
 @app.get("/api/v1/meta")
@@ -185,7 +185,7 @@ def meta(db: Session = Depends(get_db)):
     from app.services import ai as ai_service
     ai_status = ai_service.status()
     scale = current_escalation_scale(db)
-    return {"app_name": "CareCircle", "version": "0.5.0", "git_sha": settings.git_sha, "phase": 5, "demo_mode": settings.demo_mode, "features": settings.feature_list, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "server_time": now().isoformat(), "poll_seconds": max(3, settings.client_poll_seconds), "timezone": settings.app_timezone, "ai_enabled": bool(ai_status["speech"] or ai_status["text"]), "ai": ai_status}
+    return {"demo_mode": settings.demo_mode, "demo_reset_enabled": demo_reset_enabled(settings.app_env, settings.demo_mode), "features": settings.feature_list, "escalation_time_scale": scale, "escalation_scaled": settings.demo_mode and scale != 1.0, "poll_seconds": max(3, settings.client_poll_seconds), "timezone": settings.app_timezone, "ai_enabled": bool(ai_status["speech"] or ai_status["text"])}
 
 
 def incident_recipients(db, patient_id, level):
@@ -529,11 +529,12 @@ def login(body: LoginIn, request: Request, response: Response, db: Session = Dep
     attempts = login_attempts[key]
     cutoff = time.monotonic() - 60
     while attempts and attempts[0] < cutoff: attempts.popleft()
-    if len(attempts) >= 10: raise HTTPException(429, "Too many login attempts", headers={"Retry-After": "60"})
-    attempts.append(time.monotonic())
+    if len(attempts) >= 5: raise HTTPException(429, "Too many login attempts", headers={"Retry-After": "60"})
     user = db.scalar(select(User).where(User.email == str(body.email).lower()))
     if not user or not user.is_active or not verify_password(body.password, user.password_hash):
+        attempts.append(time.monotonic())
         raise HTTPException(401, "Invalid credentials")
+    attempts.clear()
     response.set_cookie(COOKIE, create_token(user), httponly=True, secure=settings.cookie_secure, samesite="lax", max_age=settings.session_hours * 3600, path="/")
     return user_dict(user, db)
 
@@ -801,8 +802,8 @@ def seed(db=None):
 
 @app.post("/api/v1/demo/reset")
 def reset_demo(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    """Demo mode only, for the fictional demo accounts: rebuild the demo care circle from scratch, relative to now."""
-    if not settings.demo_mode or not user.is_synthetic or not user.email.endswith(("@secondpatient.demo", "@carecircle.demo")): raise HTTPException(403, "Permission denied")
+    """Development/test demo reset for synthetic primary contacts only."""
+    if not demo_reset_enabled(settings.app_env, settings.demo_mode) or not user.is_synthetic or user.role != Role.PRIMARY_CONTACT or not user.email.endswith("@secondpatient.demo"): raise HTTPException(403, "Permission denied")
     from app.services import demo
     if not demo.reset(db): raise HTTPException(409, "The demo patients are not present")
     db.commit()

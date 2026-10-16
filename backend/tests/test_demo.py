@@ -41,7 +41,11 @@ def test_reset_undoes_demo_changes_and_ensure_is_idempotent():
         demo.ensure(db); db.commit()  # same version and a plan exists: nothing is rebuilt
         assert db.scalar(select(func.count()).select_from(CareActivity)) == before
         assert db.scalar(select(func.count()).select_from(AvailabilityOverride)) >= 1
-    assert savitha.post("/api/v1/demo/reset", headers=H).status_code == 200
+    assert savitha.post("/api/v1/demo/reset", headers=H).status_code == 403
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(CareActivity)) == before
+        assert db.scalar(select(func.count()).select_from(AvailabilityOverride)) >= 1
+    assert login("anita.iyer@secondpatient.demo").post("/api/v1/demo/reset", headers=H).status_code == 200
     with SessionLocal() as db:
         new_cid = db.scalar(select(Caregiver.id).where(Caregiver.name == "Savitha"))
         assert db.scalar(select(func.count()).select_from(AvailabilityOverride).where(AvailabilityOverride.caregiver_id == new_cid)) == 0
@@ -50,9 +54,22 @@ def test_reset_undoes_demo_changes_and_ensure_is_idempotent():
 
 def test_only_demo_accounts_can_reset():
     seed()
+    patient = login("ramesh.iyer@secondpatient.demo")
+    caretaker = login("savitha@secondpatient.demo")
+    professional = login("dr.arjun.nair@secondpatient.demo")
+    assert patient.post("/api/v1/demo/reset", headers=H).status_code == 403
+    assert caretaker.post("/api/v1/demo/reset", headers=H).status_code == 403
+    assert professional.post("/api/v1/demo/reset", headers=H).status_code == 403
     outsider, _, _ = account("PRIMARY_CONTACT")
     assert outsider.post("/api/v1/demo/reset", headers=H).status_code == 403
     assert TestClient(app).post("/api/v1/demo/reset", headers=H).status_code == 401
+
+
+def test_demo_reset_endpoint_is_disabled_in_production(monkeypatch):
+    seed()
+    anita = login("anita.iyer@secondpatient.demo")
+    monkeypatch.setattr(settings, "app_env", "production")
+    assert anita.post("/api/v1/demo/reset", headers=H).status_code == 403
 
 
 def test_missed_medicine_message_reaches_caretaker_and_acknowledging_clears_alerts():

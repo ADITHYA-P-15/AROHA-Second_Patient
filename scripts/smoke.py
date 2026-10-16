@@ -34,7 +34,7 @@ def main():
     def check(name,ok): checks.append((name,bool(ok)))
     c=Client(args.base_url)
     status,h,_=c.request('GET','/api/health'); check('health + database',status==200 and h.get('database')=='ok')
-    status,m,_=c.request('GET','/api/v1/meta'); check('meta phase',status==200 and m.get('phase')==5)
+    status,m,_=c.request('GET','/api/v1/meta'); check('public UI metadata',status==200 and isinstance(m.get('features'),list) and 'demo_mode' in m)
     status,_,headers=c.request('GET','/'); check('SPA entry point',status==200 and 'text/html' in headers.get('Content-Type',''))
     status,u,_=c.request('GET','/api/no-such-route'); check('unknown API is JSON 404',status==404 and isinstance(u,dict))
     status,_,_=c.request('POST','/api/v1/auth/register',{'name':'Test','email':f'{secrets.token_hex(5)}@example.com','password':'SafePass!234'},csrf=False); check('CSRF enforced',status==403)
