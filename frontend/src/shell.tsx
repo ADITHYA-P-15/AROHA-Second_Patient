@@ -99,13 +99,13 @@ function Login({ onLogin, demoMode }: { onLogin: (u: User) => void; demoMode: bo
 function App() {
   const queryClient = useQueryClient(); const navigate = useNavigate();
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<User>('/api/v1/auth/me'), retry: false });
-const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<{phase:number;version:string;demo_mode:boolean;escalation_scaled:boolean;escalation_time_scale:number;features?:string[]}>('/api/v1/meta') });
+  const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<{demo_mode:boolean;demo_reset_enabled:boolean;escalation_scaled:boolean;escalation_time_scale:number;timezone?:string;features?:string[]}>('/api/v1/meta') });
   if (me.isLoading) return <div className="loading">Loading your workspace…</div>;
   if (me.isError) return <Login demoMode={meta.data?.demo_mode ?? false} onLogin={u=>{ queryClient.setQueryData(['me'],u); navigate(homeFor(u.role)); }} />;
   return <Workspace user={me.data!} meta={meta.data}/>;
 }
 
-function Workspace({ user, meta }: { user: User; meta?: { phase: number; version: string; demo_mode: boolean; escalation_scaled: boolean; escalation_time_scale: number; features?: string[] } }) {
+function Workspace({ user, meta }: { user: User; meta?: { demo_mode: boolean; demo_reset_enabled: boolean; escalation_scaled: boolean; escalation_time_scale: number; timezone?: string; features?: string[] } }) {
   const queryClient = useQueryClient(); const navigate = useNavigate(); const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => { setMenuOpen(false); }, [location.pathname]);
@@ -156,7 +156,7 @@ function Workspace({ user, meta }: { user: User; meta?: { phase: number; version
       <div className="sidebar-top"><div className="brand"><span className="brand-icon"><HeartHandshake/></span><span>CareCircle</span></div><button className="icon-button menu-close" aria-label="Close menu" onClick={() => setMenuOpen(false)}><X size={20}/></button></div>
       {meta?.demo_mode && <div className="demo-tag">DEMO · SYNTHETIC DATA</div>}
       <nav className="side-nav">{menu.map(({ title, path, icon: Icon, group }) => <Fragment key={path}>{group && <p className="nav-group">{group}</p>}<NavLink to={path} end className={({ isActive }) => isActive ? 'active' : undefined}><Icon size={18} aria-hidden="true"/>{title}</NavLink></Fragment>)}</nav>
-      {meta?.demo_mode && user.email.endsWith('@secondpatient.demo') && <button className="reset-demo" disabled={resetting} onClick={() => void resetDemo()}><RotateCcw size={15} aria-hidden="true"/>{resetting ? 'Resetting…' : 'Reset demo data'}</button>}
+      {meta?.demo_reset_enabled && user.role === 'PRIMARY_CONTACT' && user.email.endsWith('@secondpatient.demo') && <button className="reset-demo" disabled={resetting} onClick={() => void resetDemo()}><RotateCcw size={15} aria-hidden="true"/>{resetting ? 'Resetting…' : 'Reset demo data'}</button>}
       <div className="side-bottom"><span className="avatar">{user.name[0]}</span><div className="identity"><strong>{user.name}</strong><small>{roleLabel}</small></div><button className="icon-button" aria-label="Log out" title="Log out" onClick={() => void logout()}><LogOut size={18}/></button></div>
     </aside>
     {menuOpen && <div className="scrim" aria-hidden="true" onClick={() => setMenuOpen(false)}/>}
@@ -170,7 +170,7 @@ function Workspace({ user, meta }: { user: User; meta?: { phase: number; version
       <div className="page" key={location.pathname}>
         <Routes>{menu.map(item => <Route key={item.path} path={item.path} element={page(item.path)}/>)}<Route path="*" element={<Navigate to={homeFor(user.role)} replace/>}/></Routes>
       </div>
-      <footer>Operational care-coordination tool — not a diagnostic or emergency service. Demo data is fictional.<span>Phase {meta?.phase ?? 4} · v{meta?.version ?? '0.4.0'}</span></footer>
+      <footer>Operational care-coordination tool — not a diagnostic or emergency service. Demo data is fictional.</footer>
     </main>
   </div>;
 }
@@ -301,6 +301,7 @@ function PatientProfile() {
 function CareNetwork({role}:{role:string}) {
   const {id,picker}=usePatientPick();
   const me=useQuery({queryKey:['me'],queryFn:()=>api<{id:string}>('/api/v1/auth/me')});
+  const meta=useQuery({queryKey:['meta'],queryFn:()=>api<{timezone?:string}>('/api/v1/meta')});
   const patient=useQuery({queryKey:['patient',id],queryFn:()=>api<PatientDetails>(`/api/v1/patients/${id}`),enabled:!!id});
   const network=useQuery({queryKey:['caregivers',id],queryFn:()=>api<{items:Caregiver[]}>(`/api/v1/patients/${id}/caregivers`),enabled:!!id});
   const [message,setMessage]=useState('');
@@ -315,20 +316,21 @@ function CareNetwork({role}:{role:string}) {
     {message&&<p role="status" className="md-notice">{message}</p>}
     {role==='PRIMARY_CONTACT'&&canManage&&<section className="card"><h3>Main caretaker</h3><p className="muted small">New doses and appointments go to the main caretaker when they are free. Otherwise the next best caretaker is asked automatically.</p><div className="md-row"><label className="md-pick">Main caretaker<select value={mainId} onChange={e=>setMainId(e.target.value)}><option value="">Select caretaker</option>{network.data?.items.filter(c=>c.is_active).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><button disabled={!mainId||mainId===currentMain} onClick={()=>void saveMain()}>Save</button></div></section>}
     {people.length===0&&<section className="card"><p className="muted">No caretakers yet. Invite them from Care Team.</p></section>}
-    <div className="grid">{people.map(c=><CaretakerCard key={c.id} c={c} editable={canManage||c.user_id===me.data?.id} onMessage={setMessage}/>)}</div></>;
+    <div className="grid">{people.map(c=><CaretakerCard key={c.id} c={c} editable={canManage||c.user_id===me.data?.id} onMessage={setMessage} timeZone={meta.data?.timezone}/>)}</div></>;
 }
-function CaretakerCard({c,editable,onMessage}:{c:Caregiver;editable:boolean;onMessage:(m:string)=>void}){
+function CaretakerCard({c,editable,onMessage,timeZone}:{c:Caregiver;editable:boolean;onMessage:(m:string)=>void;timeZone?:string}){
   const client=useQueryClient();
   const schedule=useQuery({queryKey:['schedule',c.id],queryFn:()=>api<{windows:WeeklyWindow[]}>(`/api/v1/caregivers/${c.id}/schedule`)});
-  const [from,setFrom]=useState(nowLocalInput());const [until,setUntil]=useState('');const [editing,setEditing]=useState(false);
+  const [from,setFrom]=useState('');const [until,setUntil]=useState('');const [editing,setEditing]=useState(false);
+  useEffect(()=>{if(!from)setFrom(nowLocalInput(new Date(),timeZone));},[from,timeZone]);
   async function preset(label:string,windows:WeeklyWindow[]){try{await api(`/api/v1/caregivers/${c.id}/schedule`,{method:'PUT',body:JSON.stringify({windows})});await client.invalidateQueries({queryKey:['schedule',c.id]});setEditing(false);onMessage(`${c.name}: usual hours set to ${label}.`);}catch(err){onMessage(err instanceof Error?err.message:'Could not save hours.');}}
-  async function away(e:FormEvent){e.preventDefault();try{await api(`/api/v1/caregivers/${c.id}/availability-overrides`,{method:'POST',body:JSON.stringify({start_at:localInputToIso(from),end_at:localInputToIso(until),status:'UNAVAILABLE',reason:'PERSONAL',note:'Time away'})});setUntil('');onMessage(`${c.name} is away ${formatAppTime(localInputToIso(from))} – ${formatAppTime(localInputToIso(until))}. Their tasks in that time will be offered to others.`);}catch(err){onMessage(err instanceof Error?err.message:'Could not record time away.');}}
+  async function away(e:FormEvent){e.preventDefault();try{await api(`/api/v1/caregivers/${c.id}/availability-overrides`,{method:'POST',body:JSON.stringify({start_at:localInputToIso(from,timeZone),end_at:localInputToIso(until,timeZone),status:'UNAVAILABLE',reason:'PERSONAL',note:'Time away'})});setUntil('');onMessage(`${c.name} is away ${formatAppTime(localInputToIso(from,timeZone))} – ${formatAppTime(localInputToIso(until,timeZone))}. Their tasks in that time will be offered to others.`);}catch(err){onMessage(err instanceof Error?err.message:'Could not record time away.');}}
   return <section className="card cn-card"><div className="card-head"><div><h3>{c.name}</h3><p className="muted small">{c.relationship||'caretaker'}{c.phone?` · ${c.phone}`:''}</p></div>{c.is_main_caretaker?<span className="status-pill">Main caretaker</span>:!c.is_active?<span className="status-pill">Inactive</span>:null}</div>
     <p className="cn-line"><span>Can help with</span>{c.capabilities.map(x=><span className="chip" key={x}>{supportLabel(x)}</span>)}</p>
     <p className="cn-line"><span>Usual hours</span>{schedule.isLoading?'…':scheduleSummary(schedule.data?.windows??[])}</p>
     <p className="cn-line"><span>Limits</span>{c.max_activities_per_day} tasks a day · {c.max_hours_per_week} hours a week</p>
     {editable&&<div className="cn-edit">{editing?<div className="chips">{PRESETS.map(([label,windows])=><button key={label} onClick={()=>void preset(label,windows)}>{label}</button>)}<button onClick={()=>setEditing(false)}>Cancel</button></div>:<button onClick={()=>setEditing(true)}>Change usual hours</button>}
-      <details><summary>Add time away</summary><form className="md-form" onSubmit={away}><label>From<input type="datetime-local" required value={from} onChange={e=>setFrom(e.target.value)}/></label><label>Until<input type="datetime-local" required min={from} value={until} onChange={e=>setUntil(e.target.value)}/></label><button className="primary">Save time away</button></form></details></div>}
+      <details><summary>Add time away</summary><form className="md-form" onSubmit={away}><label>From ({timeZone??'Asia/Kolkata'})<input type="datetime-local" required value={from} onChange={e=>setFrom(e.target.value)}/></label><label>Until ({timeZone??'Asia/Kolkata'})<input type="datetime-local" required min={from} value={until} onChange={e=>setUntil(e.target.value)}/></label><button className="primary">Save time away</button></form></details></div>}
   </section>;
 }
 function HistoryPage(){const {id,picker}=usePatientPick();const history=useQuery({queryKey:['history',id],queryFn:()=>api<{items:HistoryEvent[];total:number}>(`/api/v1/patients/${id}/history?limit=100`),enabled:!!id});return <><div className="section-head"><div><p className="eyebrow">HISTORY</p><h3>What changed, and when</h3></div>{picker}</div><section className="card"><ul className="history-list">{history.data?.items.map((x)=><li key={x.id}><i className="timeline-dot"/><span>{x.summary}<small>{formatAppTime(x.occurred_at)}</small></span></li>)}</ul>{history.data?.total===0&&<p>No activity history yet.</p>}</section></>}

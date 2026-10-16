@@ -27,9 +27,6 @@ def fetch(base, path, timeout=15, insecure=False):
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", required=True)
-    parser.add_argument("--expect-sha", default="")
-    parser.add_argument("--expect-prod", action="store_true", help="the API docs must be hidden and the app must say it is a production environment")
-    parser.add_argument("--wait-scheduler", action="store_true", help="wait (up to 90 s) for the scheduler to complete a tick")
     parser.add_argument("--insecure", action="store_true", help="accept a self-signed certificate (private networks only)")
     args = parser.parse_args()
     base, results = args.base_url, []
@@ -48,14 +45,11 @@ def main() -> int:
     health = json.loads(raw or b"{}") if status == 200 else {}
     check("health endpoint answers", status == 200 and health.get("status") == "ok", f"HTTP {status}")
     check("database reachable", health.get("database") == "ok")
-    if args.expect_sha:
-        check("running the expected version", str(health.get("git_sha", "")).startswith(args.expect_sha[:7]), f"{health.get('git_sha')} vs {args.expect_sha}")
-    if args.expect_prod: check("production environment", health.get("env") == "prod", health.get("env"))
 
     status, headers, raw = fetch(base, "/api/v1/meta", insecure=args.insecure)
     meta = json.loads(raw) if status == 200 else {}
-    check("meta endpoint", status == 200, f"version {meta.get('version')} · features {','.join(meta.get('features', []))}")
-    if meta: print(f"        AI: speech {meta.get('ai', {}).get('speech')} · text {meta.get('ai', {}).get('text')} · demo_mode {meta.get('demo_mode')}")
+    check("meta endpoint", status == 200 and isinstance(meta.get("features"), list), f"features {','.join(meta.get('features', []))}")
+    if meta: print(f"        AI enabled: {meta.get('ai_enabled')} · demo mode: {meta.get('demo_mode')}")
 
     status, headers, raw = fetch(base, "/", insecure=args.insecure)
     lowered = {k.lower(): v for k, v in headers.items()}
@@ -65,20 +59,8 @@ def main() -> int:
 
     status, _, _ = fetch(base, "/api/v1/patients", insecure=args.insecure)
     check("API requires sign-in", status == 401, f"HTTP {status}")
-    if args.expect_prod:
-        status, _, _ = fetch(base, "/api/openapi.json", insecure=args.insecure)
-        check("API schema is not published", status == 404, f"HTTP {status}")
-
-    if args.wait_scheduler:
-        ticked = False
-        for _ in range(30):
-            _, _, raw = fetch(base, "/api/health", insecure=args.insecure)
-            scheduler = (json.loads(raw or b"{}") or {}).get("scheduler", {})
-            if scheduler.get("last_tick_at") or scheduler.get("leader") is False or scheduler.get("enabled") is False:
-                ticked = True
-                break
-            time.sleep(3)
-        check("scheduler is running (or another instance owns it)", ticked, scheduler)
+    status, _, _ = fetch(base, "/api/openapi.json", insecure=args.insecure)
+    check("API schema is not published", status == 404, f"HTTP {status}")
 
     failed = results.count(False)
     print(f"\n{'ALL CHECKS PASSED' if not failed else str(failed) + ' CHECK(S) FAILED'}")

@@ -1,9 +1,9 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api/client.ts';
 import { PatientRatePrompt, useFeature } from './Reputation.tsx';
 import { canCheckIn, checkInHint, checkInText, type CheckIn, type CheckInPolicy } from './lib/checkin.ts';
-import { formatAppTime, localInputToIso, nowLocalInput } from './lib/time.ts';
+import { APP_TIMEZONE, formatAppTime, localInputToIso, nowLocalInput } from './lib/time.ts';
 import { canRecordLate, dayBounds, statusLabel, statusTone } from './lib/care.ts';
 import { coverLine, kindLabel, timeOnly, type CoverState } from './lib/plan.ts';
 
@@ -21,6 +21,8 @@ const REASONS: [string, string][] = [['PERSONAL', 'Personal'], ['ILLNESS', 'Illn
 export function MyDay() {
   const client = useQueryClient();
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/api/v1/auth/me') });
+  const meta = useQuery({ queryKey: ['meta'], queryFn: () => api<{ timezone?: string }>('/api/v1/meta') });
+  const timeZone = meta.data?.timezone ?? APP_TIMEZONE;
   const patients = useQuery({ queryKey: ['patients'], queryFn: () => api<{ items: Patient[] }>('/api/v1/patients') });
   const readOnly = me.data?.role === 'PATIENT';
   const list = patients.data?.items ?? [];
@@ -36,7 +38,8 @@ export function MyDay() {
   const checkPolicy = checks.find(q => q.data)?.data?.policy;
   const checkedIn = new Map(checks.flatMap(q => q.data?.items ?? []).map(c => [c.activity_id, c]));
   const [notice, setNotice] = useState(''); const [busy, setBusy] = useState(false);
-  const [from, setFrom] = useState(nowLocalInput()); const [to, setTo] = useState(''); const [reason, setReason] = useState('PERSONAL'); const [note, setNote] = useState('');
+  const [from, setFrom] = useState(''); const [to, setTo] = useState(''); const [reason, setReason] = useState('PERSONAL'); const [note, setNote] = useState('');
+  useEffect(() => { if (!from) setFrom(nowLocalInput(new Date(), timeZone)); }, [from, timeZone]);
 
   async function run(fn: () => Promise<string>, fail: string) {
     if (busy) return;
@@ -71,7 +74,7 @@ export function MyDay() {
     e.preventDefault();
     if (!mine) { setNotice('Your caretaker profile was not found.'); return; }
     void run(async () => {
-      await api(`/api/v1/caregivers/${mine.id}/availability-overrides`, { method: 'POST', body: JSON.stringify({ start_at: localInputToIso(from), end_at: localInputToIso(to), status: 'UNAVAILABLE', reason, note: note.trim() }) });
+      await api(`/api/v1/caregivers/${mine.id}/availability-overrides`, { method: 'POST', body: JSON.stringify({ start_at: localInputToIso(from, timeZone), end_at: localInputToIso(to, timeZone), status: 'UNAVAILABLE', reason, note: note.trim() }) });
       setTo(''); setNote('');
       return 'Leave recorded. Your tasks in that time are being offered to other caretakers; you keep them until someone accepts.';
     }, 'Could not record leave.');
@@ -131,8 +134,8 @@ export function MyDay() {
     {!readOnly && <section className="card"><details><summary>Take leave</summary>
       <p className="md-small muted">Your tasks in that time will be offered to other caretakers. You keep them until someone accepts.</p>
       <form onSubmit={leave} className="md-form">
-        <label>From (Asia/Kolkata)<input type="datetime-local" required value={from} onChange={e => setFrom(e.target.value)}/></label>
-        <label>To (Asia/Kolkata)<input type="datetime-local" required value={to} min={from} onChange={e => setTo(e.target.value)}/></label>
+        <label>From ({timeZone})<input type="datetime-local" required value={from} onChange={e => setFrom(e.target.value)}/></label>
+        <label>To ({timeZone})<input type="datetime-local" required value={to} min={from} onChange={e => setTo(e.target.value)}/></label>
         <label>Reason<select value={reason} onChange={e => setReason(e.target.value)}>{REASONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
         <label>Note (optional)<input maxLength={1000} value={note} onChange={e => setNote(e.target.value)}/></label>
         <button className="primary" disabled={busy || !mine}>Record leave</button>

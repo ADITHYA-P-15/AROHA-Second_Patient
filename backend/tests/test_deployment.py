@@ -4,7 +4,7 @@ import sys
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.config import Settings, settings
+from app.core.config import Settings, demo_reset_enabled, docs_enabled, settings
 from app.main import app
 from app.services.leader import scheduler_lease
 from tests.helpers import H, account, primary_contact_with_patient
@@ -34,8 +34,11 @@ def test_a_feature_that_is_switched_off_disappears_and_comes_back(monkeypatch):
 
 def test_health_reports_what_a_deployment_check_needs():
     body = client.get("/api/health").json()
-    assert body["status"] == "ok" and body["database"] == "ok" and "git_sha" in body and body["env"] and "scheduler" in body
-    assert "voice_notes" in client.get("/api/v1/meta").json()["features"]
+    assert body == {"status": "ok", "database": "ok"}
+    meta = client.get("/api/v1/meta").json()
+    assert "voice_notes" in meta["features"]
+    assert {"demo_mode", "demo_reset_enabled", "features", "poll_seconds", "timezone", "ai_enabled"} <= meta.keys()
+    assert not ({"git_sha", "app_name", "version", "phase", "server_time", "ai", "env", "scheduler"} & (body.keys() | meta.keys()))
 
 
 def test_only_one_holder_of_the_scheduler_lease_at_a_time_on_sqlite_it_is_always_granted():
@@ -53,6 +56,24 @@ def test_production_does_not_publish_the_api_docs():
     assert out.stdout.strip().endswith("None None"), out.stderr[-400:]
     dev = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env={**env, "APP_ENV": "dev"}, cwd=str(__import__("pathlib").Path(__file__).resolve().parents[1]), timeout=120)
     assert dev.stdout.strip() == "/docs /api/openapi.json", dev.stderr[-400:]
+
+
+def test_api_docs_are_enabled_only_for_explicit_development_environments():
+    assert docs_enabled("dev")
+    assert docs_enabled(" Development ")
+    assert docs_enabled("test")
+    assert not docs_enabled("prod")
+    assert not docs_enabled("production")
+    assert not docs_enabled("staging")
+    assert not docs_enabled("")
+
+
+def test_demo_reset_is_disabled_outside_development_and_test():
+    assert demo_reset_enabled("dev", True)
+    assert demo_reset_enabled("test", True)
+    assert not demo_reset_enabled("prod", True)
+    assert not demo_reset_enabled("production", True)
+    assert not demo_reset_enabled("development", False)
 
 
 def test_platform_database_urls_are_normalised_for_the_psycopg_driver():
