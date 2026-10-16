@@ -61,7 +61,7 @@ export function MyDay() {
     return r.completed_late ? `${t.title} recorded as done (late).` : `${t.title} marked done. Thank you.`;
   }, 'Could not record this task.');
   const cannot = (t: Task, a: Assignment) => {
-    if (!window.confirm(`Can't make “${t.title}” at ${timeOnly(t.scheduled_start)}? CareCircle will ask the next best caretaker. You keep it until someone accepts.`)) return;
+    if (!window.confirm(`Can't make “${t.title}” at ${timeOnly(t.scheduled_start)}? AROHA will ask the next best caretaker. You keep it until someone accepts.`)) return;
     void run(async () => {
       await api(`/api/v1/caregivers/${a.caregiver_id}/availability-overrides`, { method: 'POST', body: JSON.stringify({ start_at: t.scheduled_start, end_at: t.scheduled_end, status: 'UNAVAILABLE', reason: 'PERSONAL', note: `Can't make ${t.title}`.slice(0, 1000) }) });
       return 'Noted. A replacement is being asked — you keep this task until someone accepts.';

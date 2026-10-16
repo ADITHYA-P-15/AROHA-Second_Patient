@@ -48,7 +48,7 @@ export function CarePlan({ role }: { role: string }) {
   const actions = {
     done: (a: Activity) => run(async () => { const r = await api<{ completed_late: boolean }>(`/api/v1/activities/${a.id}/complete`, { method: 'POST', body: '{}' }); return `${a.title} recorded as done${r.completed_late ? ' (late)' : ''}.`; }, 'Could not record this.'),
     cannot: (a: Activity, x: PlanAssignment) => {
-      if (!window.confirm(`Can't make “${a.title}” at ${timeOnly(a.scheduled_start)}? CareCircle will ask the next best caretaker. You keep it until someone accepts.`)) return;
+      if (!window.confirm(`Can't make “${a.title}” at ${timeOnly(a.scheduled_start)}? AROHA will ask the next best caretaker. You keep it until someone accepts.`)) return;
       void run(async () => { await post(`/api/v1/caregivers/${x.caregiver_id}/availability-overrides`, { start_at: a.scheduled_start, end_at: a.scheduled_end, status: 'UNAVAILABLE', reason: 'PERSONAL', note: `Can't make ${a.title}`.slice(0, 1000) }); return 'Noted. A replacement is being asked — you keep this until someone accepts.'; }, 'Could not record that.');
     },
     respond: (x: PlanAssignment, verb: 'confirm' | 'decline') => run(async () => { await post(`/api/v1/assignments/${x.id}/${verb}`, verb === 'decline' ? { reason: 'Unable to attend' } : {}); return verb === 'confirm' ? 'You are confirmed for this.' : 'Declined. Someone else will be asked.'; }, 'Could not update.'),
@@ -116,7 +116,7 @@ function PlanRow({ a, role, manager, busy, caregivers, actions, timeZone, onPhot
       {picking && <div className="cp-assign">
         <label>Caretaker<select value={choice} onChange={e => setChoice(e.target.value)}><option value="">Choose…</option>{others.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
         <button className="cp-btn cp-primary" disabled={busy || !choice} onClick={() => { void actions.assign(a, choice); setPicking(false); setChoice(''); }}>Assign</button>
-        {who.confirmed && <button className="cp-btn" disabled={busy} onClick={() => { setPicking(false); void actions.cover(a); }}>Let CareCircle find someone</button>}
+        {who.confirmed && <button className="cp-btn" disabled={busy} onClick={() => { setPicking(false); void actions.cover(a); }}>Let AROHA find someone</button>}
         <button className="cp-btn" onClick={() => setPicking(false)}>Cancel</button>
       </div>}
     </div>

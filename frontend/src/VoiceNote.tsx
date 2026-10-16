@@ -51,7 +51,7 @@ export function VoiceRecorder({ patientId, onSent }: { patientId: string | undef
       const preview = body as VoicePreview;
       setDraft(preview); setText(preview.transcript); setChecked(preview.transcript); setPhase('review');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not reach CareCircle. If it is urgent, call 108/112 or your family.'); setPhase('idle');
+      setError(err instanceof Error ? err.message : 'Could not reach AROHA. If it is urgent, call 108/112 or your family.'); setPhase('idle');
     }
   }
 
@@ -78,7 +78,7 @@ export function VoiceRecorder({ patientId, onSent }: { patientId: string | undef
       const body = await api<Sent>(`/api/v1/voice-notes/${draft.id}/send`, { method: 'POST', headers: { 'Idempotency-Key': key.current }, body: JSON.stringify({ transcript: text }) });
       setPhase('sent'); onSent?.(body); key.current = newId();
     } catch (err) {
-      setPhase('review'); setError(err instanceof Error ? err.message : 'Could not reach CareCircle. If it is urgent, call 108/112 or your family.');
+      setPhase('review'); setError(err instanceof Error ? err.message : 'Could not reach AROHA. If it is urgent, call 108/112 or your family.');
     }
   }
 

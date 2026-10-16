@@ -1,4 +1,4 @@
-"""Care-team membership: CareCircle IDs, caretaker care profiles, and who may join a patient's team."""
+"""Care-team membership: AROHA IDs, caretaker care profiles, and who may join a patient's team."""
 from __future__ import annotations
 
 import secrets

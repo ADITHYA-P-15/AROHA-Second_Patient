@@ -9,7 +9,7 @@ type PatientItem = { id: string; name: string; birth_year?: number; care_code?: 
 type Found = { id: string; name: string; birth_year: number; care_code: string; already_on_team: boolean };
 
 function lookupMessage(err: unknown) {
-  if (err instanceof ApiError && err.status === 404) return 'No patient matches that CareCircle ID and birth year. Check both and try again.';
+  if (err instanceof ApiError && err.status === 404) return 'No patient matches that AROHA ID and birth year. Check both and try again.';
   if (err instanceof ApiError && err.status === 429) return 'Too many attempts. Please wait a few minutes and try again.';
   return err instanceof Error ? err.message : 'Could not search right now.';
 }
@@ -47,12 +47,12 @@ export function ProfessionalPatients() {
   const thisYear = new Date().getFullYear();
   return <div className="ct">
     <section className="card"><p className="eyebrow">MY PATIENTS</p><h2>Patients on your list</h2>
-      {all.length > 6 && <div className="pp-search"><input type="search" aria-label="Search your patients" placeholder="Search name or CareCircle ID" value={filter} onChange={e => setFilter(e.target.value)}/><Link className="cp-btn" to="/insights">Insights</Link></div>}
-      {patients.isLoading ? <div className="skeleton"/> : items.length ? <ul className="team-list">{items.map(p => { const st = stats.get(p.id); const band = st ? bandOf(st) : null; return <li key={p.id}><span><strong>{p.name}</strong><small>{p.birth_year ? `Born ${p.birth_year}` : ''}{p.care_code ? ` · ${p.care_code}` : ''}</small>{st && st.decided > 0 && <span className="pp-tags"><span className={`pp-tag ${band === 'follow_up' ? 'bad' : band === 'watch' ? 'watch' : 'ok'}`}>{pctText(st.taken_pct)} of doses given</span>{st.needs_follow_up && <span className="pp-tag bad">Follow-up suggested</span>}{st.next_appointment && <span className="pp-tag">Next: {st.next_appointment.title}</span>}</span>}</span><span className="pp-links"><Link className="cp-btn" to={`/medicines?patient=${p.id}`}>Medicines</Link><Link className="cp-btn" to={`/care-plan?patient=${p.id}`}>Care plan</Link>{ratingsOn && <button className="cp-btn" aria-expanded={rating === p.id} onClick={() => setRating(rating === p.id ? null : p.id)}>Rate caretakers</button>}</span>{rating === p.id && <RateCaretakers patientId={p.id} title={`Rate ${p.name}'s caretakers`}/>}</li>; })}</ul> : filter.trim() ? <p className="muted">No patients match “{filter.trim()}”.</p> : <p className="muted">No patients yet. Find a patient below with their CareCircle ID and birth year.</p>}
+      {all.length > 6 && <div className="pp-search"><input type="search" aria-label="Search your patients" placeholder="Search name or AROHA ID" value={filter} onChange={e => setFilter(e.target.value)}/><Link className="cp-btn" to="/insights">Insights</Link></div>}
+      {patients.isLoading ? <div className="skeleton"/> : items.length ? <ul className="team-list">{items.map(p => { const st = stats.get(p.id); const band = st ? bandOf(st) : null; return <li key={p.id}><span><strong>{p.name}</strong><small>{p.birth_year ? `Born ${p.birth_year}` : ''}{p.care_code ? ` · ${p.care_code}` : ''}</small>{st && st.decided > 0 && <span className="pp-tags"><span className={`pp-tag ${band === 'follow_up' ? 'bad' : band === 'watch' ? 'watch' : 'ok'}`}>{pctText(st.taken_pct)} of doses given</span>{st.needs_follow_up && <span className="pp-tag bad">Follow-up suggested</span>}{st.next_appointment && <span className="pp-tag">Next: {st.next_appointment.title}</span>}</span>}</span><span className="pp-links"><Link className="cp-btn" to={`/medicines?patient=${p.id}`}>Medicines</Link><Link className="cp-btn" to={`/care-plan?patient=${p.id}`}>Care plan</Link>{ratingsOn && <button className="cp-btn" aria-expanded={rating === p.id} onClick={() => setRating(rating === p.id ? null : p.id)}>Rate caretakers</button>}</span>{rating === p.id && <RateCaretakers patientId={p.id} title={`Rate ${p.name}'s caretakers`}/>}</li>; })}</ul> : filter.trim() ? <p className="muted">No patients match “{filter.trim()}”.</p> : <p className="muted">No patients yet. Find a patient below with their AROHA ID and birth year.</p>}
     </section>
     <form className="card" onSubmit={e => void lookup(e)}>
       <p className="eyebrow">FIND A PATIENT</p><h3>Find a patient</h3>
-      <label>CareCircle ID<input required maxLength={20} placeholder="CC-ABC123" autoComplete="off" value={code} onChange={e => setCode(e.target.value)}/></label>
+      <label>AROHA ID<input required maxLength={20} placeholder="CC-ABC123" autoComplete="off" value={code} onChange={e => setCode(e.target.value)}/></label>
       <label>Birth year<input type="number" required min={1900} max={thisYear} value={year} onChange={e => setYear(e.target.value)}/></label>
       <button className="primary" disabled={busy}>Find patient</button>
     </form>

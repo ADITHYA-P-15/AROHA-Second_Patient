@@ -57,7 +57,7 @@ const csvCell = (value: string | number | null) => {
 };
 
 export function toCsv(data: Insights): string {
-  const header = ['Patient', 'CareCircle ID', 'Doses due', 'On time', 'Late', 'Missed', 'Given %', 'Missed last 7 days', 'Trend', 'Follow-up suggested', 'Next appointment', 'Open requests'];
+  const header = ['Patient', 'AROHA ID', 'Doses due', 'On time', 'Late', 'Missed', 'Given %', 'Missed last 7 days', 'Trend', 'Follow-up suggested', 'Next appointment', 'Open requests'];
   const rows = data.patients.map(p => [p.name, p.care_code, p.due, p.on_time, p.late, p.missed, p.taken_pct, p.recent.missed, trendText(p.trend), p.needs_follow_up ? 'Yes' : 'No',
     p.next_appointment ? `${p.next_appointment.title} (${p.next_appointment.start.slice(0, 10)})` : '', p.open_requests]);
   return [header, ...rows].map(r => r.map(c => csvCell(c as string | number | null)).join(',')).join('\n') + '\n';

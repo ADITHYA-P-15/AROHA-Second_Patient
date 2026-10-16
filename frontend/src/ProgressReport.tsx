@@ -31,8 +31,8 @@ export function ProgressReport({ patientId, patientName, aiAvailable, onClose }:
         <div className="pr-actions">
           <button className="primary" disabled={draft.isPending || !aiAvailable} onClick={() => draft.mutate()}><Sparkles size={15} aria-hidden="true"/>{draft.isPending ? 'Writing…' : shown.narrated_by === 'ai' && draft.data ? 'Write again' : 'Write summary with AI'}</button>
           <button className="cp-btn" onClick={() => void copy()}><Copy size={14} aria-hidden="true"/>{copied ? 'Copied' : 'Copy draft'}</button>
-          {!aiAvailable && <small className="muted">AI is not configured; the summary below is the recorded facts.</small>}
         </div>
+        {!aiAvailable && <p className="muted small">AI is not configured; the summary below is the recorded facts.</p>}
         {error && <p className="error" role="alert">{error}</p>}
         <ul className="pr-sentences">{shown.summary.map(s => <li key={s.text}>{s.text} {s.facts.map(f => <span key={f} className="pr-cite">{f}</span>)}</li>)}</ul>
         <p className="muted small">{shown.narrated_by === 'ai'

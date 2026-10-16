@@ -7,7 +7,7 @@ import { DEFAULT_PREFS, ago, freshOnes, highest, loadPrefs, savePrefs, shouldPop
 
 type Feed = { items: AppNotification[]; unread_count: number };
 const DEFAULT_POLL_SECONDS = 5;
-const BASE_TITLE = 'CareCircle';
+const BASE_TITLE = 'AROHA';
 const MAX_TOASTS = 4;
 
 /** A short two-tone chime. Browsers only allow sound after the person has interacted with the page, so failures are silent. */

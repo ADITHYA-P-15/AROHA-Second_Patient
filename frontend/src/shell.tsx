@@ -1,7 +1,7 @@
 import { FormEvent, Fragment, useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BarChart3, CalendarClock, Check, CalendarDays, HandHelping, HeartHandshake, History, LifeBuoy, ListChecks, LogOut, Menu, Network, RotateCcw, Pill, Scale, Siren, Stethoscope, IdCard, UserPlus, Inbox, Sun, UserRound, Users, X, type LucideIcon } from 'lucide-react';
+import { BarChart3, CalendarClock, Check, CalendarDays, HandHelping, HeartHandshake, History, LifeBuoy, ListChecks, LogOut, Menu, Network, RotateCcw, Pill, Scale, ShieldCheck, Siren, Sparkles, Stethoscope, IdCard, UserPlus, Inbox, Sun, UserRound, Users, X, type LucideIcon } from 'lucide-react';
 import { CommandCenter } from './CommandCenter.tsx';
 import { WorkloadBalancer } from './WorkloadBalancer.tsx';
 import { CoverRequests } from './CoverRequests.tsx';
@@ -38,6 +38,13 @@ const signUpRoles: { role: string; blurb: string }[] = [
   { role: 'PRIMARY_CONTACT', blurb: 'a relative who registers the patient and oversees care' },
   { role: 'CARETAKER', blurb: 'carries out medication doses and appointments' },
   { role: 'PROFESSIONAL', blurb: 'hospital staff who prescribe and schedule' },
+];
+// What the login screen highlights before anyone signs in — true to what the app actually does, nothing aspirational.
+const loginFeatures: { icon: LucideIcon; title: string; body: string }[] = [
+  { icon: Pill, title: 'One shared plan', body: 'Medicine doses, appointments and daily routines, visible to everyone on the care team.' },
+  { icon: ShieldCheck, title: 'Photo-verified doses', body: 'Caretakers photograph each dose as it is given; family reviews and verifies it.' },
+  { icon: Users, title: 'Built for the whole circle', body: 'Patient, family, caretakers and hospital staff, each with the view they need.' },
+  { icon: Siren, title: 'Help, routed right', body: 'One tap reaches the right person first — no guessing who to call.' },
 ];
 type NavItem = { title: string; path: string; icon: LucideIcon; group?: string };
 // Grouped so each role sees its daily screens first; only screens that work today are listed.
@@ -94,7 +101,37 @@ function Login({ onLogin, demoMode }: { onLogin: (u: User) => void; demoMode: bo
       onLogin(u);
     } catch (err) { setError(err instanceof Error ? err.message : 'Sign-in failed'); }
   }
-  return <><main className="login"><div className="brand"><span className="brand-icon"><HeartHandshake/></span><span>CareCircle</span></div><p className="eyebrow">THE CAREGIVER IS THE SECOND PATIENT</p><h1>{registering ? 'Start a care circle.' : 'Support that stays connected.'}</h1><p className="muted">{registering ? 'Choose your role to create an account. Patients get their login from their primary contact.' : 'Sign in to coordinate the everyday care around someone you love.'}</p><form onSubmit={submit}>{registering&&<label>Your name<input required minLength={1} maxLength={160} value={name} onChange={e=>setName(e.target.value)}/></label>}{registering&&<fieldset className="ct-roles"><legend>I am a…</legend>{signUpRoles.map(r=><label key={r.role} className="ct-role"><input type="radio" name="role" value={r.role} checked={role===r.role} onChange={()=>setRole(r.role)}/><span><strong>{roleLabels[r.role]}</strong> — {r.blurb}</span></label>)}</fieldset>}<label>Email<input type="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Password<input type="password" required minLength={8} value={password} onChange={e=>setPassword(e.target.value)}/></label>{error&&<p className="error">{error}</p>}<button className="primary">{registering?'Create account':'Sign in'}</button></form><button className="text-button" onClick={()=>{setRegistering(!registering);setError('');}}>{registering?'Already have an account? Sign in':'Create an account'}</button>{demoMode&&!registering&&<><p className="eyebrow demo-label">DEMO ACCOUNTS</p><div className="chips">{Object.keys(demo).map(r=><button key={r} onClick={()=>setEmail(demo[r])}>{roleLabels[r]}</button>)}</div><p className="muted small">Demo password: Demo@1234</p><details className="more-demo"><summary>More demo people</summary><div className="chips">{moreDemo.map(([label,mail])=><button key={mail} type="button" onClick={()=>setEmail(mail)}>{label}</button>)}</div></details></>}</main><div className="login-disclaimer">Operational care-coordination tool — not a diagnostic or emergency service. Demo data is fictional.</div></>;
+  return <div className="login-page">
+   <div className="login-row">
+    <div className="login-intro">
+      <div className="brand login-brand"><span className="brand-icon"><HeartHandshake/></span><span>AROHA</span></div>
+      <p className="login-tagline"><Sparkles size={15} aria-hidden="true"/>Care for the ones who care.</p>
+      <p className="login-sub">A shared, accountable plan for everyone around a patient — so nothing depends on one person remembering everything.</p>
+      <ul className="login-features">{loginFeatures.map(f => { const Icon = f.icon; return <li key={f.title}><span className="login-feature-icon"><Icon size={17} aria-hidden="true"/></span><span><strong>{f.title}</strong><span>{f.body}</span></span></li>; })}</ul>
+    </div>
+    <main className="login">
+      <p className="eyebrow">THE CAREGIVER IS THE SECOND PATIENT</p>
+      <h1>{registering ? 'Start a care circle.' : 'Support that stays connected.'}</h1>
+      <p className="muted">{registering ? 'Choose your role to create an account. Patients get their login from their primary contact.' : 'Sign in to coordinate the everyday care around someone you love.'}</p>
+      <form onSubmit={submit}>
+        {registering && <label>Your name<input required minLength={1} maxLength={160} value={name} onChange={e => setName(e.target.value)}/></label>}
+        {registering && <fieldset className="ct-roles"><legend>I am a…</legend>{signUpRoles.map(r => <label key={r.role} className="ct-role"><input type="radio" name="role" value={r.role} checked={role === r.role} onChange={() => setRole(r.role)}/><span><strong>{roleLabels[r.role]}</strong> — {r.blurb}</span></label>)}</fieldset>}
+        <label>Email<input type="email" required value={email} onChange={e => setEmail(e.target.value)}/></label>
+        <label>Password<input type="password" required minLength={8} value={password} onChange={e => setPassword(e.target.value)}/></label>
+        {error && <p className="error">{error}</p>}
+        <button className="primary">{registering ? 'Create account' : 'Sign in'}</button>
+      </form>
+      <button className="text-button" onClick={() => { setRegistering(!registering); setError(''); }}>{registering ? 'Already have an account? Sign in' : 'Create an account'}</button>
+      {demoMode && !registering && <>
+        <p className="eyebrow demo-label">DEMO ACCOUNTS</p>
+        <div className="chips">{Object.keys(demo).map(r => <button key={r} onClick={() => setEmail(demo[r])}>{roleLabels[r]}</button>)}</div>
+        <p className="muted small">Demo password: Demo@1234</p>
+        <details className="more-demo"><summary>More demo people</summary><div className="chips">{moreDemo.map(([label, mail]) => <button key={mail} type="button" onClick={() => setEmail(mail)}>{label}</button>)}</div></details>
+      </>}
+    </main>
+   </div>
+    <div className="login-disclaimer">Operational care-coordination tool — not a diagnostic or emergency service. Demo data is fictional.</div>
+  </div>;
 }
 function App() {
   const queryClient = useQueryClient(); const navigate = useNavigate();
@@ -153,7 +190,7 @@ function Workspace({ user, meta }: { user: User; meta?: { demo_mode: boolean; de
   };
   return <div className="app">
     <aside className="sidebar" data-open={menuOpen} aria-label="Main menu">
-      <div className="sidebar-top"><div className="brand"><span className="brand-icon"><HeartHandshake/></span><span>CareCircle</span></div><button className="icon-button menu-close" aria-label="Close menu" onClick={() => setMenuOpen(false)}><X size={20}/></button></div>
+      <div className="sidebar-top"><div className="brand"><span className="brand-icon"><HeartHandshake/></span><span>AROHA</span></div><button className="icon-button menu-close" aria-label="Close menu" onClick={() => setMenuOpen(false)}><X size={20}/></button></div>
       {meta?.demo_mode && <div className="demo-tag">DEMO · SYNTHETIC DATA</div>}
       <nav className="side-nav">{menu.map(({ title, path, icon: Icon, group }) => <Fragment key={path}>{group && <p className="nav-group">{group}</p>}<NavLink to={path} end className={({ isActive }) => isActive ? 'active' : undefined}><Icon size={18} aria-hidden="true"/>{title}</NavLink></Fragment>)}</nav>
       {meta?.demo_reset_enabled && user.role === 'PRIMARY_CONTACT' && user.email.endsWith('@secondpatient.demo') && <button className="reset-demo" disabled={resetting} onClick={() => void resetDemo()}><RotateCcw size={15} aria-hidden="true"/>{resetting ? 'Resetting…' : 'Reset demo data'}</button>}
@@ -163,7 +200,7 @@ function Workspace({ user, meta }: { user: User; meta?: { demo_mode: boolean; de
     <main className="workspace">
       <header className="topbar">
         <button className="icon-button menu-toggle" aria-label="Open menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}><Menu size={22}/></button>
-        <div className="topbar-title"><p className="eyebrow">{roleLabel.toUpperCase()} · {user.name.toUpperCase()}</p><h2>{current?.title ?? 'CareCircle'}</h2></div>
+        <div className="topbar-title"><p className="eyebrow">{roleLabel.toUpperCase()} · {user.name.toUpperCase()}</p><h2>{current?.title ?? 'AROHA'}</h2></div>
         <div className="topbar-actions"><NotificationCenter/><button className="logout-button" onClick={() => void logout()}><LogOut size={16} aria-hidden="true"/><span>Log out</span></button></div>
       </header>
       {meta?.escalation_scaled && <div className="demo-tag" role="status">DEMO TIMER SCALE · {meta.escalation_time_scale}×</div>}
@@ -227,7 +264,7 @@ function HelpPage() {
   const patientId=patients.data?.items[0]?.id;
   useEffect(()=>{
     if(countdown===null||!patientId)return;
-    if(countdown===0){setCountdown(null);void api<IncidentRow>(`/api/v1/patients/${patientId}/sos`,{method:'POST'}).then(item=>{setIncident(item);setSaid('Emergency SOS');}).catch(()=>setError('Could not reach CareCircle — call 108/112 or your family directly.'));return;}
+    if(countdown===0){setCountdown(null);void api<IncidentRow>(`/api/v1/patients/${patientId}/sos`,{method:'POST'}).then(item=>{setIncident(item);setSaid('Emergency SOS');}).catch(()=>setError('Could not reach AROHA — call 108/112 or your family directly.'));return;}
     const timer=window.setTimeout(()=>setCountdown(countdown-1),1000);return()=>window.clearTimeout(timer);
   },[countdown,patientId]);
   useEffect(()=>{if(incident)status.current?.scrollIntoView({behavior:'smooth',block:'nearest'});},[incident?.id]);
@@ -238,7 +275,7 @@ function HelpPage() {
       const item=await api<IncidentRow>(`/api/v1/patients/${patientId}/messages`,{method:'POST',headers:{'Idempotency-Key':draftKey.current},body:JSON.stringify({body:text.trim(),channel:'TEXT'})});
       setIncident(item);setSaid(text.trim());setMessage('');draftKey.current=newId();
       await client.invalidateQueries({queryKey:['notifications']});
-    }catch{setError('Could not reach CareCircle — call 108/112 or your family directly.');}
+    }catch{setError('Could not reach AROHA — call 108/112 or your family directly.');}
     finally{setSending('');}
   }
   const chips=['I need water','Help me to the bathroom','I missed my medicine','I feel dizzy','Nobody came',"I'm fine/took my medicine"];
@@ -247,7 +284,7 @@ function HelpPage() {
   const people=told.reduce((n,t)=>n+Math.max(1,t.names.length),0);
   const state=liveIncident?.status;
   const progress=!liveIncident?'':liveIncident.current_level===0?'Nothing more is needed. Your family can see your update.':state==='RESOLVED'?'Handled. Thank you.':state==='ACKNOWLEDGED'?'Someone is on it now.':'Waiting for someone to respond…';
-  return <section className="card"><p className="eyebrow">PATIENT HELP</p><h2>Tell us what you need</h2><p>CareCircle routes your message to the right people. It is not a medical diagnosis and cannot replace emergency services. In immediate danger call 108 / 112.</p>
+  return <section className="card"><p className="eyebrow">PATIENT HELP</p><h2>Tell us what you need</h2><p>AROHA routes your message to the right people. It is not a medical diagnosis and cannot replace emergency services. In immediate danger call 108 / 112.</p>
     <div ref={status} aria-live="polite">{liveIncident&&<div className={`help-sent${liveIncident.current_level>=5?' help-sent-urgent':''}`} role="status">
       <strong><Check size={16} aria-hidden="true"/> {incident?.merged?`You already asked: “${said}”`:`Sent: “${said}”`}</strong>
       {incident?.merged&&<p>We reminded them again ({incident.repeat_count} times). You do not need to tap it more.</p>}

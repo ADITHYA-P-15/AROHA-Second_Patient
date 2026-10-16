@@ -11,19 +11,19 @@ type CaregiverLite = { id: string; user_id?: string | null };
 
 const errText = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
 
-/** Shows the CareCircle ID with a copy button; clipboard can be blocked on plain-HTTP LAN origins, so the code stays selectable. */
+/** Shows the AROHA ID with a copy button; clipboard can be blocked on plain-HTTP LAN origins, so the code stays selectable. */
 export function CareCodeCard({ name, code, patientId }: { name: string; code: string; patientId?: string }) {
   const [copied, setCopied] = useState('');
   const client = useQueryClient();
   async function regenerate() {
-    if (!patientId || !window.confirm(`Issue a new CareCircle ID for ${name}? The old one stops working. Professionals already on the team stay.`)) return;
+    if (!patientId || !window.confirm(`Issue a new AROHA ID for ${name}? The old one stops working. Professionals already on the team stay.`)) return;
     try { const r = await api<{ care_code: string }>(`/api/v1/patients/${patientId}/care-code/regenerate`, { method: 'POST' }); setCopied(`New ID: ${r.care_code}`); await client.invalidateQueries({ queryKey: ['patients'] }); await client.invalidateQueries({ queryKey: ['patient'] }); } catch (err) { setCopied(err instanceof Error ? err.message : 'Could not issue a new ID.'); }
   }
   async function copy() {
     try { await navigator.clipboard.writeText(code); setCopied('Copied.'); } catch { setCopied('Copy is not available here. Select the ID and copy it manually.'); }
   }
-  return <section className="card ct-code" aria-label="CareCircle ID">
-    <p className="eyebrow">CARECIRCLE ID</p>
+  return <section className="card ct-code" aria-label="AROHA ID">
+    <p className="eyebrow">AROHA ID</p>
     <div className="ct-code-row"><strong className="ct-code-value">{code}</strong><button type="button" onClick={() => void copy()}>{copied === 'Copied.' ? <Check size={16} aria-hidden="true"/> : <Copy size={16} aria-hidden="true"/>} Copy</button></div>
     <p className="muted">Share this ID and the birth year with the hospital so a healthcare professional can find {name}.</p>
     {patientId && <p className="muted small">Shared by mistake? <button type="button" className="text-button" onClick={() => void regenerate()}>Issue a new ID</button> Removing a healthcare professional also issues a new ID.</p>}
@@ -60,7 +60,7 @@ export function RegisterPatient({ intro = false, onDone }: { intro?: boolean; on
     {(!created || !intro) && <form className="card" onSubmit={e => void submit(e)}>
       <p className="eyebrow">{intro ? 'WELCOME' : 'NEW PATIENT'}</p>
       <h2>{intro ? 'Register the patient you care for' : 'Register another patient'}</h2>
-      {intro && <p className="muted">Add the person you look after. You will get a CareCircle ID to share with the hospital.</p>}
+      {intro && <p className="muted">Add the person you look after. You will get an AROHA ID to share with the hospital.</p>}
       <label>Patient name<input required maxLength={160} value={name} onChange={e => setName(e.target.value)}/></label>
       <label>Birth year (the hospital needs it to find the patient)<input type="number" required min={1900} max={year} value={birthYear} onChange={e => setBirthYear(e.target.value)}/></label>
       <label>Care notes<textarea rows={3} maxLength={2000} value={careNotes} onChange={e => setCareNotes(e.target.value)}/></label>
@@ -128,12 +128,12 @@ export function CareTeam() {
       <h3><UserPlus size={18} aria-hidden="true"/> Invite someone</h3>
       <label>Their email<input type="email" required value={email} onChange={e => setEmail(e.target.value)}/></label>
       <label>Role<select value={teamRole} onChange={e => setTeamRole(e.target.value)}><option value="CARETAKER">Caretaker</option><option value="PRIMARY_CONTACT">Primary contact</option></select></label>
-      <p className="muted">They need a CareCircle account first (Sign up → choose their role).</p>
+      <p className="muted">They need an AROHA account first (Sign up → choose their role).</p>
       <button className="primary">Add to care team</button>
     </form>
     <RateCaretakers patientId={patient.id}/>
-    <section className="card"><h3>Connect the hospital</h3><p>Healthcare professionals join the care team themselves. They search with the CareCircle ID and the patient’s birth year{patient.birth_year ? ` (${patient.birth_year})` : ''}.</p>
-      {patient.care_code ? <CareCodeCard name={patient.name} code={patient.care_code} patientId={patient.id}/> : <p className="muted">The CareCircle ID is shown on the Patient Profile page.</p>}
+    <section className="card"><h3>Connect the hospital</h3><p>Healthcare professionals join the care team themselves. They search with the AROHA ID and the patient’s birth year{patient.birth_year ? ` (${patient.birth_year})` : ''}.</p>
+      {patient.care_code ? <CareCodeCard name={patient.name} code={patient.care_code} patientId={patient.id}/> : <p className="muted">The AROHA ID is shown on the Patient Profile page.</p>}
       <Link to={`/patient-profile?patient=${patient.id}`}>Open patient profile</Link></section>
     {!hasProfile && !caregivers.isLoading && <section className="card"><h3>I also help with care activities</h3><p className="muted">Opt in to be offered medication doses and appointments yourself, alongside coordinating.</p><button type="button" onClick={() => void optIn()}>I also help with care activities</button></section>}
   </div>;

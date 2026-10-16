@@ -32,7 +32,7 @@ describe('filtering and export', () => {
   it('writes a safe CSV', () => {
     const data = { patients: [p({ name: '=HYPERLINK("x")', next_appointment: { id: 'a', title: 'Review, annual', start: '2026-10-20T05:00:00Z', covered: true } })] } as unknown as Insights;
     const lines = toCsv(data).trim().split('\n');
-    expect(lines[0].startsWith('Patient,CareCircle ID')).toBe(true);
+    expect(lines[0].startsWith('Patient,AROHA ID')).toBe(true);
     expect(lines[1].startsWith(`"'=HYPERLINK(""x"")"`)).toBe(true);
     expect(lines[1]).toContain('"Review, annual (2026-10-20)"');
   });

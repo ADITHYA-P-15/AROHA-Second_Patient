@@ -57,7 +57,7 @@ export function Insights() {
   }
   if (insights.isLoading) return <section className="card"><div className="skeleton"/></section>;
   if (insights.isError || !data) return <section className="card"><p className="error">Could not load insights. Try again in a moment.</p></section>;
-  if (data.patients.length === 0) return <section className="card"><h3>No patients yet</h3><p className="muted">Find a patient with their CareCircle ID on the Patients page to see insights here.</p></section>;
+  if (data.patients.length === 0) return <section className="card"><h3>No patients yet</h3><p className="muted">Find a patient with their AROHA ID on the Patients page to see insights here.</p></section>;
   const t = data.totals;
 
   return <div className="in">
@@ -85,7 +85,7 @@ export function Insights() {
     <section className="card">
       <div className="in-toolbar">
         <h3>Patients</h3>
-        <label className="in-search"><Search size={16} aria-hidden="true"/><input type="search" placeholder="Search name or CareCircle ID" value={query} onChange={e => setQuery(e.target.value)} aria-label="Search patients"/></label>
+        <label className="in-search"><Search size={16} aria-hidden="true"/><input type="search" placeholder="Search name or AROHA ID" value={query} onChange={e => setQuery(e.target.value)} aria-label="Search patients"/></label>
         <button className="cp-filter" onClick={download}><Download size={15} aria-hidden="true"/>Export CSV</button>
       </div>
       {shown.length === 0 ? <p className="muted">No patients match.</p> : <ul className="in-list">{shown.map(p => <Row key={p.id} p={p} onReport={reportOn ? () => setReportFor(p.id) : undefined}/>)}</ul>}

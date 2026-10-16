@@ -45,7 +45,7 @@ logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s 
 log = logging.getLogger("second_patient")
 # The interactive API docs are for development; a production deployment does not publish its API schema.
 _docs = docs_enabled(settings.app_env)
-app = FastAPI(title="CareCircle", version="0.1.0", openapi_url="/api/openapi.json" if _docs else None, docs_url="/docs" if _docs else None, redoc_url=None)
+app = FastAPI(title="AROHA", version="0.1.0", openapi_url="/api/openapi.json" if _docs else None, docs_url="/docs" if _docs else None, redoc_url=None)
 if settings.app_env == "prod" and settings.secret_key == "change-me-before-production":
     raise RuntimeError("SECRET_KEY must be changed before starting in production")
 Base.metadata.create_all(bind=engine)
@@ -622,7 +622,7 @@ def list_patients(limit: int = Query(50, ge=1, le=100), offset: int = Query(0, g
 
 @app.post("/api/v1/patients", status_code=201)
 def create_patient(body: PatientIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    """A primary contact registers the patient. The patient gets a CareCircle ID to share with the hospital."""
+    """A primary contact registers the patient. The patient gets an AROHA ID to share with the hospital."""
     if user.role != Role.PRIMARY_CONTACT: raise HTTPException(403, "Only a primary contact can register a patient")
     values = body.model_dump(exclude={"patient_account"})
     p = Patient(**values, care_code=new_care_code(db), created_by=user.id, is_synthetic=settings.demo_mode)
@@ -649,7 +649,7 @@ def _lookup(db, user, request, care_code: str, birth_year: int):
     attempts.append(time.monotonic())
     patient = db.scalar(select(Patient).where(Patient.care_code == normalise_code(care_code)))
     # One message for a wrong ID or a wrong birth year, so IDs cannot be probed.
-    if not patient or patient.birth_year != birth_year: raise HTTPException(404, "No patient matches that CareCircle ID and birth year")
+    if not patient or patient.birth_year != birth_year: raise HTTPException(404, "No patient matches that AROHA ID and birth year")
     return patient
 
 
@@ -670,7 +670,7 @@ def join_patient(body: PatientLookupIn, request: Request, user: User = Depends(c
         audit(db, user, patient.id, "care_team.professional_joined", "care_team_member", user.id, f"{user.name} (healthcare professional) joined the care team", request.state.request_id)
         for contact in db.scalars(select(CareTeamMember.user_id).where(CareTeamMember.patient_id == patient.id, CareTeamMember.team_role == TeamRole.PRIMARY_CONTACT)):
             db.add(Notification(user_id=contact, patient_id=patient.id, kind="STATUS", severity="LOW", title="A healthcare professional joined",
-                                body=f"{user.name} joined {patient.name}'s care team using the CareCircle ID. If this is unexpected, remove them in Care team (this also issues a new ID).", requires_ack=False, channel="INBOX"))
+                                body=f"{user.name} joined {patient.name}'s care team using the AROHA ID. If this is unexpected, remove them in Care team (this also issues a new ID).", requires_ack=False, channel="INBOX"))
         db.commit()
     return patient_dict(patient, True, True)
 
@@ -685,11 +685,11 @@ def care_team(patient_id: uuid.UUID, user: User = Depends(current_user), db: Ses
 
 @app.post("/api/v1/patients/{patient_id}/care-team", status_code=201)
 def add_team(patient_id: uuid.UUID, body: TeamIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    """A primary contact invites a caretaker (or another relative as primary contact) by their CareCircle account email."""
+    """A primary contact invites a caretaker (or another relative as primary contact) by their AROHA account email."""
     p, _ = _primary_contact(db, user, patient_id)
     team_role = TeamRole(body.team_role)
     target = db.scalar(select(User).where(User.email == str(body.email).lower()))
-    if not target: raise HTTPException(404, "No CareCircle account uses that email; ask them to sign up first")
+    if not target: raise HTTPException(404, "No AROHA account uses that email; ask them to sign up first")
     if target.role.value != team_role.value: raise HTTPException(422, f"That account is registered as {role_label(target.role.value)}, not {role_label(team_role.value)}")
     if db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == p.id, CareTeamMember.user_id == target.id)): raise HTTPException(409, "User is already on this care team")
     m = CareTeamMember(patient_id=p.id, user_id=target.id, team_role=team_role); db.add(m)
@@ -705,12 +705,12 @@ def add_team(patient_id: uuid.UUID, body: TeamIn, request: Request, user: User =
 
 @app.post("/api/v1/patients/{patient_id}/care-code/regenerate")
 def regenerate_care_code(patient_id: uuid.UUID, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    """Issue a new CareCircle ID (e.g. it was shared by mistake). Professionals already on the team stay on it."""
+    """Issue a new AROHA ID (e.g. it was shared by mistake). Professionals already on the team stay on it."""
     p, _ = _primary_contact(db, user, patient_id)
     p.care_code = new_care_code(db)
-    notify(db, family_user_ids(db, p.id), p.id, "CareCircle ID changed", f"{user.name} issued a new CareCircle ID. The old one no longer works for new joiners.", kind="DECISION", severity="MEDIUM",
+    notify(db, family_user_ids(db, p.id), p.id, "AROHA ID changed", f"{user.name} issued a new AROHA ID. The old one no longer works for new joiners.", kind="DECISION", severity="MEDIUM",
            link=f"/care-team?patient={p.id}", exclude=[user.id])
-    audit(db, user, p.id, "patient.care_code_changed", "patient", p.id, "CareCircle ID changed", request.state.request_id)
+    audit(db, user, p.id, "patient.care_code_changed", "patient", p.id, "AROHA ID changed", request.state.request_id)
     db.commit()
     return {"care_code": p.care_code}
 
@@ -736,8 +736,8 @@ def remove_team(patient_id: uuid.UUID, member_id: uuid.UUID, request: Request, u
     released = unlink_care_profile(db, member.user_id, p.id, actor=user)
     summary = "Care team member removed" + (f"; {released} upcoming tasks released for cover" if released else "")
     if member.team_role == TeamRole.PROFESSIONAL:
-        # A new CareCircle ID stops the removed professional from simply joining again with the old one.
-        p.care_code = new_care_code(db); summary += "; CareCircle ID changed"
+        # A new AROHA ID stops the removed professional from simply joining again with the old one.
+        p.care_code = new_care_code(db); summary += "; AROHA ID changed"
     notify(db, [member.user_id], p.id, f"You were removed from {p.name}'s care team", f"{user.name} removed you.", kind="DECISION", severity="MEDIUM", link="/")
     notify(db, family_user_ids(db, p.id), p.id, "Care team changed", f"{name_of(db, member.user_id)} was removed from the care team" + (f"; {released} upcoming tasks were released for cover." if released else "."),
            kind="DECISION", link=f"/care-team?patient={p.id}", exclude=[user.id, member.user_id])
@@ -922,4 +922,4 @@ def spa(path: str, request: Request):
     if path == "api" or path.startswith("api/"): return JSONResponse({"error": {"code": "not_found", "message": "Not found", "details": {}, "request_id": request.state.request_id}}, status_code=404)
     index = DIST / "index.html"
     if index.is_file(): return FileResponse(index, headers={"Cache-Control": "no-cache"})
-    return {"message": "CareCircle API is running", "phase": 5}
+    return {"message": "AROHA API is running", "phase": 5}

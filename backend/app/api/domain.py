@@ -408,7 +408,7 @@ def list_caregivers(pid: uuid.UUID, user: User = Depends(__import__("app.main", 
 def create_caregiver(pid: uuid.UUID, body: CaregiverIn, request: Request, user: User = Depends(__import__("app.main", fromlist=["current_user"]).current_user), db: Session = Depends(get_db)):
     _member(db, user, pid, True)
     # Every care profile belongs to an account on this patient's team (caretaker, or a primary contact who also helps).
-    if not body.user_id: raise HTTPException(422, "Invite the caretaker to the care team; care profiles belong to CareCircle accounts")
+    if not body.user_id: raise HTTPException(422, "Invite the caretaker to the care team; care profiles belong to AROHA accounts")
     linked_user = db.get(User, body.user_id)
     team = db.scalar(select(CareTeamMember).where(CareTeamMember.patient_id == pid, CareTeamMember.user_id == body.user_id)) if linked_user else None
     if not team or team.team_role not in (TeamRole.CARETAKER, TeamRole.PRIMARY_CONTACT): raise HTTPException(422, "That person must be a caretaker or primary contact on this care team")
