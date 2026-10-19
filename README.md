@@ -1,272 +1,250 @@
-Overview
-Caregiving involves more than remembering appointments or checking off
-medication doses. It means coordinating people, availability,
-responsibilities, and last-minute changes---often while one caregiver is
-already stretched thin.
+# AROHA
 
-AROHA is a care-coordination platform designed to make that work more
-manageable. It brings care activities, caregiver availability,
-workload, backup coverage, and help requests into one place. Rather than
-only reacting after a task is missed, AROHA helps identify coverage
-gaps, suggest feasible alternatives, and keep the care team informed.
+**Care coordination for patients, families, caretakers and healthcare professionals.**
 
-The platform is built around a simple principle: care should not
-depend on one person always being available.
-✨ Key Features
-Care coordination
-- Organize medication schedules, appointments, and other care
-  activities in one shared plan.
-- Track activities as pending, completed, completed late, or missed.
-- Give patients, primary contacts, caretakers, and healthcare
-  professionals role-specific views.
-Caregiver workload balancing
-- Review caregiver workload over upcoming days and weeks.
-- Identify overloaded schedules, conflicting commitments, and
-  dependencies on a single caregiver.
-- Present explained recommendations for moving tasks while respecting
-  eligibility and availability constraints.
-Backup matching and coverage planning
-- Find eligible replacement caretakers when someone reports an
-  absence, declines a task, or cannot provide cover.
-- Consider capabilities, availability, overlapping commitments,
-  workload limits, and continuity.
-- Explain why a candidate may or may not be suitable.
-- Treat a task as covered only after the proposed replacement accepts.
-Coverage forecasting
-- Surface unassigned activities, unconfirmed assignments, and tasks
-  with only one eligible caregiver.
-- Help primary contacts address gaps before care activities are due.
-- Provide actionable next steps, such as finding cover or requesting
-  confirmation.
-Help requests and escalation
-- Route patient help requests to the appropriate people in the care
-  team.
-- Track acknowledgement, escalation, and resolution.
-- Support urgent SOS flows and visible status updates.
-Voice notes and optional AI assistance
-- Let patients submit voice notes when typing is difficult.
-- Support transcription and translation through configured AI
-  providers.
-- Use AI only as an advisory layer: it may suggest raising urgency,
-  but it cannot lower the rule-based urgency level.
-- Keep core coordination flows available when optional AI providers
-  are not configured or unavailable.
-Care team directory and insights
-- Browse caretaker listings using filters such as skills, language,
-  location, availability, and reputation.
-- Compare potential matches and manage hire requests.
-- Give healthcare professionals an overview of adherence patterns,
-  appointments, and care requests for patients on their care team.
-AROHA's recommendations are coordination support---not medical
-diagnoses or a substitute for professional judgement.
+> *The caregiver is the second patient.*
 
-🔄 How It Works
-1. Set up the care network. A primary contact registers a patient
-   and coordinates the care team.
-2. Build the care plan. Healthcare professionals can add
-   prescriptions and appointments; scheduled care activities appear in
-   the plan.
-3. Coordinate daily work. Caretakers view their assigned
-   activities, record completion, manage availability, and respond to
-   cover requests.
-4. Detect coverage issues. AROHA checks assignments, skills,
-   availability, and workload to identify potential gaps.
-5. Find and confirm cover. Suitable alternatives are suggested, and
-   a replacement is confirmed only after acceptance.
-6. Escalate and follow up. Help requests are routed to the relevant
-   care team, with acknowledgement and resolution tracked in the
-   application.
-👥 User Roles
-  Role                                Main responsibilities
-  Primary contact                 Registers the patient, coordinates
-                                      the care network, reviews coverage,
-                                      and approves care-plan changes.
+AROHA puts every medication dose and appointment for a patient in one place, so caretakers no longer have to remember them, and families and hospitals can see what was done, what is due and what was missed.
 
-  Caretaker                       Views daily activities, records
-                                      completion, manages availability,
-                                      and accepts or declines cover
-                                      offers.
+Built by **Team CodeBlue**: Aditya Prasad, Gaspar Anothony Savio Simoes, Pusapati Nikhil and Shrivas Shetty.
 
-  Healthcare professional         Joins a patient's care team,
-                                      manages prescriptions and
-                                      appointments, and reviews relevant
-                                      care information.
+> **Demo only.** AROHA is an operational coordination prototype, not a diagnostic or emergency service. All people and records in the demo are fictional. Do not enter real health or identifying data.
 
-  Patient                         Views their care plan and can
-                                  submit help requests or SOS alerts.
-🧱 Technology Stack
-  Layer                      Technologies
-  Frontend                   React, TypeScript, Vite, Tailwind CSS
-  Routing and data           React Router, TanStack Query
-  Backend API                Python, FastAPI
-  Data access                SQLAlchemy, psycopg
-  Database                   PostgreSQL 16
-  Migrations                 Alembic
-  Local fallback and tests   SQLite
-  Deployment                 Docker, Docker Compose
-  Optional AI                Configurable transcription and text-model providers
-🏗️ Architecture
-AROHA uses a web frontend backed by a FastAPI application. The backend
-owns authentication, permissions, care-plan state, coverage rules,
-workload calculations, and escalation workflows. The frontend presents
-those decisions and lets authorized users take action.
-┌──────────────────────────────────────────────────────┐
-│                   React + TypeScript                 │
-│     Role-based views · Care plan · Coverage tools    │
-└──────────────────────────┬───────────────────────────┘
-                           │ HTTP / JSON
-┌──────────────────────────▼───────────────────────────┐
-│                     FastAPI Backend                  │
-│ Authentication · Permissions · Care coordination    │
-│ Workload balancing · Backup matching · Escalations  │
-└──────────────────────────┬───────────────────────────┘
-                           │ SQLAlchemy / psycopg
-┌──────────────────────────▼───────────────────────────┐
-│                    PostgreSQL 16                    │
-│       Care records · Assignments · Event history     │
-└──────────────────────────────────────────────────────┘
-The backend uses deterministic rules for core coordination decisions.
-Optional AI assistance is kept separate from essential scheduling and
-coverage logic.
-🚀 Getting Started
-Prerequisites
-- Docker Desktop or Docker Engine with Docker Compose
-- Git, to clone the repository
-- Internet access for the initial image and dependency downloads
-Python 3.11+ and Node.js 20.19+ are also useful for local development
-and running the test suites.
-1. Clone the repository
-git clone <YOUR_REPOSITORY_URL>
-cd AROHA
-Replace <YOUR_REPOSITORY_URL> with the URL of your AROHA repository.
-If the checked-out directory has a different name, use that directory
-name in the cd command.
-2. Start the application
-macOS / Linux
-bash scripts/start.sh
-Windows PowerShell
+---
+
+## Table of contents
+
+- [Features](#features)
+- [Tech stack](#tech-stack)
+- [Quick start](#quick-start)
+- [Deployment](#deployment)
+- [Configuration](#configuration)
+- [Testing](#testing)
+- [Demo accounts](#demo-accounts)
+- [API overview](#api-overview)
+- [Documentation](#documentation)
+- [Known limitations](#known-limitations)
+- [Disclosures and licenses](#disclosures-and-licenses)
+
+---
+
+## Features
+
+**Roles**
+- **Patient**: requests help, sees their own plan.
+- **Primary contact** (a family member): registers the patient and oversees care.
+- **Caretaker**: carries out doses, appointments and tasks.
+- **Healthcare professional**: finds a registered patient by AROHA ID and birth year, then prescribes medicines and schedules appointments.
+
+**Core care coordination**
+- Every dose and appointment is tracked as *pending*, *completed* or *missed*, judged against the clock.
+- **Automatic cover:** when a caretaker declines, takes leave or is overloaded, AROHA asks the best eligible caretaker to cover. A task counts as covered only after the replacement accepts.
+- **Command Center** for primary contacts, quiet when things are fine, with one-tap next steps when they are not.
+- **Task check-ins:** caretakers check in on arrival. A missed check-in triggers a cover search.
+
+**Planning and balancing**
+- **Backup Matcher:** ranks caretakers by capability, qualification, availability, overlaps and workload, with a plain-language reason for each.
+- **Workload Balancer:** shows caretaker load, high-demand days and single points of dependency, and suggests task moves. Nothing changes until the primary contact approves.
+- **Coverage Forecast:** looks 24 hours, 3 days and 7 days ahead to flag gaps, unconfirmed tasks and single points of failure, with a secure-by deadline for each.
+
+**Help requests and escalation**
+- Patients send quick replies, text or an SOS with a cancellable countdown, plus direct 108/112 links.
+- A deterministic classifier routes requests across levels L0-L5 in English, Hindi, Kannada and Telugu. Unknown text defaults to L2. SOS is always L5.
+- Time-boxed escalation advances unacknowledged requests, with configurable per-patient timers and quiet hours.
+- **Voice notes** (up to one minute, any language): transcription, translation and a preview before sending. An optional AI assistant may *raise* urgency but can never lower it or decide anything. Without AI keys, notes are routed to a person to listen to.
+- Alerts and reminders for every care decision: pop-ups, sound and browser desktop notifications.
+
+**Directory, reputation and hiring**
+- Browse caretakers by sector, agency, language, skills, experience and availability.
+- Composite reputation from agency rating, doctor ratings, family reviews and a reliability record computed from AROHA's own data. Formulas are fixed and documented; AI is not involved.
+- Send hire requests, compare candidates and build a care team. Contact details are revealed only once a caretaker joins the team.
+
+**Insights for professionals**
+- Adherence trends, missed and late doses, patients ranked by need for follow-up, CSV export.
+- Draft **progress reports** where every figure is computed by the backend. AI only phrases the facts, and the report is never sent automatically.
+
+---
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS, React Router, TanStack Query |
+| Backend | Python 3.11+, FastAPI, SQLAlchemy, Alembic, psycopg |
+| Database | PostgreSQL 16 (SQLite for local fallback and tests) |
+| Auth | Cookie-based JWT sessions, Argon2 password hashing, CSRF header enforcement, login throttling |
+| Deployment | Docker Compose (Caddy for TLS in production) |
+| Optional AI | Groq (Whisper `large-v3`, `gpt-oss`) and Google Gemini/Gemma for voice notes and report phrasing |
+
+FastAPI serves the built UI and the API together on port 8000. A background scheduler handles escalation timers, reminders, missed activities and cover coordination. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
+
+---
+
+## Quick start
+
+**Requirements:** Docker with Compose (Docker Desktop on Windows). Python 3.11+ is needed only for helper scripts and the local fallback.
+
+```powershell
+# Windows (creates .env with a generated SECRET_KEY if missing)
 .\scripts\start.ps1
-The startup script prepares a local .env if one does not exist,
-including a generated session secret, and starts the Docker Compose
-application.
+```
 
-If you prefer to configure it manually:
-cp .env.example .env
-Then ensure the local configuration has a unique SECRET_KEY before
-starting the application.
-3. Open AROHA
-Once the containers are running, open:
-  Resource                            URL
-  Application                         http://localhost:8000
+```sh
+# Linux / macOS
+bash scripts/start.sh
+```
 
-  API documentation                   http://localhost:8000/docs
-  Health check                        http://localhost:8000/api/health
-To inspect application logs:
+Or run Compose directly once `.env` exists (copy from `.env.example`):
+
+```sh
+docker compose up --build -d
 docker compose logs -f app
-To stop the application:
 docker compose down
-Docker Compose uses a persistent database volume. Avoid
-docker compose down -v unless you intend to delete the database volume
-and its stored data.
-🧪 Development and Tests
-Backend tests
-From the repository root, with backend dependencies installed:
+```
+
+The database is created, migrated (`alembic upgrade head`) and seeded with fictional demo data automatically.
+
+| URL | Purpose |
+|---|---|
+| http://localhost:8000 | Application |
+| http://localhost:8000/docs | Interactive API docs |
+| http://localhost:8000/api/health | Health check |
+
+**Other devices on the same Wi-Fi:** run `python scripts/lan-info.py` and open the printed `http://<LAN-IP>:8000`. On Windows, run `.\scripts\open-firewall.ps1` once from an Administrator PowerShell if access is blocked. Networks with client isolation may still block connections.
+
+**Without Docker:** `.\scripts\run-local.ps1` builds the frontend and runs FastAPI on SQLite (requires Python and Node.js 20.19+).
+
+**Development:** run the backend with Uvicorn on port 8000, then `npm run dev` in `frontend/` (Vite on port 5173 proxies `/api`).
+
+---
+
+## Deployment
+
+The default Compose setup runs separate app and PostgreSQL containers with a persistent `pgdata` volume. PostgreSQL is published only on `127.0.0.1:5432`.
+
+For a public or shared deployment with HTTPS (required for microphone access off `localhost`), use `docker-compose.prod.yml`, which adds Caddy, a private database network, health checks and restart policies. `scripts/deploy.sh` handles backup, build, switch, verification and automatic rollback.
+
+- Step-by-step guide: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+- Managed hosting on Render (`render.yaml`): [docs/DEPLOY_RENDER.md](docs/DEPLOY_RENDER.md)
+
+> Do not run `docker compose down -v` unless you intend to delete the database volume.
+
+---
+
+## Configuration
+
+Copy `.env.example` to `.env`. It contains placeholder values only, with no real keys. Replace `SECRET_KEY` with a random secret, and keep `.env` untracked.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `APP_ENV` | `dev` | Runtime mode (`dev` / `prod`) |
+| `SECRET_KEY` | placeholder | JWT signing key. **Change for any real use.** |
+| `DATABASE_URL` | Compose PostgreSQL | Database connection |
+| `APP_TIMEZONE` | `Asia/Kolkata` | Scheduling and display timezone |
+| `DEMO_MODE`, `SEED_DEMO`, `DEMO_POPULATION` | `true` | Demo behavior, seeding and the larger fictional population |
+| `DEMO_PASSWORD` | `Demo@1234` | Password for all seeded demo accounts |
+| `ESCALATION_TIME_SCALE` | `1.0` | Demo-only timer scale (`0.1` shortens minutes to seconds) |
+| `AUTO_COORDINATION` | | Automatic cover behavior |
+| `COOKIE_SECURE`, `SESSION_HOURS` | `false`, `12` | HTTPS-only cookies; session lifetime |
+| `FEATURES`, `RUN_SCHEDULER` | | Staged feature rollout; whether this instance runs the scheduler (one at a time, enforced by a database lock) |
+| `PORT`, `FORWARDED_ALLOW_IPS` | | Listening port and proxy trust for hosting platforms |
+| `GEMINI_API_KEY`, `GROQ_API_KEY` and model/order settings | empty | Optional AI for voice notes. Empty keys disable it. See [docs/AI.md](docs/AI.md). |
+| `LOG_LEVEL`, `GIT_SHA` | `INFO`, `dev` | Logging and build identification |
+
+Demo credentials are for fictional local use only. Production requires separate credentials, HTTPS and proper secret management.
+
+---
+
+## Testing
+
+```sh
+# Backend (repository root)
 python -m pytest backend/tests -q
-Frontend checks
-From the frontend/ directory:
+
+# Frontend (from frontend/)
 npm ci
 npm run lint
 npm run typecheck
 npm test
 npm run build
-Deployment smoke check
-With the application running:
+
+# Against a running deployment
 python scripts/smoke.py --base-url http://localhost:8000
-For load checks against a running demo deployment:
 python scripts/load_check.py --base-url http://localhost:8000 --users 40 --seconds 20
-The smoke check creates test records. Use fictional data in development
-and testing environments.
-⚙️ Configuration
-The .env.example file documents the available configuration. Common
-settings include:
-  Variable                            Purpose
-  APP_ENV                           Selects the application runtime
-                                      mode.
+```
 
-  SECRET_KEY                        Secret used for signing application
-                                      sessions or tokens. Set a unique
-                                      value.
+The smoke check creates test records. The load check uses seeded demo accounts and expects the default demo password. Backend tests run on SQLite.
 
-  DATABASE_URL                      Database connection string. Docker
-                                      Compose provides its internal
-                                      PostgreSQL connection.
+> Vite/Vitest can fail to resolve modules if the project path contains `#`. Use a checkout path without that character for frontend testing.
 
-  APP_TIMEZONE                      Timezone used for scheduling and
-                                      display; defaults to
-                                      Asia/Kolkata.
+---
 
-  DEMO_MODE                         Enables demo-specific behavior and
-                                      controls.
+## Demo accounts
 
-  SEED_DEMO                         Controls whether fictional
-                                      demonstration data is seeded.
+All accounts are fictional and use `DEMO_PASSWORD`. For a guided walkthrough, see [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md).
 
-  DEMO_PASSWORD                     Password configured for seeded
-                                      demonstration accounts.
+| Role | Email | Notes |
+|---|---|---|
+| Primary contact | `anita.iyer@secondpatient.demo` | Ramesh Iyer's daughter |
+| Primary contact | `karthik.iyer@secondpatient.demo` | Ramesh's son |
+| Primary contact | `meera.pai@secondpatient.demo` | Sharada Pai's daughter |
+| Patient | `ramesh.iyer@secondpatient.demo` | AROHA ID `CC-RAM354`, born 1954 |
+| Caretaker | `savitha@secondpatient.demo` | Ramesh's main caretaker |
+| Caretaker | `lakshmi@secondpatient.demo` | Weekdays |
+| Caretaker | `suresh.kamath@secondpatient.demo` | Transport and escort, mornings |
+| Healthcare professional | `dr.arjun.nair@secondpatient.demo` | Prescribes Ramesh's medicines |
+| Healthcare professional | `divya.menon@secondpatient.demo` | Nurse |
 
-  AUTO_COORDINATION                 Enables or disables automatic
-                                      coordination workflows.
+A larger fictional population (24 more patients, 12 caretakers, 5 more professionals) is seeded unless `DEMO_POPULATION=false`. See [docs/DEMO_PEOPLE.md](docs/DEMO_PEOPLE.md).
 
-  COOKIE_SECURE                     Enables secure-cookie behavior when
-                                      deployed behind HTTPS.
+---
 
-  GEMINI_API_KEY, GROQ_API_KEY    Optional credentials for supported
-                                  AI-assisted voice-note workflows.
-Keep .env out of version control. Never commit real credentials, API
-keys, signing secrets, or personal health information. Use the
-repository's .env.example for the current list of supported settings.
-📚 Documentation
-More detailed project documentation is available in the repository:
-- [Architecture](docs/ARCHITECTURE.md) --- system structure and design
-  decisions
-- [Product specification](docs/PRODUCT_SPEC.md) --- product scope and
-  behavior
-- [Demo walkthrough](docs/DEMO_SCRIPT.md) --- suggested demonstration
-  flow
-- [Deployment guide](docs/DEPLOYMENT.md) --- deployment approach and
-  operational guidance
-- [Render deployment](docs/DEPLOY_RENDER.md) --- managed hosting setup
-- [AI assistance](docs/AI.md) --- voice notes, transcription, and AI
-  behavior
-- [Backup Matcher](docs/BACKUP_MATCHER.md) --- replacement eligibility
-  and matching rules
-- [Coverage Planner](docs/COVERAGE_PLANNER.md) --- coverage findings
-  and forecast behavior
-- [Workload Balancer](docs/WORKLOAD_BALANCER.md) --- workload analysis
-  and suggested task moves
-- [Directory](docs/DIRECTORY.md) --- caretaker directory and care-team
-  building
-🔐 Privacy, Safety, and Limitations
-- AROHA is a care-coordination demonstration, not a diagnostic or
-  emergency-response service.
-- Seeded people and patient records are fictional. Do not use real
-  patient information in demo environments.
-- Professional identity verification and production-grade deployment
-  controls must be configured before real-world use.
-- A local or LAN deployment may use plain HTTP. Use HTTPS and
-  appropriate secret management for hosted deployments.
-- Notifications and AI integrations depend on the features and
-  providers configured in the deployment. Do not assume that an in-app
-  alert contacts emergency services.
-- AI-generated transcription, translation, and urgency suggestions may
-  be inaccurate and must be reviewed by a person.
-- Use the appropriate local emergency service directly in a real
-  emergency.
-🗺️ Roadmap Direction
-AROHA is designed around improving continuity of care through:
-- Earlier identification of care-coverage gaps
-- More resilient caregiver schedules and backup plans
-- Clear, explainable replacement recommendations
-- Better handovers and coordination across care roles
-- Useful operational insights for families and healthcare
-  professionals
+## API overview
+
+Interactive documentation is available at `/docs` on a running instance. All state-changing requests require the `X-Requested-With: second-patient` header, which the bundled client sends automatically. Inputs reject unknown fields, and errors use a common envelope with a request ID.
+
+| Area | Representative endpoints |
+|---|---|
+| Auth | `POST /api/v1/auth/register`, `/login`, `/logout`, `/change-password` |
+| Patients and teams | `GET/POST /api/v1/patients`, `/patients/{id}/care-team` |
+| Help requests | `POST /api/v1/patients/{id}/messages`, `/sos`, `GET /api/v1/incidents` |
+| Voice notes | `POST /api/v1/patients/{id}/voice-notes` |
+| Cover | `GET /api/v1/patients/{id}/cover-requests`, `POST /api/v1/cover-requests/{id}/offer` |
+| Planning | `GET /api/v1/patients/{id}/workload-balance` |
+| Directory | `GET /api/v1/directory/caretakers`, `/directory/agencies` |
+| Insights | `GET /api/v1/insights/professional` |
+| Notifications | `GET /api/v1/notifications` |
+
+---
+
+## Documentation
+
+| Topic | Document |
+|---|---|
+| Architecture | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Product spec | [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md) |
+| Escalation engine | [docs/ESCALATION.md](docs/ESCALATION.md) |
+| Backup Matcher | [docs/BACKUP_MATCHER.md](docs/BACKUP_MATCHER.md) |
+| Workload Balancer | [docs/WORKLOAD_BALANCER.md](docs/WORKLOAD_BALANCER.md) |
+| Coverage Planner | [docs/COVERAGE_PLANNER.md](docs/COVERAGE_PLANNER.md) |
+| Directory and reputation | [docs/DIRECTORY.md](docs/DIRECTORY.md), [docs/REPUTATION.md](docs/REPUTATION.md) |
+| Check-ins | [docs/CHECKIN.md](docs/CHECKIN.md) |
+| Notifications | [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md) |
+| AI features | [docs/AI.md](docs/AI.md) |
+| Deployment | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), [docs/DEPLOY_RENDER.md](docs/DEPLOY_RENDER.md) |
+| Demo walkthrough | [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) |
+
+---
+
+## Known limitations
+
+- Prototype for demonstration. Not a diagnostic or emergency service.
+- The default LAN deployment uses HTTP. HTTPS (via the production setup) is available, but professional identity verification, multi-factor authentication and encryption at rest are **not** implemented.
+- Notifications are in-app only. Web push, SMS and calls are not implemented, and screens poll for updates.
+- AI is optional and advisory. Accuracy for real speakers has not been measured, and the multilingual phrase lexicons are machine-drafted and need native-speaker review before real use.
+- The scheduler runs in a single process (guarded by a database lock). Multi-worker serving is not configured, and login throttling is process-local.
+- Forecasts cover up to seven days and do not calculate real travel times. Patient location is a city or region, not an address.
+- There is no moderator screen for reviews.
+
+---
+
